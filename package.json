@@ -1,0 +1,13 @@
+{
+  "name": "formguide-cup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FormGuide Builders Cup — English voice → AOF + KYC draft demo",
+  "scripts": {
+    "dev": "npm run dev --prefix web",
+    "build": "npm run build --prefix web",
+    "build:functions": "npm run build --prefix functions",
+    "emulators": "firebase emulators:start --only hosting,functions",
+    "deploy": "firebase deploy --only hosting,functions"
+  }
+}
