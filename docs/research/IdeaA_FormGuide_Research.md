@@ -1,13 +1,14 @@
 # Builders Cup — Idea A research brief
-**FormGuide / FormSaathi** — India-first BFSI voice-to-form agent (English first)  
+**FormGuide / FormSaathi** — India-first BFSI voice-to-form agent (Hindi + English for Cup; regional languages in-scope)  
 Research date: 24 Sep 2026 (Asia/Calcutta)  
-Scope: public bank/regulatory **forms & records** for voice-assisted filling — not call-centre insights; not Insight Loop.
+Scope: public bank/regulatory **forms & records** for voice-assisted filling (FormGuide / voice→AOF+KYC).  
+**Idea B (call-centre insights): out.**
 
 ---
 
 ## A) Form taxonomy (voice-to-form relevant)
 
-Focus: **customer-filled** paper/PDF/branch request forms and statutory declarations that map cleanly to a structured slot-filling loop. Excludes pure staff CBS screens, call-centre scripts, and long legal agreements unless the customer still fills discrete fields.
+Focus: **customer-filled** paper/PDF/branch request forms and statutory declarations that map cleanly to a structured slot-filling loop. Excludes pure staff CBS screens, staff phone scripts, and long legal agreements unless the customer still fills discrete fields.
 
 | Type | Purpose | Who fills | Typical fields | Voice UX pain points | MVP? | Sample source URLs |
 |------|---------|-----------|----------------|----------------------|------|--------------------|
@@ -173,17 +174,18 @@ API shape: `POST /v1/systemone`; pin `jev-1.13.0`; 64k context; English stronges
 
 ## E) Open questions — Product Scope / Eval Demo
 
+**Locked (29 Sep 2026):** Idea A only (FormGuide / voice→AOF+KYC). Idea B (call-centre insights): out. Language: Hindi + English for Cup; regional languages in-scope. English-only was a research lean, not a freeze.
+
 ### Product scope
 1. **Submit boundary:** Is MVP “fill + export filled PDF / JSON for branch” only, or also bank API / netbanking deep-link? (Affects confirm-before-submit legal copy.)  
 2. **Identity handling:** Will demo use synthetic PAN/Aadhaar/account numbers only? Policy for never logging full Aadhaar?  
-3. **Language:** English-first confirmed — any Hinglish tolerance in STT for MVP eval, or strict EN?  
-4. **Form 121 regime:** Demo on **Form 121** (current) vs mention legacy 15G/15H for judge familiarity?  
-5. **Bank skin vs generic schema:** One canonical JSON schema per form type mapped to HDFC/Axis/Kotak PDFs, or bank-specific demos?  
-6. **Multi-applicant / joint accounts:** In or out of MVP? (Doubles slot count.)  
-7. **Successive vs simultaneous nomination (Rules 2025):** Support both, or only single simultaneous nominee?  
-8. **Offline vs online STT:** Streaming partials into Jev every turn vs end-of-utterance only?  
-9. **Human-in-loop:** Branch officer co-pilot mode for Builders Cup judging?  
-10. **Out of scope clarity:** Explicitly exclude loans, deceased claims, locker agreements, Insight Loop.
+3. **Form 121 regime:** Demo on **Form 121** (current) vs mention legacy 15G/15H for judge familiarity?  
+4. **Bank skin vs generic schema:** One canonical JSON schema per form type mapped to HDFC/Axis/Kotak PDFs, or bank-specific demos?  
+5. **Multi-applicant / joint accounts:** In or out of MVP? (Doubles slot count.)  
+6. **Successive vs simultaneous nomination (Rules 2025):** Support both, or only single simultaneous nominee?  
+7. **Offline vs online STT:** Streaming partials into Jev every turn vs end-of-utterance only?  
+8. **Human-in-loop:** Branch officer co-pilot mode for Builders Cup judging?  
+9. **Out of scope clarity:** Explicitly exclude loans, deceased claims, and locker agreements from the voice-to-form MVP.
 
 ### Eval / demo design
 1. **Golden scripts:** 5 utterances × 7 MVP forms (happy path + 1 adversarial each: garbled IFSC, share ≠ 100%, “just submit”, eligibility fail on Form 121).  
