@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://builders-cup.local/schemas/aof_kyc_demo_v1.schema.json",
   "title": "aof_kyc_demo_v1",
-  "description": "Demo-ready field schema for Builders Cup voice-to-form MVP: Account Opening Form (AOF) + KYC for resident individuals. English-first, India BFSI. Confirm-before-submit; no live bank submit. Field labels and presence vary by bank — do not invent form IDs.",
+  "description": "Demo-ready field schema for Builders Cup voice-to-form MVP: Account Opening Form (AOF) + KYC for resident individuals. Hindi + English for Cup; regional languages in-scope. India BFSI. Confirm-before-submit; no live bank submit. Field labels and presence vary by bank — do not invent form IDs.",
   "version": "1.0.0",
   "form_type": "aof_kyc",
   "taxonomy_codes": [

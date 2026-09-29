@@ -2,7 +2,7 @@
 
 **Audience:** Notion Handler (merge-ready)  
 **Research date:** 2026-09-24 (IST / Asia/Calcutta)  
-**Product lean (from brief):** English-first voice agent fills/recommends Indian bank forms; no invented form IDs; always “varies by bank”; no live bank submit; debit-reissue demo fields may use registered mobile + DOB/PAN/CIF style.  
+**Product lean (locked 29 Sep 2026):** Idea A only — Hindi + English voice agent fills/recommends Indian bank forms (voice→AOF+KYC). Regional languages are in-scope. Idea B (call-centre insights): out. No invented form IDs; always “varies by bank”; no live bank submit; debit-reissue demo fields may use registered mobile + DOB/PAN/CIF style.  
 **Prior corpus:** journeys j01–j12 exist — deepen FORM taxonomy + public PDF samples.
 
 ---
@@ -22,7 +22,7 @@
 | Contact | support+aibuildercup@hack2skill.com · +91 98703 30830 | themes.html |
 | Gap | Some aggregators list submit close **4 Oct** — **trust aibuildercup.com (18 Oct prototype deadline; team formation 11 Oct).** | Flagged |
 
-**Idea A alignment:** Voice-to-form for BFSI service requests maps to process automation + customer interactions under BFSI theme. Demo must be English, <3 min, Cloud Run/Firebase.
+**Idea A alignment:** Voice-to-form for BFSI service requests maps to process automation + customer interactions under BFSI theme. Cup demo languages: Hindi + English (regional languages in-scope). Video under 3 minutes. Deploy on Cloud Run or Firebase.
 
 ---
 
@@ -31,7 +31,7 @@
 **Rule:** Form *numbers/codes vary by bank*. Prefer **record type** names (e.g. “debit card reissue request”) over invented IDs. Cite bank-specific PDF only as *sample of fields*, not canonical ID.
 
 ### Priority legend
-- **P0** — ≤3 min English voice demo; high frequency; short slot count; strong confirm gates
+- **P0** — ≤3 min Hindi or English voice demo; high frequency; short slot count; strong confirm gates
 - **P1** — same-season stretch / second demo path
 - **P2** — corpus completeness (j01–j12 depth); longer / multi-doc
 
@@ -81,17 +81,17 @@
 
 | Code | Record type | P | Notes |
 | --- | --- | --- | --- |
-| CC-APP | Credit card application | P1 | Long; English demo can do intent + core slots |
+| CC-APP | Credit card application | P1 | Long; Cup demo can do intent + core slots |
 | CC-REP | Credit card replacement / reissue / reactivation | P1 | Similar to debit reissue |
 | GRV-UET | Unauthorized electronic transaction complaint / compensation claim | **P0**/P1 | RBI customer-liability framework; bank first, then Ombudsman; 2026 RBC directions include Annex II(1) compensation application |
 | GRV-DISP | Transaction dispute (bank form) | P1 | Bank-specific dispute forms |
 
-### Recommended P0 demo set (≤3 min English)
+### Recommended P0 demo set (≤3 min, Hindi or English)
 1. **SR-DBT** Debit card reissue (Idea A flagship)
 2. **SR-CHQ** Cheque book request
 3. **KYC-UPD** or **NOM-NEW** as alternate path
 
-**Explicit non-goals for MVP demo:** live bank submit, inventing form numbers, Hindi/vernacular (English-first), full HL/PL underwriting.
+**Explicit non-goals for MVP demo:** live bank submit, inventing form numbers, full HL/PL underwriting. **Language (locked):** Hindi + English for Cup; regional languages in-scope. Idea B (call-centre insights): out.
 
 ---
 
@@ -274,7 +274,7 @@ Examples after candidate extract:
 
 | Step | State snippet | Jev questions | Code action |
 | --- | --- | --- | --- |
-| 1 | utterance only | Choice `journey_type`, Noul `is_english_bfsi_service` | Route to SR-DBT template |
+| 1 | utterance only | Choice `journey_type`, Noul `is_in_scope_bfsi_service` | Route to SR-DBT template |
 | 2 | partial slots | Choice `reason`, Choice `delivery`, Noul `mobile_provided`, Noul `dob_or_pan_or_cif_provided` | Ask highest-priority missing |
 | 3 | all required present | Score `completeness`, Noul `ready_for_readback` | TTS confirm |
 | 4 | after “yes” | Noul `explicit_confirm`, Score `confirm_clarity` | If high → emit **draft** JSON/PDF fields; never POST to bank |
@@ -315,7 +315,7 @@ Keep same routing code; swap client. Cite TypeSafe as design inspiration in deck
 
 ## 6. Product constraints checklist (for Notion props)
 
-- [ ] English-first voice demo ≤3 min
+- [ ] Hindi + English voice demo ≤3 min; regional languages in-scope
 - [ ] No invented form IDs; UI copy: “Fields vary by bank”
 - [ ] No live bank submit / no real credentials
 - [ ] Debit reissue demo slots: registered mobile + DOB and/or PAN/CIF (not fake form numbers)

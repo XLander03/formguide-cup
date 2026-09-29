@@ -2,7 +2,7 @@
 
 **Schema:** `/workspace/research/aof_kyc_demo_v1.schema.json`  
 **Date:** 2026-09-24 (IST) · **Audience:** Notion Handler / Builders Cup voice-to-form MVP  
-**Scope:** English-first **AOF + KYC** (resident individual). Confirm-before-submit. **No live bank submit.**
+**Scope:** Hindi + English **AOF + KYC** (resident individual). Regional languages in-scope. Confirm-before-submit. **No live bank submit.**
 
 ## What this schema is
 

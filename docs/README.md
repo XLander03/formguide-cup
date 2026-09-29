@@ -1,6 +1,8 @@
 # FormGuide Cup — docs & corpus
 
-English-first voice→AOF+KYC demo assets for Google Cloud AI Builder Cup (JAPAC).
+> **LOCKED (29 Sep 2026):** Idea A only — FormGuide / voice→AOF+KYC. Idea B (call-centre / retail call insights) is out.
+
+Hindi + English voice→AOF+KYC demo assets for Google Cloud AI Builder Cup (JAPAC). Regional languages are in-scope.
 
 ## Layout
 
