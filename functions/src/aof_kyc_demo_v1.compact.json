@@ -1,0 +1,946 @@
+{
+  "title": "aof_kyc_demo_v1",
+  "version": "1.0.0",
+  "form_type": "aof_kyc",
+  "demo_constraints": {
+    "confirm_before_submit": true,
+    "live_bank_submit": false,
+    "invented_form_ids": false,
+    "bank_varies_copy": "Fields and labels vary by bank",
+    "excluded_from_this_schema": [
+      "NEFT/RTGS/IMPS transfer forms",
+      "loans (LN-*)",
+      "SCSS (DEP-SCSS)",
+      "Form 15G/15H / tax TDS declaration packs",
+      "nomination (NOM-*) \u2014 stretch later"
+    ],
+    "gates_backend": "gemini_structured_json_emulating_choice_score_noul"
+  },
+  "public_hubs": [
+    {
+      "bank": "HDFC",
+      "cite_as": "HDFC Forms Centre \u2014 Personal",
+      "url": "https://www.hdfc.bank.in/resources/forms-centre/forms-centre-personal",
+      "use_for": [
+        "AOF Individuals",
+        "REKYC Individuals",
+        "KYC / customer profile samples"
+      ],
+      "do_not": "Do not invent HDFC form numbers; cite hub + titled PDF name only."
+    },
+    {
+      "bank": "SBI",
+      "cite_as": "SBI KYC Documents \u2014 Individuals",
+      "url": "https://sbi.bank.in/web/personal-banking/information-services/kyc-guidelines/kyc-documents-individuals",
+      "use_for": [
+        "OVD list for individuals",
+        "KYC updation annexure pointers"
+      ],
+      "related_hub": "https://sbi.bank.in/web/customer-care/forms-and-applications-in-multiple-languages",
+      "do_not": "Do not invent SBI form codes; cite hub + titled form name (e.g. Account Opening Form \u2013 Resident Individual \u2013 English)."
+    },
+    {
+      "bank": "ICICI",
+      "cite_as": "ICICI Bank Personal Banking Form Center",
+      "url": "https://www.icici.bank.in/personal-banking/form-center",
+      "use_for": [
+        "Re-KYC / Customer Information Updation \u2014 Individual",
+        "documentation list for savings KYC"
+      ],
+      "related_docs_page": "https://www.icici.bank.in/personal-banking/accounts/savings-account/documentation",
+      "do_not": "Do not invent ICICI form numbers; Form Center titles are the citation surface."
+    }
+  ],
+  "field_groups": [
+    "identity",
+    "address",
+    "contact",
+    "account_refs",
+    "kyc_ovd",
+    "profile_light",
+    "confirm_gates"
+  ],
+  "confirm_gates": {
+    "description": "Gemini structured JSON shaped like TypeSafe Choice/Score/Noul. Application code owns thresholds; no live Jev API required.",
+    "emit_shape": {
+      "answers": {
+        "<gate_id>": {
+          "type": "choice|score|noul",
+          "choice": "<label or null>",
+          "probabilities": {},
+          "confidence": 0.0,
+          "score": null,
+          "noul": null
+        }
+      }
+    },
+    "gates": [
+      {
+        "id": "journey_type",
+        "primitive": "choice",
+        "options": [
+          "account_opening",
+          "kyc_update",
+          "rekyc",
+          "other"
+        ],
+        "purpose": "Route to AOF vs KYC/Re-KYC template",
+        "code_policy": "If choice=other or confidence < 0.7 \u2192 clarify in voice; do not fill."
+      },
+      {
+        "id": "noul_pan_plausible",
+        "primitive": "noul",
+        "purpose": "Soft check spoken PAN before regex",
+        "code_policy": "Hard PAN regex stays in code; Noul is soft only."
+      },
+      {
+        "id": "noul_mobile_is_registered_claim",
+        "primitive": "noul",
+        "purpose": "User asserts mobile is bank-registered",
+        "code_policy": "Demo trusts claim; never call bank APIs."
+      },
+      {
+        "id": "noul_ovd_type_clear",
+        "primitive": "noul",
+        "purpose": "OVD type clearly one of the six public OVDs",
+        "code_policy": "Mid band \u2192 re-ask with enum list."
+      },
+      {
+        "id": "score_completeness",
+        "primitive": "score",
+        "levels": [
+          "empty",
+          "partial_core",
+          "demo_ready",
+          "full_bank_packet"
+        ],
+        "purpose": "UI progress + gate read-back",
+        "code_policy": "Only demo_ready+ may enter read-back."
+      },
+      {
+        "id": "noul_ready_for_readback",
+        "primitive": "noul",
+        "purpose": "All required demo slots present and coherent",
+        "code_policy": "Act if noul \u226b 0.9 else ask missing via incomplete_routing."
+      },
+      {
+        "id": "score_confirmation_clarity",
+        "primitive": "score",
+        "levels": [
+          "unclear",
+          "hedged",
+          "clear_yes"
+        ],
+        "purpose": "Quality of user confirm utterance",
+        "code_policy": "Require clear_yes + high confidence before draft emit."
+      },
+      {
+        "id": "noul_user_confirmed_readback",
+        "primitive": "noul",
+        "purpose": "Explicit confirm after TTS read-back of name, DOB, mobile last-4, OVD type, product intent",
+        "code_policy": "Must be \u226b 0.9 with score_confirmation_clarity=clear_yes."
+      },
+      {
+        "id": "noul_requests_live_bank_submit",
+        "primitive": "noul",
+        "purpose": "Guardrail: user asked to submit to bank",
+        "code_policy": "If high \u2192 refuse; explain draft-only; set no_live_submit_ack false until re-ack."
+      },
+      {
+        "id": "noul_out_of_scope_excluded_product",
+        "primitive": "noul",
+        "purpose": "Detect NEFT/loans/SCSS/15G/nomination asks",
+        "code_policy": "If high \u2192 say stretch later / out of this MVP schema; stay on AOF+KYC."
+      }
+    ],
+    "finalize_rule": {
+      "required_field_flags": [
+        "readback_confirmed",
+        "draft_only_ack",
+        "no_live_submit_ack"
+      ],
+      "required_gate_outcomes": [
+        "score_completeness >= demo_ready",
+        "noul_user_confirmed_readback \u226b 0.9",
+        "score_confirmation_clarity == clear_yes",
+        "noul_requests_live_bank_submit \u226a 0.1"
+      ],
+      "on_pass": "Emit draft JSON/PDF fields only. Never POST to bank.",
+      "on_fail": "Re-enter incomplete_routing or re-confirm."
+    }
+  },
+  "incomplete_routing": {
+    "description": "Gemini Choice next_ask + priority list when required slots missing.",
+    "choice_next_ask": {
+      "primitive": "choice",
+      "id": "next_ask",
+      "options_from": "missing_required_field_ids",
+      "fallback_priority": [
+        "journey_mode",
+        "applicant_full_name",
+        "dob",
+        "mobile_registered",
+        "pan_available",
+        "pan_number",
+        "form60_declared",
+        "addr_current_line1",
+        "addr_current_city",
+        "addr_current_state",
+        "addr_current_pin",
+        "addr_permanent_same_as_current",
+        "ovd_poi_type",
+        "ovd_poi_number",
+        "ovd_poa_same_as_poi",
+        "photo_consent",
+        "ovd_originals_ack",
+        "existing_bank_customer",
+        "customer_id_cif",
+        "account_product_intent",
+        "pep_declaration",
+        "tax_resident_india_only",
+        "residential_status",
+        "readback_confirmed",
+        "draft_only_ack",
+        "no_live_submit_ack"
+      ]
+    },
+    "hints": [
+      {
+        "when_missing": [
+          "pan_number",
+          "form60_declared"
+        ],
+        "ask_en": "Do you have a PAN, or should we note Form 60 for no PAN?"
+      },
+      {
+        "when_missing": [
+          "ovd_poi_type"
+        ],
+        "ask_en": "Which officially valid document will you use for identity \u2014 passport, driving licence, Aadhaar proof, voter ID, NREGA job card, or NPR letter?"
+      },
+      {
+        "when_missing": [
+          "addr_current_pin"
+        ],
+        "ask_en": "What is the six-digit PIN code for your current address?"
+      },
+      {
+        "when_missing": [
+          "account_product_intent"
+        ],
+        "if": {
+          "journey_mode": "account_opening"
+        },
+        "ask_en": "Is this for a regular savings, salary, basic savings (BSBDA), or individual current account? Exact product names vary by bank."
+      },
+      {
+        "when_missing": [
+          "customer_id_cif"
+        ],
+        "if": {
+          "existing_bank_customer": true
+        },
+        "ask_en": "What is your customer ID or CIF, if you have it handy?"
+      },
+      {
+        "when_score": "partial_core",
+        "ask_en": "A few required KYC details are still missing. Shall we continue with identity, or jump to your address and documents?"
+      },
+      {
+        "when_excluded_intent": true,
+        "ask_en": "This demo covers account opening and KYC only. Nomination, NEFT, loans, SCSS, and Form 15G are stretch items for later."
+      }
+    ]
+  },
+  "fields": [
+    {
+      "id": "journey_mode",
+      "label_en": "What do you want to do?",
+      "type": "enum",
+      "required": true,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "enum": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "applicant_full_name",
+      "label_en": "Full name (as in bank / OVD)",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "minLength": 2,
+        "maxLength": 120
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "father_or_spouse_name",
+      "label_en": "Father's / Spouse's name",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "minLength": 2,
+        "maxLength": 120
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "dob",
+      "label_en": "Date of birth",
+      "type": "date",
+      "required": true,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "format": "YYYY-MM-DD",
+        "age_min_years_demo": 18
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "gender",
+      "label_en": "Gender",
+      "type": "enum",
+      "required": false,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "enum": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "nationality",
+      "label_en": "Nationality",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "default": "Indian"
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "residential_status",
+      "label_en": "Residential status",
+      "type": "enum",
+      "required": true,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "enum": true,
+        "demo_fixed": "resident_individual"
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "pan_available",
+      "label_en": "Do you have a PAN?",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "identity",
+      "validation": {},
+      "bank_varies": false
+    },
+    {
+      "id": "pan_number",
+      "label_en": "PAN number",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "pan_available": true
+      },
+      "group": "identity",
+      "validation": {
+        "pattern": "^[A-Z]{5}[0-9]{4}[A-Z]$",
+        "case": "upper"
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "form60_declared",
+      "label_en": "Form 60 declaration (no PAN)",
+      "type": "boolean",
+      "required": false,
+      "required_if": {
+        "pan_available": false
+      },
+      "group": "identity",
+      "validation": {},
+      "bank_varies": true
+    },
+    {
+      "id": "ckyc_number",
+      "label_en": "CKYC / CKYCR number (if any)",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "identity",
+      "validation": {
+        "minLength": 10,
+        "maxLength": 20,
+        "digits_preferred": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "mobile_registered",
+      "label_en": "Registered mobile number",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "contact",
+      "validation": {
+        "pattern": "^[6-9][0-9]{9}$",
+        "digits": 10
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "email",
+      "label_en": "Email address",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "contact",
+      "validation": {
+        "format": "email"
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "preferred_language",
+      "label_en": "Preferred communication language",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "contact",
+      "validation": {
+        "default": "English"
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "addr_current_line1",
+      "label_en": "Current address \u2014 line 1",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "address",
+      "validation": {
+        "minLength": 3,
+        "maxLength": 120
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_current_line2",
+      "label_en": "Current address \u2014 line 2",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "address",
+      "validation": {
+        "maxLength": 120
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_current_city",
+      "label_en": "Current city / town",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "address",
+      "validation": {
+        "minLength": 2,
+        "maxLength": 60
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_current_state",
+      "label_en": "Current state / UT",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "address",
+      "validation": {
+        "minLength": 2,
+        "maxLength": 60
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_current_pin",
+      "label_en": "Current PIN code",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "address",
+      "validation": {
+        "pattern": "^[1-9][0-9]{5}$"
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_permanent_same_as_current",
+      "label_en": "Permanent address same as current?",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "address",
+      "validation": {},
+      "bank_varies": false
+    },
+    {
+      "id": "addr_permanent_line1",
+      "label_en": "Permanent address \u2014 line 1",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "addr_permanent_same_as_current": false
+      },
+      "group": "address",
+      "validation": {
+        "minLength": 3,
+        "maxLength": 120
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_permanent_city",
+      "label_en": "Permanent city / town",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "addr_permanent_same_as_current": false
+      },
+      "group": "address",
+      "validation": {
+        "minLength": 2,
+        "maxLength": 60
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_permanent_state",
+      "label_en": "Permanent state / UT",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "addr_permanent_same_as_current": false
+      },
+      "group": "address",
+      "validation": {
+        "minLength": 2,
+        "maxLength": 60
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "addr_permanent_pin",
+      "label_en": "Permanent PIN code",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "addr_permanent_same_as_current": false
+      },
+      "group": "address",
+      "validation": {
+        "pattern": "^[1-9][0-9]{5}$"
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "ovd_poi_type",
+      "label_en": "Proof of identity \u2014 OVD type",
+      "type": "enum",
+      "required": true,
+      "required_if": null,
+      "group": "kyc_ovd",
+      "validation": {
+        "enum": true
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "ovd_poi_number",
+      "label_en": "Proof of identity \u2014 document number",
+      "type": "string",
+      "required": true,
+      "required_if": null,
+      "group": "kyc_ovd",
+      "validation": {
+        "minLength": 4,
+        "maxLength": 30,
+        "aadhaar_rule": "If OVD is Aadhaar proof, store masked last-4 only in demo; never full Aadhaar in logs."
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "ovd_poi_expiry",
+      "label_en": "Proof of identity \u2014 expiry (if any)",
+      "type": "date",
+      "required": false,
+      "required_if": null,
+      "group": "kyc_ovd",
+      "validation": {
+        "format": "YYYY-MM-DD"
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "ovd_poa_same_as_poi",
+      "label_en": "Same OVD for address proof?",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "kyc_ovd",
+      "validation": {},
+      "bank_varies": false
+    },
+    {
+      "id": "ovd_poa_type",
+      "label_en": "Proof of address \u2014 OVD type",
+      "type": "enum",
+      "required": false,
+      "required_if": {
+        "ovd_poa_same_as_poi": false
+      },
+      "group": "kyc_ovd",
+      "validation": {
+        "enum": true
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "ovd_poa_number",
+      "label_en": "Proof of address \u2014 document number",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "ovd_poa_same_as_poi": false
+      },
+      "group": "kyc_ovd",
+      "validation": {
+        "minLength": 4,
+        "maxLength": 30
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "aadhaar_voluntary_consent",
+      "label_en": "Voluntary Aadhaar / e-KYC consent (if using Aadhaar OVD)",
+      "type": "boolean",
+      "required": false,
+      "required_if": {
+        "ovd_poi_type": "proof_of_possession_of_aadhaar"
+      },
+      "group": "kyc_ovd",
+      "validation": {},
+      "bank_varies": true
+    },
+    {
+      "id": "photo_consent",
+      "label_en": "Photograph / image capture consent",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "kyc_ovd",
+      "validation": {
+        "must_be_true_for_demo_ready": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "ovd_originals_ack",
+      "label_en": "I will produce original OVD for verification when asked",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "kyc_ovd",
+      "validation": {
+        "must_be_true_for_demo_ready": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "existing_bank_customer",
+      "label_en": "Existing customer of this bank?",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "account_refs",
+      "validation": {},
+      "bank_varies": false
+    },
+    {
+      "id": "customer_id_cif",
+      "label_en": "Customer ID / CIF (if existing)",
+      "type": "string",
+      "required": false,
+      "required_if": {
+        "existing_bank_customer": true
+      },
+      "group": "account_refs",
+      "validation": {
+        "minLength": 4,
+        "maxLength": 20,
+        "demo_mask_ok": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "linked_account_last4",
+      "label_en": "Existing account number (last 4 only, optional)",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "account_refs",
+      "validation": {
+        "pattern": "^[0-9]{4}$"
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "account_product_intent",
+      "label_en": "Account product intent (AOF)",
+      "type": "enum",
+      "required": false,
+      "required_if": {
+        "journey_mode": "account_opening"
+      },
+      "group": "account_refs",
+      "validation": {
+        "enum": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "branch_hint",
+      "label_en": "Preferred branch / city for banking (optional)",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "account_refs",
+      "validation": {
+        "maxLength": 80
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "occupation_bucket",
+      "label_en": "Occupation",
+      "type": "enum",
+      "required": false,
+      "required_if": null,
+      "group": "profile_light",
+      "validation": {
+        "enum": true
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "pep_declaration",
+      "label_en": "Are you a Politically Exposed Person (PEP)?",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "profile_light",
+      "validation": {},
+      "bank_varies": true
+    },
+    {
+      "id": "tax_resident_india_only",
+      "label_en": "Tax resident of India only (no other country)",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "profile_light",
+      "validation": {},
+      "bank_varies": true
+    },
+    {
+      "id": "bank_hint",
+      "label_en": "Bank this draft is styled for (demo)",
+      "type": "string",
+      "required": false,
+      "required_if": null,
+      "group": "account_refs",
+      "validation": {
+        "enum_soft": [
+          "HDFC",
+          "SBI",
+          "ICICI",
+          "unspecified"
+        ]
+      },
+      "bank_varies": true
+    },
+    {
+      "id": "readback_confirmed",
+      "label_en": "I confirm the read-back of key details is correct",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "confirm_gates",
+      "validation": {
+        "must_be_true_to_finalize": true
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "draft_only_ack",
+      "label_en": "I understand this creates a draft only \u2014 not submitted to any bank",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "confirm_gates",
+      "validation": {
+        "must_be_true_to_finalize": true
+      },
+      "bank_varies": false
+    },
+    {
+      "id": "no_live_submit_ack",
+      "label_en": "I am not asking the agent to send this to the bank live",
+      "type": "boolean",
+      "required": true,
+      "required_if": null,
+      "group": "confirm_gates",
+      "validation": {
+        "must_be_true_to_finalize": true
+      },
+      "bank_varies": false
+    }
+  ],
+  "example_filled_state": {
+    "schema_id": "aof_kyc_demo_v1",
+    "persona": {
+      "id": "dryrun_priya_sharma",
+      "label": "Priya Sharma \u2014 resident individual, new-to-bank savings AOF + KYC",
+      "bank_hint": "HDFC"
+    },
+    "values": {
+      "journey_mode": "account_opening",
+      "applicant_full_name": "Priya Sharma",
+      "father_or_spouse_name": "Ramesh Sharma",
+      "dob": "1994-03-12",
+      "gender": "female",
+      "nationality": "Indian",
+      "residential_status": "resident_individual",
+      "pan_available": true,
+      "pan_number": "ABCPS1234D",
+      "form60_declared": false,
+      "ckyc_number": null,
+      "mobile_registered": "9876543210",
+      "email": "priya.sharma.demo@example.com",
+      "preferred_language": "English",
+      "addr_current_line1": "14, Lake View Apartments, 3rd Cross",
+      "addr_current_line2": "Indiranagar",
+      "addr_current_city": "Bengaluru",
+      "addr_current_state": "Karnataka",
+      "addr_current_pin": "560038",
+      "addr_permanent_same_as_current": true,
+      "addr_permanent_line1": null,
+      "addr_permanent_city": null,
+      "addr_permanent_state": null,
+      "addr_permanent_pin": null,
+      "ovd_poi_type": "driving_licence",
+      "ovd_poi_number": "KA01 20190012345",
+      "ovd_poi_expiry": "2029-08-31",
+      "ovd_poa_same_as_poi": true,
+      "ovd_poa_type": null,
+      "ovd_poa_number": null,
+      "aadhaar_voluntary_consent": null,
+      "photo_consent": true,
+      "ovd_originals_ack": true,
+      "existing_bank_customer": false,
+      "customer_id_cif": null,
+      "linked_account_last4": null,
+      "account_product_intent": "regular_savings",
+      "branch_hint": "Indiranagar, Bengaluru",
+      "occupation_bucket": "salaried",
+      "pep_declaration": false,
+      "tax_resident_india_only": true,
+      "bank_hint": "HDFC",
+      "readback_confirmed": true,
+      "draft_only_ack": true,
+      "no_live_submit_ack": true
+    },
+    "gate_snapshot_example": {
+      "answers": {
+        "journey_type": {
+          "type": "choice",
+          "choice": "account_opening",
+          "probabilities": {
+            "account_opening": 0.86,
+            "kyc_update": 0.08,
+            "rekyc": 0.03,
+            "other": 0.03
+          },
+          "confidence": 0.86
+        },
+        "score_completeness": {
+          "type": "score",
+          "score": 3,
+          "levels": [
+            "empty",
+            "partial_core",
+            "demo_ready",
+            "full_bank_packet"
+          ],
+          "probabilities": {
+            "empty": 0.01,
+            "partial_core": 0.05,
+            "demo_ready": 0.78,
+            "full_bank_packet": 0.16
+          },
+          "confidence": 0.78
+        },
+        "noul_ready_for_readback": {
+          "type": "noul",
+          "noul": 0.94
+        },
+        "score_confirmation_clarity": {
+          "type": "score",
+          "score": 3,
+          "levels": [
+            "unclear",
+            "hedged",
+            "clear_yes"
+          ],
+          "probabilities": {
+            "unclear": 0.02,
+            "hedged": 0.08,
+            "clear_yes": 0.9
+          },
+          "confidence": 0.9
+        },
+        "noul_user_confirmed_readback": {
+          "type": "noul",
+          "noul": 0.96
+        },
+        "noul_requests_live_bank_submit": {
+          "type": "noul",
+          "noul": 0.04
+        },
+        "noul_out_of_scope_excluded_product": {
+          "type": "noul",
+          "noul": 0.02
+        }
+      }
+    },
+    "demo_outcome": "draft_ready_no_bank_submit"
+  }
+}

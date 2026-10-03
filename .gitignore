@@ -1,7 +1,14 @@
+node_modules/
+web/dist/
+web/node_modules/
+functions/lib/
+functions/node_modules/
+.firebase/
+*.log
 .env
 .env.local
 *.env
-node_modules/
+.DS_Store
 __pycache__/
 *.pyc
 venv/
