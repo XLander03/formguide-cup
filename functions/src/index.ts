@@ -7,6 +7,7 @@ import {
   type ExtractResponse,
   type FormValues,
 } from './heuristic';
+import { acceptPersonName } from './personName';
 import { detectUtteranceLang, localizeAsk, preferredLanguageLabel } from './utteranceLang';
 
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
@@ -162,6 +163,11 @@ Return JSON matching the schema. Include gates.answers for journey_type (choice)
   for (const [k, v] of Object.entries(parsed.field_updates || {})) {
     if (!FIELD_IDS.includes(k)) continue;
     updates[k] = v as FormValues[string];
+  }
+  if (typeof updates.applicant_full_name === 'string') {
+    const accepted = acceptPersonName(updates.applicant_full_name);
+    if (accepted) updates.applicant_full_name = accepted;
+    else delete updates.applicant_full_name;
   }
   const merged = { ...current, ...updates };
   const missing = getMissingRequired(merged);

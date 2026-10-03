@@ -4,6 +4,8 @@
  * Schema enum values stay English codes. Spoken names stay as spoken.
  */
 
+import { acceptPersonName } from './personName';
+
 export type SlotValue = string | boolean;
 
 const PLACES: Array<{ re: RegExp; city?: string; state?: string }> = [
@@ -43,9 +45,7 @@ const PLACES: Array<{ re: RegExp; city?: string; state?: string }> = [
 function takeName(text: string, cues: RegExp): string | null {
   const m = text.match(cues);
   if (!m) return null;
-  const name = m[1].replace(/\s+/g, ' ').trim();
-  if (name.length < 2 || name.length > 80) return null;
-  return name;
+  return acceptPersonName(m[1]);
 }
 
 function addressChunk(text: string): string | null {

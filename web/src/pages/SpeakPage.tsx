@@ -2,7 +2,7 @@ import { DemoBar } from '../components/DemoBar';
 import { FormSections } from '../components/FormSections';
 import { NeedJourney } from '../layout/AppShell';
 import { journeyById } from '../lib/journeys';
-import { BANK_VARIES_COPY, FIELD_GROUPS, getNextAsk } from '../lib/schema';
+import { BANK_VARIES_COPY, FIELD_GROUPS, fieldLabel, getNextAsk } from '../lib/schema';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 
@@ -79,10 +79,27 @@ function SpeakBody() {
         <button type="button" className="btn ghost" onClick={() => go('/journey')}>
           Back
         </button>
-        <button type="button" className="btn primary lg" onClick={() => go('/review')}>
+        <button
+          type="button"
+          className="btn primary lg"
+          disabled={!session.canReadback}
+          onClick={() => go('/review')}
+        >
           Review draft
         </button>
       </div>
+      {!session.canReadback && (
+        <p className="hint action-hint">
+          {session.language === 'hi'
+            ? 'ड्राफ्ट डेमो-रेडी होने तक रिव्यू बंद है।'
+            : 'Review stays off until this draft is demo-ready.'}{' '}
+          {session.missing.length > 0
+            ? session.language === 'hi'
+              ? `अभी बाकी: ${session.missing.slice(0, 4).map((id) => fieldLabel(id)).join(', ')}.`
+              : `Still needed: ${session.missing.slice(0, 4).map((id) => fieldLabel(id)).join(', ')}.`
+            : ''}
+        </p>
+      )}
     </section>
   );
 }

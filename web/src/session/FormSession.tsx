@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
+import { acceptPersonName } from '../lib/personName';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
 import {
   completenessLevel,
@@ -167,16 +168,22 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const applyUpdates = useCallback(
     (updates: FormValues, response: ExtractResponse) => {
+      const safeUpdates = { ...updates };
+      if (typeof safeUpdates.applicant_full_name === 'string') {
+        const accepted = acceptPersonName(safeUpdates.applicant_full_name);
+        if (accepted) safeUpdates.applicant_full_name = accepted;
+        else delete safeUpdates.applicant_full_name;
+      }
       setValues((prev) => {
         const next = { ...prev };
-        for (const [key, value] of Object.entries(updates)) {
+        for (const [key, value] of Object.entries(safeUpdates)) {
           if (value === undefined) continue;
           next[key] = value;
         }
         return next;
       });
-      if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
-      flash(Object.keys(updates));
+      if (isJourneyId(safeUpdates.journey_mode)) setJourney(safeUpdates.journey_mode);
+      flash(Object.keys(safeUpdates));
       setLast(response);
       if (response.refuse_live_submit) {
         setRefuseMsg(
@@ -290,6 +297,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const onTryLiveSubmit = useCallback(() => {
+    if (!canReadback) return;
     setRefuseMsg(tryLiveMessage(readbackLang));
     setDraftReady(false);
     setLast((prev) => ({
@@ -312,7 +320,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           ? 'Guardrail fired: noul_requests_live_bank_submit high → refuse. Draft only.'
           : 'गार्डरेल: लाइव बैंक जमा मना। केवल ड्राफ्ट। Fields vary by bank.',
     }));
-  }, [missing, completeness, readbackLang]);
+  }, [missing, completeness, readbackLang, canReadback]);
 
   const emitDraft = useCallback(() => {
     if (!canReadback || !confirmGatesOk) return;

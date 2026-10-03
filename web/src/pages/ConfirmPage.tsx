@@ -56,8 +56,11 @@ function ConfirmBody() {
 
       {!session.canReadback && (
         <p className="hint action-hint">
-          A local draft can be saved once the form is demo-ready. Fill the missing required fields
-          first.
+          Review and live submit stay off until this draft is demo-ready. Fill the missing required
+          fields first.
+          {session.missing.length > 0
+            ? ` Still needed: ${session.missing.slice(0, 4).map((id) => fieldLabel(id)).join(', ')}.`
+            : ''}
         </p>
       )}
 
@@ -108,7 +111,7 @@ function ConfirmBody() {
         <button
           type="button"
           className="btn danger"
-          disabled={session.busy}
+          disabled={session.busy || !session.canReadback}
           onClick={session.onTryLiveSubmit}
         >
           Try live bank submit

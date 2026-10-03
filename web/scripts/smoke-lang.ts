@@ -206,6 +206,58 @@ assert(!priyaHi.includes('Please confirm this read-back.'), 'priya hindi mic is 
 assert(priyaHi.includes('Fields vary by bank.'), 'priya hindi bank copy');
 assert(priyaHi.includes('3210'), 'priya hindi last4');
 
+const existingPhrase = heuristicExtract(
+  'I want to open a savings account. I am an existing customer.',
+  {},
+);
+assert(
+  existingPhrase.field_updates.applicant_full_name === undefined,
+  `existing customer must not be a name: ${existingPhrase.field_updates.applicant_full_name}`,
+);
+assert(existingPhrase.field_updates.existing_bank_customer === true, 'existing customer flag');
+assert(existingPhrase.field_updates.journey_mode === 'account_opening', 'existing journey');
+assert(existingPhrase.completeness === 'empty', `existing completeness ${existingPhrase.completeness}`);
+assert(
+  existingPhrase.missing_required.includes('applicant_full_name'),
+  'name stays missing after journey phrase',
+);
+assert((existingPhrase.next_ask || '').length > 0, 'incomplete dump still asks');
+assert(existingPhrase.refuse_live_submit === false, 'journey phrase is not a live submit');
+
+const alreadyCustomer = heuristicExtract("I'm already a customer of this bank.", {});
+assert(
+  alreadyCustomer.field_updates.applicant_full_name === undefined,
+  `already customer name ${alreadyCustomer.field_updates.applicant_full_name}`,
+);
+assert(alreadyCustomer.field_updates.existing_bank_customer === true, 'already customer flag');
+
+const newCustomer = heuristicExtract('I am a new customer. I am new to the bank.', {});
+assert(
+  newCustomer.field_updates.applicant_full_name === undefined,
+  `new customer name ${newCustomer.field_updates.applicant_full_name}`,
+);
+assert(newCustomer.field_updates.existing_bank_customer === false, 'new customer flag');
+
+const namedAndExisting = heuristicExtract(
+  'My name is Ananya Reddy. I am an existing customer.',
+  {},
+);
+assert(
+  namedAndExisting.field_updates.applicant_full_name === 'Ananya Reddy',
+  `name kept beside journey phrase ${namedAndExisting.field_updates.applicant_full_name}`,
+);
+assert(namedAndExisting.field_updates.existing_bank_customer === true, 'named existing flag');
+
+const iAmName = heuristicExtract('I am Priya Sharma.', {});
+assert(iAmName.field_updates.applicant_full_name === 'Priya Sharma', `i am name ${iAmName.field_updates.applicant_full_name}`);
+
+const hiJourneyName = heuristicExtract('मेरा नाम नया ग्राहक है।', {});
+assert(
+  hiJourneyName.field_updates.applicant_full_name === undefined,
+  `hindi journey name ${hiJourneyName.field_updates.applicant_full_name}`,
+);
+assert(hiJourneyName.field_updates.existing_bank_customer === false, 'hindi new customer flag');
+
 console.log('smoke-lang ok');
 console.log('en fields', Object.keys(en.field_updates).join(','));
 console.log('hi next', hi.next_ask);
