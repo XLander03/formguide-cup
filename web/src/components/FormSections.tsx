@@ -6,12 +6,17 @@ interface Props {
   values: FormValues;
   flashIds: Set<string>;
   onChange: (id: string, value: string | boolean | null) => void;
+  /** Limit which schema groups render. Omit to show every group. */
+  groups?: readonly string[];
 }
 
-export function FormSections({ values, flashIds, onChange }: Props) {
+export function FormSections({ values, flashIds, onChange, groups }: Props) {
+  const visible = groups
+    ? FIELD_GROUPS.filter((g) => groups.includes(g.id))
+    : FIELD_GROUPS;
   return (
     <div className="form-sections">
-      {FIELD_GROUPS.map((g) => {
+      {visible.map((g) => {
         const fields = SCHEMA.fields.filter((f) => f.group === g.id);
         return (
           <section key={g.id} className="section" id={`group-${g.id}`}>
