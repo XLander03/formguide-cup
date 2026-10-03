@@ -14,6 +14,15 @@ interface Props {
   completeness: string;
   canReadback: boolean;
   utteranceLang: UtteranceLang;
+  /** Controlled mic locale. Omit to keep the bar's own en-IN / hi-IN toggle. */
+  micLang?: 'en-IN' | 'hi-IN';
+  onMicLangChange?: (lang: 'en-IN' | 'hi-IN') => void;
+  heading?: string;
+  initialText?: string;
+  /** `utterance` keeps mic + extract only, for the confirm step. */
+  density?: 'full' | 'utterance';
+  /** TTS and live-submit stay available on Review and Confirm. */
+  showFinalizeActions?: boolean;
 }
 
 export function DemoBar({
@@ -28,13 +37,23 @@ export function DemoBar({
   completeness,
   canReadback,
   utteranceLang,
+  micLang: micLangProp,
+  onMicLangChange,
+  heading = 'Demo bar — Hindi + English',
+  initialText = 'Hi, I want to open a savings account. My name is Ananya Reddy, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001.',
+  density = 'full',
+  showFinalizeActions = true,
 }: Props) {
-  const [text, setText] = useState(
-    'Hi, I want to open a savings account. My name is Ananya Reddy, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001.',
-  );
+  const [text, setText] = useState(initialText);
   const [listening, setListening] = useState(false);
-  const [micLang, setMicLang] = useState<'en-IN' | 'hi-IN'>('en-IN');
+  const [internalMic, setInternalMic] = useState<'en-IN' | 'hi-IN'>(micLangProp ?? 'en-IN');
+  const micLang = micLangProp ?? internalMic;
+  const setMicLang = (next: 'en-IN' | 'hi-IN') => {
+    if (micLangProp === undefined) setInternalMic(next);
+    onMicLangChange?.(next);
+  };
   const recogRef = useRef<SpeechRecognition | null>(null);
+  const utteranceOnly = density === 'utterance';
 
   const speechSupported =
     typeof window !== 'undefined' &&
@@ -81,8 +100,10 @@ export function DemoBar({
 
   return (
     <aside className="panel demo-bar">
-      <h2>Demo bar — Hindi + English</h2>
-      <p className="hint">Cup path is Hindi + English. Regional languages come later.</p>
+      <h2>{heading}</h2>
+      {!utteranceOnly && (
+        <p className="hint">Cup path is Hindi + English. Regional languages come later.</p>
+      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -107,12 +128,16 @@ export function DemoBar({
             हिन्दी
           </button>
         </div>
-        <button type="button" className="btn ghost" onClick={() => setText(HINDI_SAMPLE)}>
-          Hindi sample
-        </button>
-        <button type="button" className="btn ghost" onClick={() => setText(MIXED_SAMPLE)}>
-          Mixed sample
-        </button>
+        {!utteranceOnly && (
+          <>
+            <button type="button" className="btn ghost" onClick={() => setText(HINDI_SAMPLE)}>
+              Hindi sample
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setText(MIXED_SAMPLE)}>
+              Mixed sample
+            </button>
+          </>
+        )}
       </div>
       <div className="row">
         <button
@@ -130,43 +155,53 @@ export function DemoBar({
         >
           {listening ? 'Stop mic' : 'Mic'}
         </button>
-        <button className="btn teal" disabled={busy} onClick={onPriya}>
-          Fill Priya Sharma demo
-        </button>
-        <button className="btn ghost" disabled={busy} onClick={onClear}>
-          Clear
-        </button>
+        {!utteranceOnly && (
+          <>
+            <button className="btn teal" disabled={busy} onClick={onPriya}>
+              Fill Priya Sharma demo
+            </button>
+            <button className="btn ghost" disabled={busy} onClick={onClear}>
+              Clear
+            </button>
+          </>
+        )}
       </div>
-      <div className="row" style={{ marginTop: '0.5rem' }}>
-        <button className="btn" disabled={!canReadback || busy} onClick={onReadback}>
-          TTS read-back
-        </button>
-        <button className="btn danger" disabled={busy} onClick={onTryLiveSubmit}>
-          Try live bank submit
-        </button>
-      </div>
-
-      <div className="progress">
-        <div className="progress-bar">
-          <span style={{ width: `${Math.min(100, filledHint)}%` }} />
+      {showFinalizeActions && !utteranceOnly && (
+        <div className="row" style={{ marginTop: '0.5rem' }}>
+          <button className="btn" disabled={!canReadback || busy} onClick={onReadback}>
+            TTS read-back
+          </button>
+          <button className="btn danger" disabled={busy} onClick={onTryLiveSubmit}>
+            Try live bank submit
+          </button>
         </div>
-        <div className="progress-meta">
-          <span>Completeness: {completeness}</span>
-          <span>
-            {utteranceLang === 'hi' ? 'हिन्दी' : utteranceLang === 'mixed' ? 'Hindi + English' : 'English'}
-            {' · '}
-            {missing.length} required missing
-          </span>
-        </div>
-      </div>
+      )}
 
-      {missing.length > 0 && (
-        <ul className="missing-list" aria-label="Missing required fields">
-          {missing.slice(0, 12).map((id) => (
-            <li key={id}>{id}</li>
-          ))}
-          {missing.length > 12 ? <li>+{missing.length - 12} more</li> : null}
-        </ul>
+      {!utteranceOnly && (
+        <>
+          <div className="progress">
+            <div className="progress-bar">
+              <span style={{ width: `${Math.min(100, filledHint)}%` }} />
+            </div>
+            <div className="progress-meta">
+              <span>Completeness: {completeness}</span>
+              <span>
+                {utteranceLang === 'hi' ? 'हिन्दी' : utteranceLang === 'mixed' ? 'Hindi + English' : 'English'}
+                {' · '}
+                {missing.length} required missing
+              </span>
+            </div>
+          </div>
+
+          {missing.length > 0 && (
+            <ul className="missing-list" aria-label="Missing required fields">
+              {missing.slice(0, 12).map((id) => (
+                <li key={id}>{id}</li>
+              ))}
+              {missing.length > 12 ? <li>+{missing.length - 12} more</li> : null}
+            </ul>
+          )}
+        </>
       )}
 
       {last?.assistant_message && (
@@ -176,7 +211,7 @@ export function DemoBar({
         </div>
       )}
 
-      {last?.gates && (
+      {last?.gates && !utteranceOnly && (
         <div className="gates">
           <div>Gates (Choice / Score / Noul shapes)</div>
           <pre>{JSON.stringify(last.gates.answers, null, 2)}</pre>
