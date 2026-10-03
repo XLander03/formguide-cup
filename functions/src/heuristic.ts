@@ -10,6 +10,7 @@ import {
   hindiExcluded,
   hindiWantsLiveSubmit,
 } from './hiSlots';
+import { acceptPersonName } from './personName';
 import {
   detectUtteranceLang,
   excludedMessage,
@@ -170,10 +171,16 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   else if (/\bopen\b.*\baccount\b|\bsavings\b|\baccount\s+opening\b/i.test(text))
     updates.journey_mode = 'account_opening';
 
-  const name = text.match(
-    /(?:my name is|i am|i'm|name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
-  );
-  if (name) updates.applicant_full_name = name[1].trim();
+  const nameRe =
+    /(?:my name is|i am|i'm|name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/gi;
+  let nameMatch: RegExpExecArray | null;
+  while ((nameMatch = nameRe.exec(text))) {
+    const accepted = acceptPersonName(nameMatch[1]);
+    if (accepted) {
+      updates.applicant_full_name = accepted;
+      break;
+    }
+  }
 
   const dobIso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
   const dobSlash = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
@@ -243,6 +250,11 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   const hindi = extractHindiSlots(text);
   for (const [k, v] of Object.entries(hindi)) {
     if (updates[k] === undefined) updates[k] = v;
+  }
+  if (typeof updates.applicant_full_name === 'string') {
+    const accepted = acceptPersonName(updates.applicant_full_name);
+    if (accepted) updates.applicant_full_name = accepted;
+    else delete updates.applicant_full_name;
   }
   if (lang !== 'en') {
     const pref = preferredLanguageLabel(lang);

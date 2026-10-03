@@ -22,6 +22,7 @@ import {
   preferredLanguageLabel,
   type UtteranceLang,
 } from './utteranceLang';
+import { acceptPersonName } from './personName';
 
 const PAN_RE = /\b([A-Z]{5}[0-9]{4}[A-Z])\b/i;
 const MOBILE_RE = /\b(?:\+?91[\s-]?)?([6-9]\d{9})\b/;
@@ -150,15 +151,18 @@ function detectOccupation(text: string): string | null {
   return null;
 }
 
-/** Extract a spoken full name after common cues */
+/** Extract a spoken full name after common cues. Skip journey phrases. */
 function extractName(text: string): string | null {
   const patterns = [
-    /(?:my name is|i am|i'm|name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
-    /(?:full name[:\s]+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
+    /(?:my name is|i am|i'm|name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/gi,
+    /(?:full name[:\s]+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/gi,
   ];
   for (const re of patterns) {
-    const m = text.match(re);
-    if (m) return m[1].trim();
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text))) {
+      const accepted = acceptPersonName(match[1]);
+      if (accepted) return accepted;
+    }
   }
   return null;
 }
@@ -415,6 +419,11 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   Object.assign(updates, detectConfirm(text));
 
   fillGaps(updates, extractHindiSlots(text));
+  if (typeof updates.applicant_full_name === 'string') {
+    const accepted = acceptPersonName(updates.applicant_full_name);
+    if (accepted) updates.applicant_full_name = accepted;
+    else delete updates.applicant_full_name;
+  }
   if (lang !== 'en') {
     const pref = preferredLanguageLabel(lang);
     if (current.preferred_language !== pref && updates.preferred_language === undefined) {

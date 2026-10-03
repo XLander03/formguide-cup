@@ -171,7 +171,7 @@ export function DemoBar({
           <button className="btn" disabled={!canReadback || busy} onClick={onReadback}>
             TTS read-back
           </button>
-          <button className="btn danger" disabled={busy} onClick={onTryLiveSubmit}>
+          <button className="btn danger" disabled={busy || !canReadback} onClick={onTryLiveSubmit}>
             Try live bank submit
           </button>
         </div>

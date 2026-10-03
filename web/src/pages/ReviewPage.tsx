@@ -82,7 +82,12 @@ function ReviewBody() {
         <button type="button" className="btn ghost" onClick={() => go('/speak')}>
           Back to speak and fill
         </button>
-        <button type="button" className="btn primary lg" onClick={() => go('/confirm')}>
+        <button
+          type="button"
+          className="btn primary lg"
+          disabled={!session.canReadback}
+          onClick={() => go('/confirm')}
+        >
           Continue to confirm
         </button>
       </div>
