@@ -32,6 +32,8 @@ export interface ExtractResponse {
   refuse_message?: string;
   source: 'gemini' | 'heuristic' | 'heuristic-dev' | 'priya_demo';
   assistant_message?: string;
+  /** Language of this utterance. English path omits nothing required — default en. */
+  reply_lang?: 'en' | 'hi' | 'mixed';
 }
 
 export interface SchemaField {

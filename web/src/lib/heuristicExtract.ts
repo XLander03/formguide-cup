@@ -1,10 +1,22 @@
 import type { ExtractResponse, FormValues, GateAnswer } from './types';
+import { extractHindiSlots, hindiExcluded, hindiWantsLiveSubmit } from './hiSlots';
 import {
   completenessLevel,
   getMissingRequired,
   getNextAsk,
   SCHEMA,
 } from './schema';
+import {
+  assistantMessage,
+  detectUtteranceLang,
+  excludedMessage,
+  excludedNext,
+  hindiEnumLabel,
+  liveNext,
+  liveRefuse,
+  preferredLanguageLabel,
+  type UtteranceLang,
+} from './utteranceLang';
 
 const PAN_RE = /\b([A-Z]{5}[0-9]{4}[A-Z])\b/i;
 const MOBILE_RE = /\b(?:\+?91[\s-]?)?([6-9]\d{9})\b/;
@@ -217,15 +229,19 @@ function extractAddressLine(text: string): Partial<FormValues> {
 
 function detectExcluded(text: string): boolean {
   const t = text.toLowerCase();
-  return /\bneft\b|\brtgs\b|\bimps\b|\bloan\b|\bscss\b|\b15g\b|\b15h\b|\bnomination\b|\bnominee\b/.test(
-    t,
+  return (
+    /\bneft\b|\brtgs\b|\bimps\b|\bloan\b|\bscss\b|\b15g\b|\b15h\b|\bnomination\b|\bnominee\b/.test(
+      t,
+    ) || hindiExcluded(text)
   );
 }
 
 function detectLiveSubmit(text: string): boolean {
   const t = text.toLowerCase();
-  return /\bsubmit\s+to\s+(?:the\s+)?bank\b|\bsend\s+to\s+(?:the\s+)?bank\b|\blive\s+submit\b|\bpost\s+to\s+bank\b|\bfile\s+with\s+bank\b/.test(
-    t,
+  return (
+    /\bsubmit\s+to\s+(?:the\s+)?bank\b|\bsend\s+to\s+(?:the\s+)?bank\b|\blive\s+submit\b|\bpost\s+to\s+bank\b|\bfile\s+with\s+bank\b/.test(
+      t,
+    ) || hindiWantsLiveSubmit(text)
   );
 }
 
@@ -248,8 +264,15 @@ function detectConfirm(text: string): Partial<FormValues> {
   return out;
 }
 
+function fillGaps(updates: FormValues, extra: Record<string, string | boolean>): void {
+  for (const [k, v] of Object.entries(extra)) {
+    if (updates[k] === undefined) updates[k] = v;
+  }
+}
+
 export function heuristicExtract(utterance: string, current: FormValues): ExtractResponse {
   const text = utterance.trim();
+  const lang = detectUtteranceLang(text);
   const updates: FormValues = {};
 
   if (detectExcluded(text)) {
@@ -257,14 +280,13 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
     return {
       field_updates: {},
       missing_required: missing,
-      next_ask:
-        'This demo covers account opening and KYC only. Nomination, NEFT, loans, SCSS, and Form 15G are stretch items for later.',
+      next_ask: excludedNext(lang),
       gates: { answers: buildGates(current, missing, true, false) },
       completeness: completenessLevel(current, missing),
       refuse_live_submit: false,
       source: 'heuristic',
-      assistant_message:
-        'Out of scope for this MVP schema — staying on AOF + KYC. Fields vary by bank.',
+      assistant_message: excludedMessage(lang),
+      reply_lang: lang,
     };
   }
 
@@ -386,23 +408,19 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
 
   Object.assign(updates, detectConfirm(text));
 
+  fillGaps(updates, extractHindiSlots(text));
+  if (lang !== 'en') {
+    const pref = preferredLanguageLabel(lang);
+    if (current.preferred_language !== pref && updates.preferred_language === undefined) {
+      updates.preferred_language = pref;
+    }
+  }
+
   // Merge for missing calc
   const merged: FormValues = { ...current, ...updates };
   const missing = getMissingRequired(merged);
   const completeness = completenessLevel(merged, missing);
-  const next_ask = refuseLive
-    ? 'This demo never submits to a bank. I can only save a draft after you confirm read-back and the draft-only acknowledgements.'
-    : getNextAsk(missing, merged);
-
-  let assistant_message = '';
-  const keys = Object.keys(updates);
-  if (keys.length) {
-    assistant_message = `Updated ${keys.length} field(s) from your utterance.`;
-  } else {
-    assistant_message = 'I could not map new fields from that — try name, DOB, PAN, mobile, or address.';
-  }
-  if (next_ask) assistant_message += ` ${next_ask}`;
-  assistant_message += ' Fields vary by bank.';
+  const next_ask = refuseLive ? liveNext(lang) : getNextAsk(missing, merged, lang);
 
   return {
     field_updates: updates,
@@ -411,11 +429,10 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
     gates: { answers: buildGates(merged, missing, false, refuseLive) },
     completeness,
     refuse_live_submit: refuseLive,
-    refuse_message: refuseLive
-      ? 'Refusing live bank submit. Draft only — confirm gates required.'
-      : undefined,
+    refuse_message: refuseLive ? liveRefuse(lang) : undefined,
     source: 'heuristic',
-    assistant_message,
+    assistant_message: assistantMessage(lang, Object.keys(updates).length, next_ask),
+    reply_lang: lang,
   };
 }
 
@@ -475,19 +492,26 @@ function buildGates(
   };
 }
 
-export function buildReadbackScript(values: FormValues): string {
-  const name = values.applicant_full_name || 'applicant';
-  const dob = values.dob || 'date of birth not set';
+export function buildReadbackScript(values: FormValues, lang: UtteranceLang = 'en'): string {
+  const name = values.applicant_full_name || (lang === 'en' ? 'applicant' : 'आवेदक');
+  const dob = values.dob || (lang === 'en' ? 'date of birth not set' : 'जन्म तिथि नहीं');
   const mobile = String(values.mobile_registered || '');
   const last4 = mobile.length >= 4 ? mobile.slice(-4) : 'xxxx';
-  const ovd = values.ovd_poi_type || 'document not set';
-  const product = values.account_product_intent || values.journey_mode || 'not set';
-  return (
+  const ovd = values.ovd_poi_type || (lang === 'en' ? 'document not set' : 'दस्तावेज़ नहीं');
+  const product = values.account_product_intent || values.journey_mode || (lang === 'en' ? 'not set' : 'सेट नहीं');
+  const en =
     `Please confirm this read-back. Name: ${name}. Date of birth: ${dob}. ` +
     `Mobile ending ${last4}. Proof of identity: ${String(ovd).replace(/_/g, ' ')}. ` +
     `Product or journey: ${String(product).replace(/_/g, ' ')}. ` +
-    `This is a draft only. Fields vary by bank. No live bank submit.`
-  );
+    `This is a draft only. Fields vary by bank. No live bank submit.`;
+  if (lang === 'en') return en;
+  const hi =
+    `कृपया इस रीड-बैक की पुष्टि करें। नाम: ${name}. जन्म तिथि: ${dob}. ` +
+    `मोबाइल के आखिरी चार अंक ${last4}. पहचान पत्र: ${hindiEnumLabel(String(ovd))}. ` +
+    `उत्पाद या यात्रा: ${hindiEnumLabel(String(product))}. ` +
+    `यह केवल ड्राफ्ट है। Fields vary by bank. बैंक में लाइव जमा नहीं होगा।`;
+  if (lang === 'mixed') return `${hi} ${en}`;
+  return hi;
 }
 
 // Keep SCHEMA import referenced for future gate docs

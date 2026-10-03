@@ -13,8 +13,9 @@ import {
   priyaDemoValues,
   SCHEMA,
 } from './lib/schema';
-import { speak, stopSpeaking } from './lib/tts';
+import { speakForUtterance, stopSpeaking } from './lib/tts';
 import type { ExtractResponse, FormValues } from './lib/types';
+import { readbackFollowup, tryLiveMessage, type UtteranceLang } from './lib/utteranceLang';
 
 export default function App() {
   const [values, setValues] = useState<FormValues>(() => emptyValues());
@@ -23,6 +24,7 @@ export default function App() {
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
+  const [shellLang, setShellLang] = useState<UtteranceLang>('en');
 
   const missing = useMemo(() => getMissingRequired(values), [values]);
   const completeness = useMemo(
@@ -71,6 +73,7 @@ export default function App() {
       setDraftReady(false);
       try {
         const res = await extractFields(text, values);
+        setShellLang(res.reply_lang ?? 'en');
         applyUpdates(res.field_updates, res);
       } finally {
         setBusy(false);
@@ -83,6 +86,7 @@ export default function App() {
     stopSpeaking();
     setRefuseMsg(null);
     setDraftReady(false);
+    setShellLang('en');
     const v = priyaDemoValues();
     setValues(v);
     flash(Object.keys(v).filter((k) => v[k] !== '' && v[k] !== null));
@@ -124,28 +128,27 @@ export default function App() {
     setLast(null);
     setRefuseMsg(null);
     setDraftReady(false);
+    setShellLang('en');
   }, []);
 
   const onReadback = useCallback(async () => {
-    const script = buildReadbackScript(values);
+    const script = buildReadbackScript(values, shellLang);
     setLast((prev) => ({
       field_updates: {},
       missing_required: missing,
-      next_ask:
-        'After listening, tick readback_confirmed, draft_only_ack, and no_live_submit_ack — or say “confirmed, draft only, no live submit”.',
+      next_ask: readbackFollowup(shellLang),
+      reply_lang: shellLang,
       gates: prev?.gates ?? { answers: {} },
       completeness,
       refuse_live_submit: false,
       source: prev?.source ?? 'heuristic',
       assistant_message: script,
     }));
-    await speak(script);
-  }, [values, missing, completeness]);
+    await speakForUtterance(script, shellLang);
+  }, [values, missing, completeness, shellLang]);
 
   const onTryLiveSubmit = useCallback(() => {
-    setRefuseMsg(
-      'Refused: this demo never posts to a bank. Live bank submit is disabled. Save a draft only after confirm gates. Fields vary by bank.',
-    );
+    setRefuseMsg(tryLiveMessage(shellLang));
     setDraftReady(false);
     setLast((prev) => ({
       field_updates: {},
@@ -161,10 +164,15 @@ export default function App() {
       refuse_live_submit: true,
       refuse_message: 'Live bank submit refused.',
       source: prev?.source ?? 'heuristic',
+      reply_lang: shellLang,
       assistant_message:
-        'Guardrail fired: noul_requests_live_bank_submit high → refuse. Draft only.',
+        shellLang === 'en'
+          ? 'Guardrail fired: noul_requests_live_bank_submit high → refuse. Draft only.'
+          : shellLang === 'mixed'
+            ? 'गार्डरेल: लाइव बैंक जमा मना। केवल ड्राफ्ट। Guardrail fired: noul_requests_live_bank_submit high → refuse. Draft only.'
+            : 'गार्डरेल: लाइव बैंक जमा मना। केवल ड्राफ्ट। Fields vary by bank.',
     }));
-  }, [missing, completeness]);
+  }, [missing, completeness, shellLang]);
 
   const confirmGatesOk =
     values.readback_confirmed === true &&
@@ -183,7 +191,7 @@ export default function App() {
         <div>
           <h1>FormGuide — AOF + KYC</h1>
           <p className="tagline">
-            Builders Cup demo · English voice → draft fields · confirm-before-submit
+            Builders Cup demo · Hindi + English voice → draft fields · confirm-before-submit
           </p>
         </div>
         <div className="badges">
@@ -197,7 +205,7 @@ export default function App() {
         <strong>{BANK_VARIES_COPY}</strong> Do not invent bank form IDs — cite public hubs
         (HDFC Forms Centre, SBI KYC Documents, ICICI Form Center) by titled PDF/section only.
         Gemini structured JSON in Functions when <code>GEMINI_API_KEY</code> is set; otherwise
-        local heuristic fill still works.
+        local heuristic fill still works for Hindi and English, with no Gemini key.
       </div>
 
       <div className="layout">
@@ -212,6 +220,7 @@ export default function App() {
           missing={missing}
           completeness={completeness}
           canReadback={canReadback}
+          utteranceLang={shellLang}
         />
 
         <main>

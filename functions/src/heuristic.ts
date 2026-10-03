@@ -1,7 +1,19 @@
 /**
  * Shared heuristic extractor (mirrors web client) for Functions fallback
  * when GEMINI_API_KEY is absent or Gemini call fails.
+ * Hindi + English cues; regional languages are out of this slice.
  */
+
+import { extractHindiSlots, hindiExcluded, hindiWantsLiveSubmit } from './hiSlots';
+import {
+  detectUtteranceLang,
+  excludedMessage,
+  excludedNext,
+  liveNext,
+  liveRefuse,
+  localizeAsk,
+  preferredLanguageLabel,
+} from './utteranceLang';
 
 export type FormValues = Record<string, string | boolean | null | undefined>;
 
@@ -15,6 +27,7 @@ export interface ExtractResponse {
   refuse_message?: string;
   source: 'gemini' | 'heuristic' | 'priya_demo';
   assistant_message?: string;
+  reply_lang?: 'en' | 'hi' | 'mixed';
 }
 
 const ALWAYS_REQUIRED = [
@@ -121,28 +134,28 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   const text = utterance.trim();
   const updates: FormValues = {};
 
+  const lang = detectUtteranceLang(text);
   const excluded =
     /\bneft\b|\brtgs\b|\bimps\b|\bloan\b|\bscss\b|\b15g\b|\b15h\b|\bnomination\b|\bnominee\b/i.test(
       text,
-    );
+    ) || hindiExcluded(text);
   const refuseLive =
     /\bsubmit\s+to\s+(?:the\s+)?bank\b|\bsend\s+to\s+(?:the\s+)?bank\b|\blive\s+submit\b/i.test(
       text,
-    );
+    ) || hindiWantsLiveSubmit(text);
 
   if (excluded) {
     const missing = getMissingRequired(current);
     return {
       field_updates: {},
       missing_required: missing,
-      next_ask:
-        'This demo covers account opening and KYC only. Nomination, NEFT, loans, SCSS, and Form 15G are stretch items for later.',
+      next_ask: excludedNext(lang),
       gates: { answers: buildGates(current, missing, true, false) },
       completeness: completenessLevel(current, missing),
       refuse_live_submit: false,
       source: 'heuristic',
-      assistant_message:
-        'Out of scope for this MVP schema — staying on AOF + KYC. Fields vary by bank.',
+      assistant_message: excludedMessage(lang),
+      reply_lang: lang,
     };
   }
 
@@ -221,14 +234,42 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   if (/\bno live\b|\bdon'?t submit\b|\bdo not submit\b/i.test(text))
     updates.no_live_submit_ack = true;
 
+  const hindi = extractHindiSlots(text);
+  for (const [k, v] of Object.entries(hindi)) {
+    if (updates[k] === undefined) updates[k] = v;
+  }
+  if (lang !== 'en') {
+    const pref = preferredLanguageLabel(lang);
+    if (current.preferred_language !== pref && updates.preferred_language === undefined) {
+      updates.preferred_language = pref;
+    }
+  }
+
   const merged = { ...current, ...updates };
   const missing = getMissingRequired(merged);
   const completeness = completenessLevel(merged, missing);
+  const enNext = missing.length ? `Please provide: ${missing[0]}` : null;
   const next_ask = refuseLive
-    ? 'This demo never submits to a bank. Draft only after confirm gates.'
-    : missing.length
-      ? `Please provide: ${missing[0]}`
-      : null;
+    ? lang === 'en'
+      ? 'This demo never submits to a bank. Draft only after confirm gates.'
+      : liveNext(lang)
+    : localizeAsk(lang, enNext, missing[0] ?? null);
+
+  const count = Object.keys(updates).length;
+  const enTail = `${count ? `Updated ${count} field(s).` : 'No new fields mapped.'} ${
+    next_ask || 'Ready for read-back.'
+  } Fields vary by bank.`;
+  const hiTail = `${count ? `आपकी बात से ${count} फ़ील्ड अपडेट हुए।` : 'इससे नया फ़ील्ड नहीं मिला।'} ${
+    next_ask || 'रीड-बैक के लिए तैयार।'
+  } Fields vary by bank.`;
+  const assistant_message =
+    lang === 'en'
+      ? enTail
+      : lang === 'hi'
+        ? hiTail
+        : `${count ? `आपकी बात से ${count} फ़ील्ड अपडेट हुए।` : 'इससे नया फ़ील्ड नहीं मिला।'} ${
+            next_ask || 'रीड-बैक के लिए तैयार।'
+          } Fields vary by bank. ${count ? `Updated ${count} field(s).` : 'No new fields mapped.'}`;
 
   return {
     field_updates: updates,
@@ -238,14 +279,13 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
     completeness,
     refuse_live_submit: refuseLive,
     refuse_message: refuseLive
-      ? 'Refusing live bank submit. Draft only — confirm gates required.'
+      ? lang === 'en'
+        ? 'Refusing live bank submit. Draft only — confirm gates required.'
+        : liveRefuse(lang)
       : undefined,
     source: 'heuristic',
-    assistant_message: `${
-      Object.keys(updates).length
-        ? `Updated ${Object.keys(updates).length} field(s).`
-        : 'No new fields mapped.'
-    } ${next_ask || 'Ready for read-back.'} Fields vary by bank.`,
+    assistant_message,
+    reply_lang: lang,
   };
 }
 

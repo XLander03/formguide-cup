@@ -8,7 +8,7 @@ Remote: [github.com/XLander03/formguide-cup](https://github.com/XLander03/formgu
 
 See [SETUP.md](SETUP.md) for setting up the Gemini API key before starting build work.
 
-Builders Cup clickable demo: **English voice / text → AOF + KYC draft fields**.
+Builders Cup clickable demo: **Hindi + English voice / text → AOF + KYC draft fields**. Regional languages come later.
 
 - Confirm-before-submit · **no live bank submit**
 - UI copy: **“Fields vary by bank.”** — never invent bank form IDs
@@ -30,7 +30,7 @@ Open the printed `http://localhost:5173` URL.
 **Works without `GEMINI_API_KEY`:**
 
 1. Text input → **Fill from text** (client heuristic: name / DOB / PAN / mobile / address / OVD / journey)
-2. Optional **Mic** (Web Speech API, `en-IN`) when the browser supports it
+2. Optional **Mic** (Web Speech API, `en-IN` or `hi-IN`) when the browser supports it. Missing prompts and TTS read-back follow the utterance language (Hindi, English, or mixed).
 3. **Fill Priya Sharma demo** — synthetic PAN `ABCPS1234D` / mobile `9876543210`
 4. Visible section fill: identity, contact, address, kyc_ovd, account_refs, profile_light, confirm_gates
 5. Missing always-required chips + next-ask copy

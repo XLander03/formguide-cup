@@ -12,7 +12,7 @@
   --ok: #3ecf8e;
   --filled: rgba(61, 214, 198, 0.12);
   --radius: 14px;
-  --font: 'DM Sans', system-ui, sans-serif;
+  --font: 'DM Sans', 'Noto Sans Devanagari', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
@@ -114,6 +114,30 @@ body {
 }
 
 .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.hint { color: var(--muted); font-size: 0.8rem; margin: -0.35rem 0 0.65rem; }
+.lang-row { margin-bottom: 0.65rem; }
+.lang-label { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
+.lang-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.lang-toggle button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+.lang-toggle button.on {
+  background: rgba(91, 140, 255, 0.22);
+  color: var(--text);
+}
 
 .btn {
   appearance: none;

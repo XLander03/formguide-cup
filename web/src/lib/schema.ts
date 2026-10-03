@@ -1,6 +1,7 @@
 import compact from '../schema/aof_kyc_demo_v1.compact.json';
 import fullSchema from '../schema/aof_kyc_demo_v1.schema.json';
 import type { FormValues, SchemaField } from './types';
+import { localizeAsk, type UtteranceLang } from './utteranceLang';
 
 export const SCHEMA = fullSchema as unknown as {
   fields: SchemaField[];
@@ -105,17 +106,24 @@ export function getMissingRequired(values: FormValues): string[] {
   return missing;
 }
 
-export function getNextAsk(missing: string[], values: FormValues): string | null {
+export function getNextAsk(
+  missing: string[],
+  values: FormValues,
+  lang: UtteranceLang = 'en',
+): string | null {
   if (missing.length === 0) return null;
   const hints = SCHEMA.incomplete_routing.hints;
   for (const h of hints) {
     if (h.when_excluded_intent || h.when_score) continue;
     if (h.if && !Object.entries(h.if).every(([k, v]) => values[k] === v)) continue;
-    if (h.when_missing?.some((id) => missing.includes(id))) return h.ask_en;
+    if (h.when_missing?.some((id) => missing.includes(id))) {
+      return localizeAsk(lang, h.ask_en, h.when_missing[0]);
+    }
   }
   const first = missing[0];
   const field = SCHEMA.fields.find((f) => f.id === first);
-  return field ? `Please provide: ${field.label_en}` : `Please fill: ${first}`;
+  const en = field ? `Please provide: ${field.label_en}` : `Please fill: ${first}`;
+  return localizeAsk(lang, en, first);
 }
 
 export function completenessLevel(

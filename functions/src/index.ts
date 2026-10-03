@@ -7,6 +7,7 @@ import {
   type ExtractResponse,
   type FormValues,
 } from './heuristic';
+import { detectUtteranceLang, localizeAsk, preferredLanguageLabel } from './utteranceLang';
 
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
@@ -102,10 +103,12 @@ async function callGemini(
 ): Promise<ExtractResponse | null> {
   const prompt = `You are FormGuide extract for India BFSI AOF+KYC demo (aof_kyc_demo_v1).
 Rules:
-- English utterance → structured field_updates only for fields clearly stated.
-- Never invent bank form IDs. UI copy: "Fields vary by bank."
+- Hindi, English, or mixed Hindi+English utterance → structured field_updates only for fields clearly stated.
+- Reply assistant_message in the utterance language. Hindi or mixed utterances should use Hindi (Devanagari); English utterances stay English. Regional languages are out of scope.
+- Schema enum values stay English codes (journey_mode, ovd type, product). Names may stay in the script spoken.
+- Never invent bank form IDs. Always include the exact phrase "Fields vary by bank."
 - No live bank submit. If user asks to submit to bank, set refuse_live_submit=true.
-- Gates emulate Choice/Score/Noul (TypeSafe-style) — no live Jev API.
+- Gates emulate Choice/Score/Noul (TypeSafe-style) — no live Jev API. Do not call Jev.
 - Allowed field ids: ${FIELD_IDS.join(', ')}
 - Enums: journey_mode=account_opening|kyc_update|rekyc; gender=female|male|other|prefer_not_to_say;
   residential_status=resident_individual; ovd_type=passport|driving_licence|proof_of_possession_of_aadhaar|voter_id|nrega_job_card|npr_letter;
@@ -162,13 +165,28 @@ Return JSON matching the schema. Include gates.answers for journey_type (choice)
   const missing = getMissingRequired(merged);
   const completeness = completenessLevel(merged, missing);
 
+  const lang = detectUtteranceLang(utterance);
+  if (lang !== 'en' && (updates.preferred_language === undefined || updates.preferred_language === '')) {
+    updates.preferred_language = preferredLanguageLabel(lang);
+  }
+
   let msg = parsed.assistant_message || `Updated ${Object.keys(updates).length} field(s).`;
   if (!msg.includes('Fields vary by bank')) msg += ' Fields vary by bank.';
+  if ((lang === 'hi' || lang === 'mixed') && !/[\u0900-\u097F]/.test(msg)) {
+    const hiLead =
+      lang === 'hi'
+        ? 'हिन्दी में समझा।'
+        : 'हिन्दी और English दोनों में समझा।';
+    msg = `${hiLead} ${msg}`;
+  }
+
+  const enNext = missing.length ? `Please provide: ${missing[0]}` : null;
 
   return {
     field_updates: updates,
     missing_required: missing,
-    next_ask: missing.length ? `Please provide: ${missing[0]}` : null,
+    next_ask: localizeAsk(lang, enNext, missing[0] ?? null),
+    reply_lang: lang,
     gates: parsed.gates || { answers: {} },
     completeness,
     refuse_live_submit: !!parsed.refuse_live_submit,
