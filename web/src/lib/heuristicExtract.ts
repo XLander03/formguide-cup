@@ -4,6 +4,7 @@ import {
   foldDevanagariDigits,
   hindiExcluded,
   hindiWantsLiveSubmit,
+  parseFlexibleDob,
 } from './hiSlots';
 import {
   completenessLevel,
@@ -23,7 +24,6 @@ import {
   type UtteranceLang,
 } from './utteranceLang';
 
-const PAN_RE = /\b([A-Z]{5}[0-9]{4}[A-Z])\b/i;
 const MOBILE_RE = /\b(?:\+?91[\s-]?)?([6-9]\d{9})\b/;
 const PIN_RE = /\b(\d{6})\b/;
 const DOB_RE =
@@ -83,8 +83,19 @@ const CITY_HINTS = [
 
 function yesNo(text: string, yesWords: string[], noWords: string[]): boolean | null {
   const t = text.toLowerCase();
-  if (yesWords.some((w) => t.includes(w))) return true;
-  if (noWords.some((w) => t.includes(w))) return false;
+  const negated = (phrase: string) => {
+    const body = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Only a short same-clause "not / no" counts. A later sentence must not flip the answer.
+    return new RegExp(
+      `(?:\\bnot\\b|\\bno\\b|\\bnever\\b|n't)(?:\\s+\\w+){0,4}\\s+${body}`,
+      'i',
+    ).test(t);
+  };
+  for (const phrase of yesWords) {
+    if (t.includes(phrase) && negated(phrase)) return false;
+  }
+  if (noWords.some((phrase) => t.includes(phrase))) return false;
+  if (yesWords.some((phrase) => t.includes(phrase))) return true;
   return null;
 }
 
@@ -150,24 +161,126 @@ function detectOccupation(text: string): string | null {
   return null;
 }
 
-/** Extract a spoken full name after common cues */
+/** Journey and status words that must not be stored as a person's name. */
+const NAME_NOT_PERSON =
+  /\b(?:tax|residents?|india|indian|national|customers?|existing|accounts?|savings|salary|kyc|rekyc|politically|exposed|person|pep|salaried|opening|bank|individual|female|male|wom[ae]n|man|nominee|nomination|status|journey|only|not|already|new|here|draft|confirm(?:ed)?)\b/i;
+
+function tidyPersonName(raw: string): string | null {
+  let name = raw.replace(/\s+/g, ' ').trim();
+  name = (name.split(/[.,;।!?]/)[0] ?? '').trim();
+  name = (
+    name.split(
+      /\b(?:and\s+i|i\s+am|i'm|born|dob\b|date of birth|who is|pan\b|mobile|my father|father's name)\b/i,
+    )[0] ?? ''
+  ).trim();
+  name = name.replace(/^(?:a|an|the)\s+/i, '').replace(/^(?:a|an|the)\s+/i, '').trim();
+  if (!name || NAME_NOT_PERSON.test(name)) return null;
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 4) return null;
+  if (!words.every((word) => /^[\p{L}][\p{L}'.-]{0,40}$/u.test(word))) return null;
+  if (!words.some((word) => word.length >= 2)) return null;
+  return words.join(' ');
+}
+
+/**
+ * A person's name after a name cue. "Existing customer", "tax resident of India",
+ * and other journey/status phrases are not names. The first real name wins.
+ */
 function extractName(text: string): string | null {
-  const patterns = [
-    /(?:my name is|i am|i'm|name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
-    /(?:full name[:\s]+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
-  ];
-  for (const re of patterns) {
-    const m = text.match(re);
-    if (m) return m[1].trim();
+  const re = /\b(?:my full name is|my name is|full name is|full name:|i am|i'm)\s+/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const before = text.slice(Math.max(0, match.index - 18), match.index).toLowerCase();
+    if (/father|spouse|husband|wife|mother/.test(before)) continue;
+    const found = tidyPersonName(text.slice(match.index + match[0].length));
+    if (found) return found;
   }
   return null;
 }
 
+const SPOKEN_EN_DIGIT: Record<string, string> = {
+  zero: '0',
+  oh: '0',
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+  six: '6',
+  seven: '7',
+  eight: '8',
+  nine: '9',
+};
+
+function panFromTokens(tail: string): string | null {
+  const tokens = tail.split(/[^A-Za-z0-9]+/).filter(Boolean).slice(0, 16);
+  let letters = '';
+  let digits = '';
+  let phase: 'L' | 'D' | 'T' = 'L';
+  for (const token of tokens) {
+    const spoken = SPOKEN_EN_DIGIT[token.toLowerCase()];
+    if (phase === 'L') {
+      if (/^[A-Za-z]{5}$/.test(token)) {
+        letters = token.toUpperCase();
+        phase = 'D';
+        continue;
+      }
+      if (/^[A-Za-z]$/.test(token)) {
+        letters += token.toUpperCase();
+        if (letters.length === 5) phase = 'D';
+        continue;
+      }
+      return null;
+    }
+    if (phase === 'D') {
+      if (spoken) digits += spoken;
+      else if (/^\d$/.test(token)) digits += token;
+      else if (/^\d{4}$/.test(token)) digits += token;
+      else return null;
+      if (digits.length === 4) phase = 'T';
+      else if (digits.length > 4) return null;
+      continue;
+    }
+    if (/^[A-Za-z]$/.test(token)) return `${letters}${digits}${token.toUpperCase()}`;
+    return null;
+  }
+  return null;
+}
+
+/** Compact, spaced, or letter-by-letter PAN. Spoken digit words after a PAN cue count. */
+function extractPan(text: string): string | null {
+  const tight = text.toUpperCase().match(/\b([A-Z]{5})\s*([0-9]{4})\s*([A-Z])\b/);
+  if (tight) return `${tight[1]}${tight[2]}${tight[3]}`;
+
+  const cue =
+    /(?:\bpan\b|permanent account number)(?:\s+(?:number|no\.?|code|is|it's|its))*\s*[:,]?\s*/gi;
+  let at: RegExpExecArray | null;
+  while ((at = cue.exec(text))) {
+    const pan = panFromTokens(text.slice(at.index + at[0].length));
+    if (pan) return pan;
+    if (at.index === cue.lastIndex) cue.lastIndex += 1;
+  }
+  return null;
+}
+
+/** Document numbers must contain a digit. Prose after "licence" is not a number. */
+function extractOvdNumber(text: string): string | null {
+  const dl = text.match(/\b([A-Z]{2}\d{2}\s?\d{6,})\b/i);
+  if (dl) return dl[1].toUpperCase();
+  const labelled = text.match(
+    /(?:\b(?:licence|license|passport|voter|document)\s+)?(?:number|no\.?)\s*(?:is\s*)?[:=]?\s*([A-Z0-9][A-Z0-9\s-]{3,24})/i,
+  );
+  if (!labelled) return null;
+  const token = labelled[1].trim().replace(/[.,।]+$/g, '');
+  if (!/\d/.test(token)) return null;
+  return token.toUpperCase();
+}
+
 function extractFatherSpouse(text: string): string | null {
   const m = text.match(
-    /(?:father'?s?\s+name(?:\s+is)?|spouse'?s?\s+name(?:\s+is)?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
+    /(?:father'?s?\s+name(?:\s+is)?|spouse'?s?\s+name(?:\s+is)?)\s+([^.,।]+)/i,
   );
-  return m ? m[1].trim() : null;
+  return m ? tidyPersonName(m[1]) : null;
 }
 
 function extractAddressLine(text: string): Partial<FormValues> {
@@ -175,7 +288,7 @@ function extractAddressLine(text: string): Partial<FormValues> {
   const t = text;
   // "I live at ..." or "address is ..."
   const addr = t.match(
-    /(?:live at|address is|address:|stay at|residing at)\s+(.+?)(?:\.|$)/i,
+    /(?:\bi live at\b|\bi live in\b|\bi stay at\b|\bstay at\b|\bresiding at\b|\bcommunication address(?:\s+is)?\b|\bcurrent address(?:\s+is)?\s*:?|(?<!e-?mail\s)\baddress is\b|(?<!e-?mail\s)\baddress:\s*|\baddress line\s*1(?:\s+is)?\b)\s+(.+?)(?:\.|$)/i,
   );
   if (addr) {
     const chunk = addr[1].trim();
@@ -201,6 +314,7 @@ function extractAddressLine(text: string): Partial<FormValues> {
       line = line.replace(new RegExp(String(out.addr_current_state), 'i'), '');
     if (out.addr_current_city)
       line = line.replace(new RegExp(String(out.addr_current_city), 'i'), '');
+    line = line.replace(/\bpin(?:\s*code)?\b/gi, '');
     line = line.replace(/,\s*,/g, ',').replace(/^[\s,]+|[\s,]+$/g, '');
     if (line.length >= 3) out.addr_current_line1 = line;
   }
@@ -307,7 +421,7 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   const father = extractFatherSpouse(text);
   if (father) updates.father_or_spouse_name = father;
 
-  const dob = parseDob(text);
+  const dob = parseFlexibleDob(text) ?? parseDob(text);
   if (dob) updates.dob = dob;
 
   const gender = detectGender(text);
@@ -316,9 +430,9 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   if (/\bindian\b/i.test(text)) updates.nationality = 'Indian';
   if (/\bresident\b/i.test(text)) updates.residential_status = 'resident_individual';
 
-  const panM = text.match(PAN_RE);
-  if (panM) {
-    updates.pan_number = panM[1].toUpperCase();
+  const pan = extractPan(text);
+  if (pan) {
+    updates.pan_number = pan;
     updates.pan_available = true;
     updates.form60_declared = false;
   } else {
@@ -355,13 +469,8 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
     if (ovd === 'proof_of_possession_of_aadhaar') updates.aadhaar_voluntary_consent = true;
   }
 
-  const ovdNum = text.match(
-    /(?:licence|license|passport|voter|document)\s*(?:number|no\.?|#)?\s*[:=]?\s*([A-Z0-9][A-Z0-9\s-]{4,20})/i,
-  );
-  if (ovdNum) updates.ovd_poi_number = ovdNum[1].trim();
-  // DL pattern KA01...
-  const dl = text.match(/\b([A-Z]{2}\d{2}\s?\d{4,}\d*)\b/i);
-  if (dl && !updates.ovd_poi_number) updates.ovd_poi_number = dl[1].toUpperCase();
+  const ovdNum = extractOvdNumber(text);
+  if (ovdNum) updates.ovd_poi_number = ovdNum;
 
   const samePoa = yesNo(
     text,
@@ -370,10 +479,20 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   );
   if (samePoa !== null) updates.ovd_poa_same_as_poi = samePoa;
 
-  const photo = yesNo(text, ['photo consent', 'photograph consent', 'agree to photo'], []);
-  if (photo === true) updates.photo_consent = true;
-  if (/\boriginals?\b.*\b(ack|agree|will produce|produce)\b|\bi will produce original/i.test(text))
+  if (
+    /\bphoto(?:graph)?\s+consent\b|\bagree to (?:the |a )?photo\b|\bagree to provide (?:a |my )?photograph\b|\bprovide (?:a |my )?photograph\b|\bconsent to (?:a |the |my )?photograph\b/i.test(
+      text,
+    )
+  ) {
+    updates.photo_consent = true;
+  }
+  if (
+    /\boriginals?\b.*\b(?:ack|agree|will produce|produce|verification|documents?)\b|\bi (?:will |can |shall )?produce (?:the )?original|\bi have (?:the |my )?original|\boriginals for verification|\bshow(?:ing)? (?:the |my )?original/i.test(
+      text,
+    )
+  ) {
     updates.ovd_originals_ack = true;
+  }
 
   const existing = yesNo(
     text,
@@ -403,7 +522,14 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
 
   const tax = yesNo(
     text,
-    ['tax resident of india only', 'only india', 'india only for tax'],
+    [
+      'tax resident of india only',
+      'tax resident of india',
+      'only india',
+      'india only for tax',
+      'only pay tax in india',
+      'pay tax in india',
+    ],
     ['tax resident elsewhere', 'other country tax'],
   );
   if (tax !== null) updates.tax_resident_india_only = tax;

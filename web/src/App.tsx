@@ -6,23 +6,29 @@ import { LandingPage } from './pages/LandingPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { SpeakPage } from './pages/SpeakPage';
 import { RouteProvider, useRoute } from './routing/router';
-import { FormSessionProvider } from './session/FormSession';
+import { FormSessionProvider, useFormSession } from './session/FormSession';
 
 function AppRoutes() {
-  const { path } = useRoute();
+  const { path, go } = useRoute();
+  const { canReadback, readyForFill } = useFormSession();
 
   useEffect(() => {
     document.title = pageTitle(path);
   }, [path]);
 
-  if (path === '/') return <LandingPage />;
+  useEffect(() => {
+    if ((path === '/review' || path === '/confirm') && !canReadback) {
+      go(readyForFill ? '/speak' : '/journey');
+    }
+  }, [path, canReadback, readyForFill, go]);
 
   return (
     <AppShell>
+      {path === '/' && <LandingPage />}
       {path === '/journey' && <JourneyPage />}
       {path === '/speak' && <SpeakPage />}
-      {path === '/review' && <ReviewPage />}
-      {path === '/confirm' && <ConfirmPage />}
+      {path === '/review' && canReadback && <ReviewPage />}
+      {path === '/confirm' && canReadback && <ConfirmPage />}
     </AppShell>
   );
 }

@@ -9,6 +9,7 @@ import {
   foldDevanagariDigits,
   hindiExcluded,
   hindiWantsLiveSubmit,
+  parseFlexibleDob,
 } from './hiSlots';
 import {
   detectUtteranceLang,
@@ -135,6 +136,119 @@ export function completenessLevel(values: FormValues, missing: string[]): string
   return core.every((id) => isFilled(values[id])) ? 'partial_core' : 'empty';
 }
 
+const NAME_NOT_PERSON =
+  /\b(?:tax|residents?|india|indian|national|customers?|existing|accounts?|savings|salary|kyc|rekyc|politically|exposed|person|pep|salaried|opening|bank|individual|female|male|wom[ae]n|man|nominee|nomination|status|journey|only|not|already|new|here|draft|confirm(?:ed)?)\b/i;
+
+function tidyPersonName(raw: string): string | null {
+  let name = raw.replace(/\s+/g, ' ').trim();
+  name = (name.split(/[.,;।!?]/)[0] ?? '').trim();
+  name = (
+    name.split(/\b(?:and\s+i|i\s+am|i'm|born|dob\b|date of birth|who is|pan\b|mobile|my father|father's name)\b/i)[0] ??
+    ''
+  ).trim();
+  name = name.replace(/^(?:a|an|the)\s+/i, '').replace(/^(?:a|an|the)\s+/i, '').trim();
+  if (!name || NAME_NOT_PERSON.test(name)) return null;
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 4) return null;
+  if (!words.every((word) => /^[\p{L}][\p{L}'.-]{0,40}$/u.test(word))) return null;
+  if (!words.some((word) => word.length >= 2)) return null;
+  return words.join(' ');
+}
+
+function extractPersonName(text: string): string | null {
+  const re = /\b(?:my full name is|my name is|full name is|full name:|i am|i'm)\s+/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const before = text.slice(Math.max(0, match.index - 18), match.index).toLowerCase();
+    if (/father|spouse|husband|wife|mother/.test(before)) continue;
+    const found = tidyPersonName(text.slice(match.index + match[0].length));
+    if (found) return found;
+  }
+  return null;
+}
+
+const SPOKEN_EN_DIGIT: Record<string, string> = {
+  zero: '0',
+  oh: '0',
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+  six: '6',
+  seven: '7',
+  eight: '8',
+  nine: '9',
+};
+
+function panFromTokens(tail: string): string | null {
+  const tokens = tail.split(/[^A-Za-z0-9]+/).filter(Boolean).slice(0, 16);
+  let letters = '';
+  let digits = '';
+  let phase: 'L' | 'D' | 'T' = 'L';
+  for (const token of tokens) {
+    const spoken = SPOKEN_EN_DIGIT[token.toLowerCase()];
+    if (phase === 'L') {
+      if (/^[A-Za-z]{5}$/.test(token)) {
+        letters = token.toUpperCase();
+        phase = 'D';
+        continue;
+      }
+      if (/^[A-Za-z]$/.test(token)) {
+        letters += token.toUpperCase();
+        if (letters.length === 5) phase = 'D';
+        continue;
+      }
+      return null;
+    }
+    if (phase === 'D') {
+      if (spoken) digits += spoken;
+      else if (/^\d$/.test(token)) digits += token;
+      else if (/^\d{4}$/.test(token)) digits += token;
+      else return null;
+      if (digits.length === 4) phase = 'T';
+      else if (digits.length > 4) return null;
+      continue;
+    }
+    if (/^[A-Za-z]$/.test(token)) return `${letters}${digits}${token.toUpperCase()}`;
+    return null;
+  }
+  return null;
+}
+
+function extractPan(text: string): string | null {
+  const tight = text.toUpperCase().match(/\b([A-Z]{5})\s*([0-9]{4})\s*([A-Z])\b/);
+  if (tight) return `${tight[1]}${tight[2]}${tight[3]}`;
+  const cue =
+    /(?:\bpan\b|permanent account number)(?:\s+(?:number|no\.?|code|is|it's|its))*\s*[:,]?\s*/gi;
+  let at: RegExpExecArray | null;
+  while ((at = cue.exec(text))) {
+    const pan = panFromTokens(text.slice(at.index + at[0].length));
+    if (pan) return pan;
+    if (at.index === cue.lastIndex) cue.lastIndex += 1;
+  }
+  return null;
+}
+
+function extractOvdNumber(text: string): string | null {
+  const dl = text.match(/\b([A-Z]{2}\d{2}\s?\d{6,})\b/i);
+  if (dl) return dl[1].toUpperCase();
+  const labelled = text.match(
+    /(?:\b(?:licence|license|passport|voter|document)\s+)?(?:number|no\.?)\s*(?:is\s*)?[:=]?\s*([A-Z0-9][A-Z0-9\s-]{3,24})/i,
+  );
+  if (!labelled) return null;
+  const token = labelled[1].trim().replace(/[.,।]+$/g, '');
+  if (!/\d/.test(token)) return null;
+  return token.toUpperCase();
+}
+
+function negatedPhrase(text: string, phrase: string): boolean {
+  const body = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:\\bnot\\b|\\bno\\b|\\bnever\\b|n't)(?:\\s+\\w+){0,4}\\s+${body}`, 'i').test(
+    text,
+  );
+}
+
 export function heuristicExtract(utterance: string, current: FormValues): ExtractResponse {
   const raw = utterance.trim();
   const text = foldDevanagariDigits(raw);
@@ -170,20 +284,15 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   else if (/\bopen\b.*\baccount\b|\bsavings\b|\baccount\s+opening\b/i.test(text))
     updates.journey_mode = 'account_opening';
 
-  const name = text.match(
-    /(?:my name is|i am|i'm|name is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})/i,
-  );
-  if (name) updates.applicant_full_name = name[1].trim();
+  const name = extractPersonName(text);
+  if (name) updates.applicant_full_name = name;
 
-  const dobIso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  const dobSlash = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
-  if (dobIso) updates.dob = `${dobIso[1]}-${dobIso[2]}-${dobIso[3]}`;
-  else if (dobSlash)
-    updates.dob = `${dobSlash[3]}-${dobSlash[2].padStart(2, '0')}-${dobSlash[1].padStart(2, '0')}`;
+  const dob = parseFlexibleDob(text);
+  if (dob) updates.dob = dob;
 
-  const pan = text.match(/\b([A-Z]{5}[0-9]{4}[A-Z])\b/i);
+  const pan = extractPan(text);
   if (pan) {
-    updates.pan_number = pan[1].toUpperCase();
+    updates.pan_number = pan;
     updates.pan_available = true;
     updates.form60_declared = false;
   }
@@ -202,11 +311,13 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   if (/\bmumbai\b/i.test(text)) updates.addr_current_city = 'Mumbai';
   if (/\bmaharashtra\b/i.test(text)) updates.addr_current_state = 'Maharashtra';
 
-  const addr = text.match(/(?:live at|address is|address:)\s+(.+?)(?:\.|$)/i);
-  if (addr) {
+  const addr = text.match(
+    /(?:\bi live at\b|\bi live in\b|\bcurrent address(?:\s+is)?\s*:?|(?<!e-?mail\s)\baddress is\b|(?<!e-?mail\s)\baddress:\s*|\baddress line\s*1(?:\s+is)?\b)\s+(.+?)(?:\.|$)/i,
+  );
+  if (addr?.[1]) {
     let line = addr[1];
     if (updates.addr_current_pin) line = line.replace(String(updates.addr_current_pin), '');
-    line = line.replace(/Bengaluru|Bangalore|Karnataka|Mumbai|Maharashtra/gi, '');
+    line = line.replace(/Bengaluru|Bangalore|Karnataka|Mumbai|Maharashtra|Indiranagar|\bpin(?:\s*code)?\b/gi, '');
     line = line.replace(/,\s*,/g, ',').replace(/^[\s,]+|[\s,]+$/g, '');
     if (line.length >= 3) updates.addr_current_line1 = line;
   }
@@ -218,19 +329,49 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
     updates.ovd_poi_type = 'proof_of_possession_of_aadhaar';
   else if (/\bvoter\b/i.test(text)) updates.ovd_poi_type = 'voter_id';
 
+  const ovdNum = extractOvdNumber(text);
+  if (ovdNum) updates.ovd_poi_number = ovdNum;
+
   if (/\bresident\b/i.test(text)) updates.residential_status = 'resident_individual';
   if (/\bindian\b/i.test(text)) updates.nationality = 'Indian';
 
   if (/\bsame as current\b|\bpermanent same\b/i.test(text))
     updates.addr_permanent_same_as_current = true;
   if (/\bsame (ovd|document) for address\b/i.test(text)) updates.ovd_poa_same_as_poi = true;
-  if (/\bnew to bank\b|\bnew customer\b|\bnot a customer\b/i.test(text))
+  if (
+    negatedPhrase(text, 'existing customer') ||
+    negatedPhrase(text, 'already a customer') ||
+    /\bnew to (?:the )?bank\b|\bnew customer\b|\bnot a customer\b/i.test(text)
+  ) {
     updates.existing_bank_customer = false;
-  if (/\bnot a pep\b|\bno pep\b/i.test(text)) updates.pep_declaration = false;
-  if (/\btax resident of india only\b|\bindia only\b/i.test(text))
+  } else if (/\bexisting customer\b|\balready a customer\b/i.test(text)) {
+    updates.existing_bank_customer = true;
+  }
+  if (
+    negatedPhrase(text, 'politically exposed') ||
+    /\bnot a pep\b|\bno pep\b|\bnot politically exposed\b/i.test(text)
+  ) {
+    updates.pep_declaration = false;
+  } else if (/\bi am a pep\b|\bpolitically exposed\b|\byes pep\b/i.test(text)) {
+    updates.pep_declaration = true;
+  }
+  if (/\btax resident of india\b|\bindia only\b|\bonly pay tax in india\b|\bpay tax in india\b/i.test(text)) {
     updates.tax_resident_india_only = true;
-  if (/\bphoto consent\b|\bagree to photo\b/i.test(text)) updates.photo_consent = true;
-  if (/\bwill produce original\b/i.test(text)) updates.ovd_originals_ack = true;
+  }
+  if (
+    /\bphoto(?:graph)?\s+consent\b|\bagree to (?:the |a )?photo\b|\bagree to provide (?:a |my )?photograph\b|\bprovide (?:a |my )?photograph\b/i.test(
+      text,
+    )
+  ) {
+    updates.photo_consent = true;
+  }
+  if (
+    /\bi (?:will |can |shall )?produce (?:the )?original|\bi have (?:the |my )?original|\boriginals for verification|\boriginals?\b.*\b(?:verification|documents?)\b/i.test(
+      text,
+    )
+  ) {
+    updates.ovd_originals_ack = true;
+  }
   if (/\bregular savings\b|\bsavings account\b/i.test(text))
     updates.account_product_intent = 'regular_savings';
 

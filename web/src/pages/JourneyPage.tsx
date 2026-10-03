@@ -1,126 +1,125 @@
-import { JOURNEYS, type JourneyId } from '../lib/journeys';
-import { BANK_VARIES_COPY, SCHEMA } from '../lib/schema';
+import type { JourneyId } from '../lib/journeys';
 import { useRoute } from '../routing/router';
-import { useFormSession, type ShellLanguage } from '../session/FormSession';
+import { useFormSession } from '../session/FormSession';
+import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
+import { ArrowRightIcon, CheckIcon, FileTextIcon, LanguagesIcon } from '../ui/icons';
 
-const LANGUAGES: { id: ShellLanguage; title: string; detail: string; mic: string }[] = [
-  {
-    id: 'en',
-    title: 'English',
-    detail: 'Prompts, microphone, and read-back in English.',
-    mic: 'en-IN',
-  },
-  {
-    id: 'hi',
-    title: 'हिन्दी',
-    detail: 'प्रॉम्प्ट, माइक और रीड-बैक हिन्दी में।',
-    mic: 'hi-IN',
-  },
+const CHOICES: {
+  label: string;
+  journey: JourneyId;
+  product: string | null;
+  detail: string;
+}[] = [
+  { label: 'Regular savings', journey: 'account_opening', product: 'regular_savings', detail: 'Account opening draft' },
+  { label: 'Salary account', journey: 'account_opening', product: 'salary_savings', detail: 'Account opening draft' },
+  { label: 'Basic savings', journey: 'account_opening', product: 'bsbda', detail: 'Account opening draft' },
+  { label: 'Individual current', journey: 'account_opening', product: 'individual_current', detail: 'Account opening draft' },
+  { label: 'KYC update', journey: 'kyc_update', product: null, detail: 'Update identity and address details' },
+  { label: 'Re-KYC', journey: 'rekyc', product: null, detail: 'Update identity and address details' },
+];
+
+const NEED = [
+  'A mobile number you can access',
+  'Your current address and PIN code',
+  'One proof-of-identity document nearby',
 ];
 
 export function JourneyPage() {
   const { go } = useRoute();
-  const { language, journey, selectLanguage, selectJourney } = useFormSession();
-  const ready = language !== null && journey !== null;
+  const { language, journey, values, selectLanguage, selectDraft } = useFormSession();
 
   return (
-    <section className="page">
-      <header className="page-head">
-        <p className="eyebrow">Step 02</p>
-        <h1>Language, then the journey.</h1>
-        <p className="lede">
-          Hindi and English only. The journeys below are the P0 modes on schema{' '}
-          <code>aof_kyc_demo_v1</code> — account opening, KYC update, and Re-KYC — each backed by
-          more than one public form. {BANK_VARIES_COPY}
+    <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
+      <section className="border-b-2 border-foreground px-5 py-8 lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
+        <p className="text-[10px] uppercase text-primary">01 · Language and journey</p>
+        <h1 className="mt-3 max-w-[10ch] font-display text-5xl leading-none sm:text-6xl">
+          Tell us how you want to speak.
+        </h1>
+        <p className="mt-4 max-w-md text-sm text-muted-foreground">
+          The mic listens in the language you choose. The draft is read back in that same language.
         </p>
-      </header>
-
-      <fieldset className="choice-block">
-        <legend>Microphone and read-back language</legend>
-        <div className="choice-grid langs" role="radiogroup" aria-label="Language">
-          {LANGUAGES.map((item) => {
-            const selected = language === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                className={selected ? 'choice on' : 'choice'}
-                onClick={() => selectLanguage(item.id)}
-              >
-                <span className="choice-kicker">{item.mic}</span>
-                <span className="choice-title">{item.title}</span>
-                <span className="choice-detail">{item.detail}</span>
-              </button>
-            );
-          })}
+        <div className="mt-8 grid grid-cols-2 gap-3">
+          {(
+            [
+              ['en', 'English'],
+              ['hi', 'हिन्दी'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`${language === id ? BTN_PRIMARY : BTN_OUTLINE} ${BTN_MD} h-16 justify-start`}
+              onClick={() => selectLanguage(id)}
+            >
+              <LanguagesIcon /> {label}
+            </button>
+          ))}
         </div>
-      </fieldset>
-
-      <fieldset className="choice-block">
-        <legend>Journey</legend>
-        <div className="choice-grid journeys" role="radiogroup" aria-label="Journey">
-          {JOURNEYS.map((item) => {
-            const selected = journey === item.id;
+        <div className="mt-8 border-2 border-saffron bg-saffron/10 p-4">
+          <p className="text-[10px] font-semibold uppercase text-saffron">Hindi number handling</p>
+          <p className="mt-2 text-sm">
+            Dates, cities, and numbers spoken as words are converted into reviewable fields — never silently
+            submitted.
+          </p>
+        </div>
+      </section>
+      <section className="px-5 py-8 lg:col-span-7 lg:px-8">
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-[10px] uppercase text-primary">Choose a working journey</p>
+            <h2 className="mt-2 font-display text-4xl">Which draft do you need?</h2>
+          </div>
+          <span className="hidden text-xs text-muted-foreground sm:block">Fields vary by bank.</span>
+        </div>
+        <div className="mt-6 grid gap-px border-2 border-foreground bg-foreground sm:grid-cols-2">
+          {CHOICES.map((choice) => {
+            const selected =
+              journey === choice.journey &&
+              (choice.product === null
+                ? choice.journey !== 'account_opening'
+                : values.account_product_intent === choice.product);
             return (
               <button
-                key={item.id}
+                key={choice.label}
                 type="button"
-                role="radio"
-                aria-checked={selected}
-                className={selected ? 'choice on' : 'choice'}
-                onClick={() => selectJourney(item.id as JourneyId)}
+                onClick={() => selectDraft(choice.journey, choice.product)}
+                className={`min-h-20 bg-background p-4 text-left transition-colors ${
+                  selected ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                }`}
               >
-                <span className="choice-kicker">{item.id}</span>
-                <span className="choice-title">
-                  {item.title}
-                  <span className="choice-hi">{item.titleHi}</span>
+                <span className="flex items-center justify-between font-semibold">
+                  {choice.label}
+                  <span>{selected ? '✓' : '→'}</span>
                 </span>
-                <span className="choice-detail">{item.summary}</span>
-                <span className="choice-hint">Say “{item.voiceHint}”</span>
-                <ul className="corpus">
-                  {item.corpus.map((sample) => (
-                    <li key={`${item.id}-${sample.bank}-${sample.title}`}>
-                      <strong>{sample.bank}</strong>
-                      {sample.title}
-                    </li>
-                  ))}
-                </ul>
+                <span className={`mt-1 block text-xs ${selected ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                  {choice.detail}
+                </span>
               </button>
             );
           })}
         </div>
-      </fieldset>
-
-      <div className="page-actions">
-        <button type="button" className="btn ghost" onClick={() => go('/')}>
-          Back
-        </button>
-        <button
-          type="button"
-          className="btn primary lg"
-          disabled={!ready}
-          onClick={() => go('/speak')}
-        >
-          Continue to speak and fill
-        </button>
-      </div>
-      {!ready && (
-        <p className="hint action-hint">Choose a language and a journey to continue.</p>
-      )}
-
-      <footer className="hubs">
-        Public hubs:{' '}
-        {SCHEMA.public_hubs.map((hub, index) => (
-          <span key={hub.bank}>
-            {index > 0 ? ' · ' : ''}
-            <a href={hub.url} target="_blank" rel="noreferrer">
-              {hub.cite_as}
-            </a>
-          </span>
-        ))}
-      </footer>
-    </section>
+        <div className="mt-8 border-t-2 border-foreground pt-5">
+          <p className="flex items-center gap-2 text-[10px] uppercase text-primary">
+            <FileTextIcon className="size-3" /> What you will need
+          </p>
+          <ul className="mt-3 grid gap-2 sm:grid-cols-3">
+            {NEED.map((item) => (
+              <li key={item} className="flex gap-2 border border-foreground/20 p-3 text-xs">
+                <CheckIcon className="size-4 shrink-0 text-primary" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="mt-7 flex items-center justify-between gap-4">
+          <p className="max-w-sm text-xs text-muted-foreground">
+            This is a fake guided demo. It does not connect to CKYC, DigiLocker, or any bank.
+          </p>
+          <button type="button" className={`${BTN_PRIMARY} ${BTN_LG}`} onClick={() => go('/speak')}>
+            Continue to mic <ArrowRightIcon />
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }

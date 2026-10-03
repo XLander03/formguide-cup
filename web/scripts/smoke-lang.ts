@@ -206,6 +206,75 @@ assert(!priyaHi.includes('Please confirm this read-back.'), 'priya hindi mic is 
 assert(priyaHi.includes('Fields vary by bank.'), 'priya hindi bank copy');
 assert(priyaHi.includes('3210'), 'priya hindi last4');
 
+const incompleteName = heuristicExtract(
+  'I want to open a savings account. I am a tax resident of India.',
+  {},
+);
+assert(incompleteName.field_updates.applicant_full_name === undefined, `status name ${incompleteName.field_updates.applicant_full_name}`);
+assert(incompleteName.field_updates.tax_resident_india_only === true, 'tax phrase still sets the flag');
+assert(incompleteName.field_updates.journey_mode === 'account_opening', 'journey kept on incomplete name');
+
+const existingOnly = heuristicExtract('I am an existing customer of this bank.', {});
+assert(existingOnly.field_updates.applicant_full_name === undefined, `existing name ${existingOnly.field_updates.applicant_full_name}`);
+assert(existingOnly.field_updates.existing_bank_customer === true, 'existing customer flag');
+
+const namedAndStatus = heuristicExtract(
+  'My name is Priya Sharma. I am a tax resident of India only and I am not an existing customer.',
+  {},
+);
+assert(namedAndStatus.field_updates.applicant_full_name === 'Priya Sharma', `kept name ${namedAndStatus.field_updates.applicant_full_name}`);
+assert(namedAndStatus.field_updates.tax_resident_india_only === true, 'named tax flag');
+assert(namedAndStatus.field_updates.existing_bank_customer === false, 'named not existing');
+
+const iAmName = heuristicExtract('I am Ananya Reddy', {});
+assert(iAmName.field_updates.applicant_full_name === 'Ananya Reddy', `i am name ${iAmName.field_updates.applicant_full_name}`);
+
+const PRIYA_DUMP =
+  'Hi, I want to open a new savings account. My name is Priya Sharma. ' +
+  "Father's name is Ramesh Sharma. I was born on 12 March 1994. Gender female. " +
+  'I am an Indian national and a resident individual. I have a PAN. ' +
+  'PAN number is A B C P S 1 2 3 4 D. My registered mobile is 9876543210. ' +
+  'Email is priya.sharma.demo@example.com. ' +
+  'Current address: 14, Lake View Apartments, 3rd Cross, Indiranagar, Bengaluru, Karnataka, PIN 560038. ' +
+  'Permanent address is the same as current. ' +
+  'I will use my driving licence as proof of identity, number KA01 20190012345. ' +
+  'Same document for address proof. I agree to provide photograph. ' +
+  'I have the original documents for verification. I am not an existing customer. ' +
+  'I want a regular savings account. I am salaried. I am not a politically exposed person. ' +
+  'Tax resident of India only. This draft is for HDFC.';
+
+const priya = heuristicExtract(PRIYA_DUMP, {});
+assert(priya.field_updates.applicant_full_name === 'Priya Sharma', `priya name ${priya.field_updates.applicant_full_name}`);
+assert(priya.field_updates.father_or_spouse_name === 'Ramesh Sharma', `priya father ${priya.field_updates.father_or_spouse_name}`);
+assert(priya.field_updates.dob === '1994-03-12', `priya dob ${priya.field_updates.dob}`);
+assert(priya.field_updates.pan_number === 'ABCPS1234D', `priya pan ${priya.field_updates.pan_number}`);
+assert(priya.field_updates.pan_available === true, 'priya pan flag');
+assert(
+  String(priya.field_updates.addr_current_line1 || '').includes('Lake View'),
+  `priya line1 ${priya.field_updates.addr_current_line1}`,
+);
+assert(priya.field_updates.addr_current_city === 'Bengaluru', `priya city ${priya.field_updates.addr_current_city}`);
+assert(priya.field_updates.addr_current_state === 'Karnataka', `priya state ${priya.field_updates.addr_current_state}`);
+assert(priya.field_updates.addr_current_pin === '560038', `priya pin ${priya.field_updates.addr_current_pin}`);
+assert(priya.field_updates.photo_consent === true, 'priya photo');
+assert(priya.field_updates.ovd_originals_ack === true, 'priya originals');
+assert(priya.field_updates.existing_bank_customer === false, 'priya new customer');
+assert(priya.field_updates.pep_declaration === false, 'priya pep');
+assert(priya.field_updates.tax_resident_india_only === true, 'priya tax');
+assert(priya.field_updates.journey_mode === 'account_opening', 'priya journey');
+assert(priya.field_updates.addr_permanent_same_as_current === true, 'priya same address');
+assert(priya.field_updates.ovd_poa_same_as_poi === true, 'priya same poa');
+assert(priya.field_updates.ovd_poi_type === 'driving_licence', `priya ovd ${priya.field_updates.ovd_poi_type}`);
+assert(
+  String(priya.field_updates.ovd_poi_number || '').includes('KA01'),
+  `priya ovd number ${priya.field_updates.ovd_poi_number}`,
+);
+assert(priya.missing_required.length === 0, `priya missing ${priya.missing_required.join(',')}`);
+assert(
+  priya.completeness === 'demo_ready' || priya.completeness === 'full_bank_packet',
+  `priya completeness ${priya.completeness}`,
+);
+
 console.log('smoke-lang ok');
 console.log('en fields', Object.keys(en.field_updates).join(','));
 console.log('hi next', hi.next_ask);
