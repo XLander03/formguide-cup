@@ -214,7 +214,6 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setSpeaking(false);
     setRefuseMsg(null);
     setDraftReady(false);
-    applyShellLanguage('en');
     const persona = priyaDemoValues();
     setValues(persona);
     if (isJourneyId(persona.journey_mode)) setJourney(persona.journey_mode);
@@ -250,7 +249,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       assistant_message:
         'Filled Priya Sharma dry-run (synthetic PAN ABCPS1234D / mobile 9876543210). Confirm gates left for you after TTS. Fields vary by bank.',
     });
-  }, [applyShellLanguage, flash]);
+  }, [flash]);
 
   const onClear = useCallback(() => {
     stopSpeaking();
