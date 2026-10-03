@@ -114,7 +114,9 @@ Rules:
   residential_status=resident_individual; ovd_type=passport|driving_licence|proof_of_possession_of_aadhaar|voter_id|nrega_job_card|npr_letter;
   account_product_intent=regular_savings|salary_savings|bsbda|individual_current|unspecified_varies_by_bank;
   occupation_bucket=salaried|self_employed|professional|student|homemaker|retired|other
-- DOB as YYYY-MM-DD. PAN as ABCDE1234F pattern. Mobile 10 digits.
+- DOB as YYYY-MM-DD. Accept 15/08/1992, 15 August 1992, 15 अगस्त 1992, पंद्रह अगस्त उन्नीस सौ बानवे, and Devanagari digits.
+- Mobile is 10 digits. Spoken digit-words (नौ आठ सात… / nine eight seven…) and Devanagari digits count. PAN as ABCDE1234F.
+- बैंगलुरु, बेंगलुरु, बंगलुरु, and Bangalore all mean city Bengaluru, state Karnataka.
 - Current form JSON: ${JSON.stringify(current)}
 - Utterance: ${JSON.stringify(utterance)}
 Return JSON matching the schema. Include gates.answers for journey_type (choice), score_completeness (score 1-4), noul_ready_for_readback, noul_requests_live_bank_submit, noul_out_of_scope_excluded_product, noul_user_confirmed_readback.`;

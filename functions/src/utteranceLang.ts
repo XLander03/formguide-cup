@@ -22,6 +22,17 @@ export function detectUtteranceLang(text: string): UtteranceLang {
   return englishish.length > 0 ? 'mixed' : 'hi';
 }
 
+export type MicLang = 'en-IN' | 'hi-IN';
+
+/**
+ * Read-back follows the mic. हिन्दी forces a Hindi script even for an English
+ * persona such as Priya Sharma. English mic keeps the utterance language.
+ */
+export function readbackLanguage(mic: MicLang, utterance: UtteranceLang): UtteranceLang {
+  if (mic === 'hi-IN') return 'hi';
+  return utterance;
+}
+
 export function preferredLanguageLabel(lang: UtteranceLang): 'English' | 'Hindi' | 'Hindi+English' {
   if (lang === 'hi') return 'Hindi';
   if (lang === 'mixed') return 'Hindi+English';

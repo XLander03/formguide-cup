@@ -4,7 +4,12 @@
  * Hindi + English cues; regional languages are out of this slice.
  */
 
-import { extractHindiSlots, hindiExcluded, hindiWantsLiveSubmit } from './hiSlots';
+import {
+  extractHindiSlots,
+  foldDevanagariDigits,
+  hindiExcluded,
+  hindiWantsLiveSubmit,
+} from './hiSlots';
 import {
   detectUtteranceLang,
   excludedMessage,
@@ -131,10 +136,11 @@ export function completenessLevel(values: FormValues, missing: string[]): string
 }
 
 export function heuristicExtract(utterance: string, current: FormValues): ExtractResponse {
-  const text = utterance.trim();
+  const raw = utterance.trim();
+  const text = foldDevanagariDigits(raw);
   const updates: FormValues = {};
 
-  const lang = detectUtteranceLang(text);
+  const lang = detectUtteranceLang(raw);
   const excluded =
     /\bneft\b|\brtgs\b|\bimps\b|\bloan\b|\bscss\b|\b15g\b|\b15h\b|\bnomination\b|\bnominee\b/i.test(
       text,
