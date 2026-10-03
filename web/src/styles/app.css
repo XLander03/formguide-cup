@@ -246,15 +246,16 @@ button, input, select, textarea { font: inherit; }
   gap: 1rem;
   align-items: center;
 }
-.steps { overflow-x: auto; }
+.steps { min-width: 0; max-width: 100%; }
 .steps ol {
   list-style: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.3rem;
   margin: 0;
   padding: 0;
-  min-width: max-content;
 }
+.shell-bar > * { min-width: 0; }
 .steps button {
   appearance: none;
   border: 0;
@@ -475,6 +476,43 @@ code {
   border-color: #ff8b98;
   color: #ffd5da;
   animation: pulse 1.2s ease-in-out infinite;
+}
+.demo-bar .btn {
+  background: #243044;
+  color: var(--voice-text);
+  border-color: #3d4f68;
+}
+.demo-bar .btn.primary {
+  background: var(--teal);
+  color: white;
+  border-color: var(--teal);
+}
+.demo-bar .btn.ghost,
+.demo-bar .btn.teal {
+  background: transparent;
+  color: #e7fff9;
+}
+.demo-bar .btn.teal { border-color: rgba(142, 224, 212, 0.55); }
+.demo-bar .btn.danger {
+  background: transparent;
+  color: #ffb3bd;
+  border-color: rgba(255, 179, 189, 0.45);
+}
+.demo-bar .btn.mic-on {
+  background: rgba(255, 107, 122, 0.2);
+  color: #ffe4e8;
+}
+.demo-bar .lang-toggle {
+  background: #121822;
+  border-color: #3d4f68;
+}
+.demo-bar .lang-toggle button {
+  color: #d5deea;
+  min-width: 4.6rem;
+}
+.demo-bar .lang-toggle button.on {
+  background: var(--teal);
+  color: white;
 }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 122, 0.35); }
