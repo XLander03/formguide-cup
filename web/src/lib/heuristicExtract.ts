@@ -1,5 +1,10 @@
 import type { ExtractResponse, FormValues, GateAnswer } from './types';
-import { extractHindiSlots, hindiExcluded, hindiWantsLiveSubmit } from './hiSlots';
+import {
+  extractHindiSlots,
+  foldDevanagariDigits,
+  hindiExcluded,
+  hindiWantsLiveSubmit,
+} from './hiSlots';
 import {
   completenessLevel,
   getMissingRequired,
@@ -271,8 +276,9 @@ function fillGaps(updates: FormValues, extra: Record<string, string | boolean>):
 }
 
 export function heuristicExtract(utterance: string, current: FormValues): ExtractResponse {
-  const text = utterance.trim();
-  const lang = detectUtteranceLang(text);
+  const raw = utterance.trim();
+  const lang = detectUtteranceLang(raw);
+  const text = foldDevanagariDigits(raw);
   const updates: FormValues = {};
 
   if (detectExcluded(text)) {

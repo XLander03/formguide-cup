@@ -4,7 +4,7 @@
  */
 import { buildReadbackScript, heuristicExtract } from '../src/lib/heuristicExtract';
 import { getNextAsk } from '../src/lib/schema';
-import { HINDI_SAMPLE, MIXED_SAMPLE } from '../src/lib/utteranceLang';
+import { HINDI_SAMPLE, MIXED_SAMPLE, readbackLanguage } from '../src/lib/utteranceLang';
 
 const EN =
   'Hi, I want to open a savings account. My name is Ananya Reddy, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001.';
@@ -134,6 +134,77 @@ const hiScope = heuristicExtract('मुझे नामांकन करन�
 assert(hiScope.reply_lang === 'hi', 'hindi scope lang');
 assert(Object.keys(hiScope.field_updates).length === 0, 'hindi scope updates');
 assert(/[\u0900-\u097F]/.test(hiScope.next_ask || ''), `hindi scope next ${hiScope.next_ask}`);
+
+const mixedGap = heuristicExtract(
+  'मेरा नाम Ananya Reddy है। mobile 9876501234। PIN 560001। जन्म तिथि 15 अगस्त 1992। मैं बैंगलुरु में रहती हूँ।',
+  {},
+);
+assert(mixedGap.field_updates.applicant_full_name === 'Ananya Reddy', `gap name ${mixedGap.field_updates.applicant_full_name}`);
+assert(mixedGap.field_updates.mobile_registered === '9876501234', `gap mobile ${mixedGap.field_updates.mobile_registered}`);
+assert(mixedGap.field_updates.addr_current_pin === '560001', `gap pin ${mixedGap.field_updates.addr_current_pin}`);
+assert(mixedGap.field_updates.dob === '1992-08-15', `gap dob ${mixedGap.field_updates.dob}`);
+assert(mixedGap.field_updates.addr_current_city === 'Bengaluru', `gap city ${mixedGap.field_updates.addr_current_city}`);
+assert((mixedGap.assistant_message || '').includes('Fields vary by bank.'), 'gap bank copy');
+
+const mixedEnDate = heuristicExtract(
+  'My name is Ananya Reddy, mobile 9876501234, PIN 560001, DOB 15 August 1992, city बैंगलुरु.',
+  {},
+);
+assert(mixedEnDate.field_updates.dob === '1992-08-15', `en-month dob ${mixedEnDate.field_updates.dob}`);
+assert(mixedEnDate.field_updates.addr_current_city === 'Bengaluru', `en-month city ${mixedEnDate.field_updates.addr_current_city}`);
+assert(mixedEnDate.field_updates.mobile_registered === '9876501234', 'en-month mobile');
+assert(mixedEnDate.field_updates.addr_current_pin === '560001', 'en-month pin');
+
+const mixedSpokenDate = heuristicExtract(
+  'मेरा नाम Ananya Reddy है। mobile 9876501234। PIN 560001। DOB fifteenth August nineteen ninety two। शहर बैंगलुरु।',
+  {},
+);
+assert(mixedSpokenDate.field_updates.dob === '1992-08-15', `spoken-en dob ${mixedSpokenDate.field_updates.dob}`);
+assert(mixedSpokenDate.field_updates.addr_current_city === 'Bengaluru', 'spoken-en city');
+
+const hiName = heuristicExtract(
+  'मेरा नाम अनन्या रेड्डी है। मोबाइल नौ आठ सात छह पांच चार तीन दो एक शून्य।',
+  {},
+);
+assert(hiName.field_updates.applicant_full_name === 'अनन्या रेड्डी', `hi spoken name ${hiName.field_updates.applicant_full_name}`);
+assert(hiName.field_updates.mobile_registered === '9876543210', `hi spoken mobile ${hiName.field_updates.mobile_registered}`);
+assert(hiName.reply_lang === 'hi', `hi spoken lang ${hiName.reply_lang}`);
+
+const hiDevanagariMobile = heuristicExtract('मेरा नाम अनन्या रेड्डी है। मोबाइल ९८७६५४३२१०।', {});
+assert(hiDevanagariMobile.field_updates.mobile_registered === '9876543210', `deva mobile ${hiDevanagariMobile.field_updates.mobile_registered}`);
+
+const hiSpacedMobile = heuristicExtract('मेरा नाम अनन्या रेड्डी है। मोबाइल 9 8 7 6 5 4 3 2 1 0।', {});
+assert(hiSpacedMobile.field_updates.mobile_registered === '9876543210', `spaced mobile ${hiSpacedMobile.field_updates.mobile_registered}`);
+
+const hiSpokenDob = heuristicExtract(
+  'मेरा नाम अनन्या रेड्डी है। जन्म तिथि पंद्रह अगस्त उन्नीस सौ बानवे। मोबाइल नौ आठ सात छह पांच चार तीन दो एक शून्य। शहर बैंगलुरु।',
+  {},
+);
+assert(hiSpokenDob.field_updates.dob === '1992-08-15', `hi spoken dob ${hiSpokenDob.field_updates.dob}`);
+assert(hiSpokenDob.field_updates.addr_current_city === 'Bengaluru', 'hi spoken city');
+assert(hiSpokenDob.field_updates.mobile_registered === '9876543210', 'hi spoken dob mobile');
+
+const hiGroups = heuristicExtract('मेरा नाम अनन्या रेड्डी है। मोबाइल 98765 43210।', {});
+assert(hiGroups.field_updates.mobile_registered === '9876543210', `grouped mobile ${hiGroups.field_updates.mobile_registered}`);
+
+assert(readbackLanguage('hi-IN', 'en') === 'hi', 'hindi mic forces hindi readback');
+assert(readbackLanguage('en-IN', 'en') === 'en', 'english mic keeps english');
+assert(readbackLanguage('en-IN', 'hi') === 'hi', 'english mic keeps hindi utterance');
+const priyaHi = buildReadbackScript(
+  {
+    applicant_full_name: 'Priya Sharma',
+    dob: '1994-03-12',
+    mobile_registered: '9876543210',
+    ovd_poi_type: 'driving_licence',
+    account_product_intent: 'regular_savings',
+  },
+  readbackLanguage('hi-IN', 'en'),
+);
+assert(priyaHi.startsWith('कृपया इस रीड-बैक की पुष्टि करें।'), `priya hi lead ${priyaHi}`);
+assert(priyaHi.includes('Name: Priya Sharma') === false && priyaHi.includes('Priya Sharma'), 'priya name kept');
+assert(!priyaHi.includes('Please confirm this read-back.'), 'priya hindi mic is not English');
+assert(priyaHi.includes('Fields vary by bank.'), 'priya hindi bank copy');
+assert(priyaHi.includes('3210'), 'priya hindi last4');
 
 console.log('smoke-lang ok');
 console.log('en fields', Object.keys(en.field_updates).join(','));
