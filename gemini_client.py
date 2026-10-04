@@ -1,7 +1,10 @@
+import os
+import time
+
+import httpx
 from dotenv import load_dotenv
 from google import genai
 from google.genai import errors
-import os
 
 load_dotenv()
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -20,20 +23,32 @@ MODEL_PRIORITY = [
 # temporarily unavailable. All three mean "try the next model in the list".
 _RETRYABLE_CODES = {404, 429, 503}
 
+# Raw connection failures (dropped connection, timeout) aren't APIErrors at
+# all — the SDK's own retries already gave up by the time these surface, so
+# we retry once on the same model, then fall through to the next one.
+_TRANSIENT_EXCEPTIONS = (httpx.TransportError, httpx.HTTPError)
 
-def generate_with_fallback(contents, models=None, **kwargs):
+
+def generate_with_fallback(contents, models=None, retries_per_model=1, **kwargs):
     """Try each model in order, falling through to the next on
-    rate-limit/unavailable errors. Raises the last error if all fail."""
+    rate-limit/unavailable/network errors. Raises the last error if all fail."""
     last_error = None
     for model in models or MODEL_PRIORITY:
-        try:
-            response = client.models.generate_content(
-                model=model, contents=contents, **kwargs
-            )
-            return response, model
-        except errors.APIError as e:
-            if getattr(e, "code", None) in _RETRYABLE_CODES:
+        for attempt in range(retries_per_model + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=contents, **kwargs
+                )
+                return response, model
+            except errors.APIError as e:
                 last_error = e
-                continue
-            raise
+                if getattr(e, "code", None) in _RETRYABLE_CODES:
+                    break  # move to next model
+                raise
+            except _TRANSIENT_EXCEPTIONS as e:
+                last_error = e
+                if attempt < retries_per_model:
+                    time.sleep(1)
+                    continue
+                break  # exhausted retries on this model, try next
     raise last_error
