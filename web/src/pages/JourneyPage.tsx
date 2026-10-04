@@ -176,13 +176,13 @@ export function JourneyPage() {
           <div className="prep-mic-actions">
             <button
               type="button"
-              className="btn primary lg"
+              className="prep-btn prep-btn-primary"
               aria-pressed={listening}
               onClick={() => setListening(true)}
             >
               <MicIcon /> Start listening
             </button>
-            <button type="button" className="btn lg" onClick={() => setListening(false)}>
+            <button type="button" className="prep-btn prep-btn-line" onClick={() => setListening(false)}>
               <StopIcon /> Stop
             </button>
           </div>
@@ -213,7 +213,7 @@ export function JourneyPage() {
               ? 'Go ahead opens speak and fill for this draft. Confirm still saves a draft only.'
               : 'This journey is listed for later. Pick a fill-ready form or keep speaking.'}
           </p>
-          <button type="button" className="btn primary lg" disabled={!suggested.fillReady} onClick={goAhead}>
+          <button type="button" className="prep-btn prep-btn-primary" disabled={!suggested.fillReady} onClick={goAhead}>
             Go ahead
           </button>
         </div>
@@ -226,7 +226,7 @@ export function JourneyPage() {
               <button
                 key={form.id}
                 type="button"
-                className={selected ? 'choice on' : 'choice'}
+                className={selected ? 'prep-card on' : 'prep-card'}
                 aria-pressed={selected}
                 onClick={() => choose(form)}
               >

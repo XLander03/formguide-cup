@@ -778,19 +778,25 @@ code {
   }
 }
 
-/* Preparation step. Uses the shell's cream page, navy voice panel, and buttons. */
+/* Preparation step. Square border-2 cards and buttons; Work Sans + Instrument Serif. */
 .prep {
   display: grid;
   grid-template-columns: minmax(280px, 5fr) minmax(0, 7fr);
   align-items: stretch;
   min-height: calc(100vh - 210px);
   margin: 0 -0.15rem;
+  font-family: "Work Sans", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati", "Noto Sans Kannada", sans-serif;
+}
+.prep h1,
+.prep h2,
+.prep-heard {
+  font-family: var(--display);
 }
 .prep-side {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-right: 1px solid var(--line);
+  border-right: 2px solid var(--ink);
 }
 .prep-copy { padding: 0.2rem 1.35rem 1.15rem 0.1rem; }
 .prep-copy .page-head { margin-bottom: 0; }
@@ -804,34 +810,46 @@ code {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.prep-legend {
-  list-style: none;
+.prep-legend,
+.prep-forms {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.55rem;
+  gap: 1px;
   margin: 0.7rem 0 0;
   padding: 0;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  list-style: none;
 }
-.prep-legend li {
+.prep-legend li,
+.prep-card {
   min-height: 3rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.45rem;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card);
+  margin: 0;
+  padding: 0.75rem;
+  border: 0;
+  background: var(--paper);
   color: var(--ink-soft);
-  font-family: "DM Sans", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati", "Noto Sans Kannada", sans-serif;
+  font: inherit;
   font-size: 0.95rem;
+  text-align: left;
 }
-.prep-legend li.on {
+.prep-legend li.on,
+.prep-card.on {
   background: var(--teal);
-  border-color: var(--teal);
   color: white;
-  font-weight: 700;
+  font-weight: 600;
 }
+.prep-card {
+  min-height: 5rem;
+  display: block;
+  color: var(--ink);
+  cursor: pointer;
+}
+.prep-card:hover:not(.on) { background: var(--paper-deep); }
 .prep-hearing {
   font-size: 0.65rem;
   font-weight: 700;
@@ -842,10 +860,9 @@ code {
 .prep-legend-note { margin: 0.55rem 0 0; }
 .prep-mic {
   margin-top: auto;
-  background:
-    radial-gradient(280px 120px at 18% 0%, rgba(26, 155, 142, 0.28), transparent 70%),
-    var(--voice);
-  color: var(--voice-text);
+  border-top: 2px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
   padding: 1.15rem 1.35rem 1.3rem 0.15rem;
 }
 .prep-mic-meta {
@@ -853,10 +870,10 @@ code {
   justify-content: space-between;
   gap: 0.75rem;
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--voice-muted);
+  color: color-mix(in srgb, var(--paper) 50%, transparent);
 }
 .prep-heard-label {
   margin: 0.95rem 0 0;
@@ -864,23 +881,22 @@ code {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #8ee0d4;
+  color: color-mix(in srgb, var(--paper) 55%, transparent);
 }
 .prep-heard {
   margin: 0.35rem 0 0;
-  font-family: var(--display);
   font-size: clamp(1.55rem, 2.5vw, 2.05rem);
   line-height: 1.15;
 }
 .prep-preview-note {
   margin: 0.5rem 0 0;
-  color: var(--voice-muted);
+  color: color-mix(in srgb, var(--paper) 62%, transparent);
   font-size: 0.82rem;
 }
 .prep-mic-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.55rem;
+  gap: 0.75rem;
   margin-top: 1rem;
 }
 .prep-icon {
@@ -893,11 +909,44 @@ code {
   stroke-linejoin: round;
   flex: none;
 }
-.prep-mic .btn,
-.prep-go .btn {
+.prep-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.prep-btn-primary {
+  height: 3rem;
+  padding: 0 1.5rem;
+  border-color: var(--teal);
+  background: var(--teal);
+  color: white;
+}
+.prep-btn-primary:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+.prep-btn-line {
+  height: 2.5rem;
+  padding: 0 1rem;
+  border-color: var(--paper);
+  color: var(--paper);
+}
+.prep-btn-line:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+.prep-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .prep-main {
   min-width: 0;
@@ -912,7 +961,6 @@ code {
 .prep-suggest-head .eyebrow { margin-bottom: 0.35rem; }
 .prep-main h2 {
   margin: 0;
-  font-family: var(--display);
   font-weight: 400;
   font-size: clamp(2.1rem, 3vw, 2.8rem);
   letter-spacing: -0.03em;
@@ -920,9 +968,8 @@ code {
 }
 .prep-varies {
   margin: 0;
-  color: var(--amber);
+  color: var(--ink-soft);
   font-size: 0.82rem;
-  font-weight: 700;
 }
 .prep-detail {
   margin: 0.85rem 0 0;
@@ -932,7 +979,7 @@ code {
 .prep-keys {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.5rem;
   margin: 0.9rem 0 0;
   padding: 0;
   list-style: none;
@@ -941,13 +988,12 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--card);
-  padding: 0.28rem 0.7rem;
-  font-size: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  background: transparent;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
 }
-.prep-check { color: var(--teal-deep); }
+.prep-check { color: var(--teal); }
 .prep-go {
   display: flex;
   flex-wrap: wrap;
@@ -956,38 +1002,28 @@ code {
   gap: 0.85rem;
   margin-top: 1.15rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--line);
+  border-top: 2px solid var(--ink);
 }
 .prep-go .hint { max-width: 28rem; margin: 0; }
-.prep-forms {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.65rem;
-  margin-top: 0.7rem;
-}
-.prep-forms .choice { min-height: 5.4rem; }
 .prep-form-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 .prep-form-detail {
   display: block;
   margin-top: 0.35rem;
   color: var(--ink-soft);
-  font-size: 0.82rem;
-  font-weight: 500;
+  font-size: 0.75rem;
+  font-weight: 400;
 }
+.prep-card.on .prep-form-detail { color: color-mix(in srgb, white 70%, transparent); }
 @media (max-width: 980px) {
   .prep { grid-template-columns: 1fr; min-height: 0; }
-  .prep-side { border-right: 0; border-bottom: 1px solid var(--line); }
+  .prep-side { border-right: 0; border-bottom: 2px solid var(--ink); }
   .prep-copy, .prep-mic, .prep-main { padding-left: 0; padding-right: 0; }
   .prep-forms { grid-template-columns: 1fr; }
   .prep-varies { display: none; }
-}
-@media (min-width: 981px) {
-  .prep-varies { display: block; }
 }
