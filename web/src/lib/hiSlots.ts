@@ -4,8 +4,6 @@
  * Schema enum values stay English codes. Spoken names stay as spoken.
  */
 
-import { acceptPersonName } from './personName';
-
 export type SlotValue = string | boolean;
 
 const PLACES: Array<{ re: RegExp; city?: string; state?: string }> = [
@@ -45,7 +43,9 @@ const PLACES: Array<{ re: RegExp; city?: string; state?: string }> = [
 function takeName(text: string, cues: RegExp): string | null {
   const m = text.match(cues);
   if (!m) return null;
-  return acceptPersonName(m[1]);
+  const name = m[1].replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 80) return null;
+  return name;
 }
 
 function addressChunk(text: string): string | null {
@@ -241,7 +241,6 @@ const HI_SMALL: Record<string, number> = {
   तीसरी: 3,
   तीसरा: 3,
 };
-
 const EN_ONES: Record<string, number> = {
   one: 1,
   two: 2,
@@ -482,7 +481,6 @@ export function extractSpokenMobile(text: string): string | null {
   }
   return flushSpoken() ?? flushGroups();
 }
-
 function digitsAfterCue(tail: string, exact: number): string | null {
   const tokens = tokenize(foldDevanagariDigits(tail));
   const fillers = new Set(['is', 'number', 'no', 'code', 'नंबर', 'नम्बर', 'है', 'हैं', 'कोड']);
@@ -711,7 +709,6 @@ export function parseFlexibleDob(text: string): string | null {
   }
   return parseNumericDob(src);
 }
-
 export function extractHindiSlots(text: string): Record<string, SlotValue> {
   const out: Record<string, SlotValue> = {};
   const t = text.toLowerCase();

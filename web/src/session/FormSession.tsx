@@ -9,7 +9,6 @@ import {
 } from 'react';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
-import { acceptPersonName } from '../lib/personName';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
 import {
   completenessLevel,
@@ -25,7 +24,7 @@ import { readbackFollowup, tryLiveMessage, type UtteranceLang } from '../lib/utt
 export type ShellLanguage = 'en' | 'hi';
 export type MicLang = 'en-IN' | 'hi-IN';
 
-const STORAGE_KEY = 'formguide.cup.session.v1';
+const STORAGE_KEY = 'formguide.cup.session.v2';
 
 interface Persisted {
   language: ShellLanguage | null;
@@ -56,7 +55,12 @@ function seedValues(saved: Persisted | null): FormValues {
     }
   }
   if (saved?.journey) base.journey_mode = saved.journey;
+  else if (!base.journey_mode) base.journey_mode = 'account_opening';
   if (saved?.language) base.preferred_language = saved.language === 'hi' ? 'Hindi' : 'English';
+  else if (!base.preferred_language) base.preferred_language = 'English';
+  if (base.journey_mode === 'account_opening' && !base.account_product_intent) {
+    base.account_product_intent = 'regular_savings';
+  }
   return base;
 }
 
@@ -90,14 +94,16 @@ export interface FormSessionValue {
   onStopReadback: () => void;
   onTryLiveSubmit: () => void;
   emitDraft: () => void;
+  said: Record<string, string>;
+  selectDraft: (id: JourneyId, product: string | null) => void;
 }
 
 const FormSessionContext = createContext<FormSessionValue | null>(null);
 
 export function FormSessionProvider({ children }: { children: ReactNode }) {
   const saved = useMemo(() => loadPersisted(), []);
-  const [language, setLanguage] = useState<ShellLanguage | null>(saved?.language ?? null);
-  const [journey, setJourney] = useState<JourneyId | null>(saved?.journey ?? null);
+  const [language, setLanguage] = useState<ShellLanguage | null>(saved?.language ?? 'en');
+  const [journey, setJourney] = useState<JourneyId | null>(saved?.journey ?? 'account_opening');
   const [micLang, setMicLangState] = useState<MicLang>(saved?.language === 'hi' ? 'hi-IN' : 'en-IN');
   const [values, setValues] = useState<FormValues>(() => seedValues(saved));
   const [busy, setBusy] = useState(false);
@@ -106,6 +112,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
+  const [said, setSaid] = useState<Record<string, string>>({});
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
@@ -154,6 +161,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setDraftReady(false);
   }, []);
 
+  const selectDraft = useCallback((id: JourneyId, product: string | null) => {
+    setJourney(id);
+    setValues((prev) => ({
+      ...prev,
+      journey_mode: id,
+      account_product_intent: product ?? '',
+    }));
+    setDraftReady(false);
+  }, []);
+
   const setMicLang = useCallback(
     (lang: MicLang) => {
       applyShellLanguage(lang === 'hi-IN' ? 'hi' : 'en');
@@ -167,23 +184,27 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyUpdates = useCallback(
-    (updates: FormValues, response: ExtractResponse) => {
-      const safeUpdates = { ...updates };
-      if (typeof safeUpdates.applicant_full_name === 'string') {
-        const accepted = acceptPersonName(safeUpdates.applicant_full_name);
-        if (accepted) safeUpdates.applicant_full_name = accepted;
-        else delete safeUpdates.applicant_full_name;
-      }
+    (updates: FormValues, response: ExtractResponse, utterance?: string) => {
       setValues((prev) => {
         const next = { ...prev };
-        for (const [key, value] of Object.entries(safeUpdates)) {
+        for (const [key, value] of Object.entries(updates)) {
           if (value === undefined) continue;
           next[key] = value;
         }
         return next;
       });
-      if (isJourneyId(safeUpdates.journey_mode)) setJourney(safeUpdates.journey_mode);
-      flash(Object.keys(safeUpdates));
+      if (utterance?.trim()) {
+        const clip = utterance.trim().replace(/\s+/g, ' ');
+        setSaid((prev) => {
+          const next = { ...prev };
+          for (const [key, value] of Object.entries(updates)) {
+            if (value !== undefined) next[key] = clip;
+          }
+          return next;
+        });
+      }
+      if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
+      flash(Object.keys(updates));
       setLast(response);
       if (response.refuse_live_submit) {
         setRefuseMsg(
@@ -208,7 +229,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       setDraftReady(false);
       try {
         const res = await extractFields(text, values);
-        applyUpdates(res.field_updates, res);
+        applyUpdates(res.field_updates, res, text);
       } finally {
         setBusy(false);
       }
@@ -227,6 +248,14 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);
     const level = completenessLevel(persona, miss);
+    const clip = 'Fake prefill demo';
+    setSaid(() => {
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(persona)) {
+        if (value !== undefined && value !== '' && value !== null) next[key] = clip;
+      }
+      return next;
+    });
     setLast({
       field_updates: persona,
       missing_required: miss,
@@ -266,6 +295,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
     setValues(next);
     setLast(null);
+    setSaid({});
     setRefuseMsg(null);
     setDraftReady(false);
   }, [journey, language]);
@@ -297,7 +327,6 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const onTryLiveSubmit = useCallback(() => {
-    if (!canReadback) return;
     setRefuseMsg(tryLiveMessage(readbackLang));
     setDraftReady(false);
     setLast((prev) => ({
@@ -320,7 +349,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           ? 'Guardrail fired: noul_requests_live_bank_submit high → refuse. Draft only.'
           : 'गार्डरेल: लाइव बैंक जमा मना। केवल ड्राफ्ट। Fields vary by bank.',
     }));
-  }, [missing, completeness, readbackLang, canReadback]);
+  }, [missing, completeness, readbackLang]);
 
   const emitDraft = useCallback(() => {
     if (!canReadback || !confirmGatesOk) return;
@@ -357,6 +386,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     onStopReadback,
     onTryLiveSubmit,
     emitDraft,
+    said,
+    selectDraft,
   };
 
   return <FormSessionContext.Provider value={value}>{children}</FormSessionContext.Provider>;

@@ -1,96 +1,123 @@
-import { useEffect } from 'react';
-import { DraftSheet } from '../components/DraftSheet';
-import { NeedJourney } from '../layout/AppShell';
-import { journeyById } from '../lib/journeys';
-import { BANK_VARIES_COPY, fieldLabel } from '../lib/schema';
-import { stopSpeaking } from '../lib/tts';
+import { useEffect, useState } from 'react';
+import { buildReadbackScript } from '../lib/heuristicExtract';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
+import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
+import { FieldGroups } from '../ui/fields';
+import { ArrowRightIcon, MicIcon, PauseIcon, PencilIcon, StopIcon, VolumeIcon } from '../ui/icons';
+import { useMic } from '../ui/useMic';
 
 export function ReviewPage() {
-  return (
-    <NeedJourney>
-      <ReviewBody />
-    </NeedJourney>
-  );
-}
-
-function ReviewBody() {
   const { go } = useRoute();
   const session = useFormSession();
-  const journey = session.journey ? journeyById(session.journey) : null;
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(String(session.values.applicant_full_name || ''));
+  const languageLabel = session.language === 'hi' ? 'हिन्दी' : 'English';
+  const script = buildReadbackScript(session.values, session.readbackLang);
+  const mic = useMic(session.micLang, (utterance) => {
+    void session.onSubmitUtterance(utterance);
+  });
 
   useEffect(() => {
-    return () => stopSpeaking();
-  }, []);
+    setName(String(session.values.applicant_full_name || ''));
+  }, [session.values.applicant_full_name]);
+
+  useEffect(() => {
+    return () => session.onStopReadback();
+  }, [session.onStopReadback]);
 
   return (
-    <section className="page narrow">
-      <header className="page-head">
-        <p className="eyebrow">Step 04 · {journey?.title}</p>
-        <h1>{session.language === 'hi' ? 'ड्राफ्ट सुनें।' : 'Hear the draft.'}</h1>
-        <p className="lede">
-          Read-back uses the microphone language
-          {session.micLang === 'hi-IN' ? ' (hi-IN).' : ' (en-IN).'} {BANK_VARIES_COPY}
+    <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
+      <section className="border-b-2 border-foreground px-5 py-7 lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
+        <p className="text-[10px] uppercase text-primary">04 · Review and correct</p>
+        <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">Hear every detail back.</h1>
+        <p className="mt-4 max-w-md text-sm text-muted-foreground">
+          The draft is read in {languageLabel}. Stop it at any time and say or type a correction.
         </p>
-      </header>
-
-      <div className="review-bar">
-        <div>
-          <span className="chip">{session.completeness.replace(/_/g, ' ')}</span>
-          <span className="chip">{session.micLang}</span>
+        <div className="mt-7 bg-foreground p-5 text-background">
+          <p className="text-[10px] uppercase text-background/50">Spoken readback</p>
+          <p className="mt-3 font-display text-2xl leading-snug">“{script}”</p>
+          <button
+            type="button"
+            className={`${BTN_MD} mt-5 border-2 border-background bg-background text-foreground hover:border-primary hover:bg-primary hover:text-primary-foreground`}
+            disabled={!session.canReadback || session.busy}
+            onClick={() => {
+              if (session.speaking) session.onStopReadback();
+              else void session.onReadback();
+            }}
+          >
+            {session.speaking ? <PauseIcon /> : <VolumeIcon />}
+            {session.speaking ? 'Pause readback' : `Read in ${languageLabel}`}
+          </button>
         </div>
-        <div className="page-actions tight">
-          {session.speaking ? (
-            <button type="button" className="btn" onClick={session.onStopReadback}>
-              Stop read-back
-            </button>
+        <div className="mt-6 border-2 border-saffron bg-saffron/10 p-4">
+          <p className="text-[10px] uppercase text-saffron">One correction</p>
+          {editing ? (
+            <div className="mt-3 flex gap-2">
+              <input
+                aria-label="Correct full name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="min-w-0 flex-1 border-2 border-foreground bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                className={`${BTN_PRIMARY} ${BTN_MD}`}
+                onClick={() => {
+                  session.onChange('applicant_full_name', name);
+                  setEditing(false);
+                }}
+              >
+                Save
+              </button>
+            </div>
           ) : (
-            <button
-              type="button"
-              className="btn primary lg"
-              disabled={!session.canReadback || session.busy}
-              onClick={() => void session.onReadback()}
-            >
-              Read it back
-            </button>
+            <>
+              <p className="mt-2 text-sm">Say “change my name”, or correct it here.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" className={`${BTN_OUTLINE} ${BTN_MD}`} onClick={() => setEditing(true)}>
+                  <PencilIcon /> Correct full name
+                </button>
+                <button
+                  type="button"
+                  className={`${BTN_OUTLINE} ${BTN_MD}`}
+                  disabled={!mic.supported || session.busy}
+                  onClick={() => (mic.listening ? mic.stop() : mic.start())}
+                >
+                  {mic.listening ? <StopIcon /> : <MicIcon />}
+                  {mic.listening ? 'Listening…' : 'Mic'}
+                </button>
+              </div>
+              {mic.live ? <p className="mt-2 text-xs text-foreground/70">“{mic.live}”</p> : null}
+            </>
           )}
         </div>
-      </div>
-
-      {!session.canReadback && (
-        <p className="hint action-hint">
-          Read-back waits until the draft is demo-ready.
-          {session.missing.length > 0
-            ? ` Still needed: ${session.missing.slice(0, 4).map((id) => fieldLabel(id)).join(', ')}.`
-            : ''}
-        </p>
-      )}
-
-      {session.last?.assistant_message && (
-        <div className="assistant script" role="status">
-          <span className="label">Assistant · {session.last.source}</span>
-          {session.last.assistant_message}
+      </section>
+      <section className="px-5 py-7 lg:col-span-7 lg:px-8">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[10px] uppercase text-primary">Grouped draft</p>
+            <h2 className="mt-2 font-display text-4xl">Check what will be saved</h2>
+          </div>
+          <span className="border border-saffron px-2 py-1 text-[10px] font-semibold text-saffron">NOT SUBMITTED</span>
         </div>
-      )}
-
-      <DraftSheet values={session.values} language={session.language} />
-
-      <p className="varies-line end">{BANK_VARIES_COPY}</p>
-
-      <div className="page-actions">
-        <button type="button" className="btn ghost" onClick={() => go('/speak')}>
-          Back to speak and fill
-        </button>
-        <button
-          type="button"
-          className="btn primary lg"
-          disabled={!session.canReadback}
-          onClick={() => go('/confirm')}
-        >
-          Continue to confirm
-        </button>
-      </div>
-    </section>
+        <div className="mt-6">
+          <FieldGroups values={session.values} flashIds={session.flashIds} hindi={session.language === 'hi'} />
+        </div>
+        <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
+          <p className="text-xs text-muted-foreground">
+            Missing fields can stay blank in the draft. Fields vary by bank.
+          </p>
+          <button
+            type="button"
+            className={`${BTN_PRIMARY} ${BTN_LG}`}
+            disabled={!session.canReadback}
+            onClick={() => go('/confirm')}
+          >
+            Continue to gates <ArrowRightIcon />
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }

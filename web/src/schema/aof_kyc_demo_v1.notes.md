@@ -56,4 +56,3 @@ Do **not** add to this file: **NEFT/RTGS**, **loans**, **SCSS**, **Form 15G/15H*
 | kyc_ovd | SBI KYC Documents Individuals |
 | account_refs | Bank-variable CIF / customer ID; product names on AOF hub listings |
 | confirm_gates | Product rule (all banks) — not a bank PDF field |
-

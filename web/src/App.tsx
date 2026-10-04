@@ -15,10 +15,9 @@ function AppRoutes() {
     document.title = pageTitle(path);
   }, [path]);
 
-  if (path === '/') return <LandingPage />;
-
   return (
     <AppShell>
+      {path === '/' && <LandingPage />}
       {path === '/journey' && <JourneyPage />}
       {path === '/speak' && <SpeakPage />}
       {path === '/review' && <ReviewPage />}
