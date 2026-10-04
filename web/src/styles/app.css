@@ -9,6 +9,9 @@
   --color-primary-foreground: oklch(98% 0.01 91);
   --color-muted: oklch(91% 0.017 91);
   --color-muted-foreground: oklch(50% 0.035 257);
+  --color-card: oklch(98.5% 0.008 91);
+  --color-card-foreground: oklch(25% 0.05 257);
+  --color-destructive: oklch(55% 0.19 28);
   --color-saffron: oklch(69% 0.145 68);
   --color-accent: oklch(82% 0.12 72);
   --color-accent-foreground: oklch(25% 0.05 257);
