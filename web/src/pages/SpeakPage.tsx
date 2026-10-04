@@ -5,7 +5,7 @@ import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
-import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
+import { ArrowRightIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
 
 const EN_SAMPLE =
   'Hi, I want to open a savings account. My name is Ananya Reddy, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001.';
@@ -69,6 +69,34 @@ function pretty(value: string): string {
   return ENUM_LABEL[value] ?? value.replace(/_/g, ' ');
 }
 
+
+const DOT_LINE =
+  'h-7 bg-[length:5px_1.5px] bg-[position:left_bottom] bg-repeat-x bg-[radial-gradient(circle,#808996_0.65px,transparent_0.8px)]';
+
+function shownValue(field: PreviewField, raw: string): string {
+  if (!raw || !field.enumRef) return raw;
+  const options = SCHEMA.enums[field.enumRef] ?? [];
+  return options.includes(raw) ? pretty(raw) : raw;
+}
+
+function commitField(
+  field: PreviewField,
+  text: string,
+  onChange: (id: string, value: string) => void,
+) {
+  if (!field.id) return;
+  if (!field.enumRef) {
+    onChange(field.id, text);
+    return;
+  }
+  const options = SCHEMA.enums[field.enumRef] ?? [];
+  const norm = text.trim().toLowerCase().replace(/[_]+/g, ' ').replace(/\s+/g, ' ');
+  const match = options.find(
+    (option) => pretty(option).toLowerCase() === norm || option.toLowerCase().replace(/_/g, ' ') === norm,
+  );
+  onChange(field.id, match ?? text);
+}
+
 function GreenDots() {
   return (
     <div className="mt-3 flex items-center gap-1" aria-hidden="true">
@@ -87,7 +115,6 @@ export function SpeakPage() {
   const [saidIsSample, setSaidIsSample] = useState(false);
   const [turns, setTurns] = useState(0);
   const [sampleStep, setSampleStep] = useState(0);
-  const [preview, setPreview] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
 
   const requiredFields = FIELDS.filter((field) => field.required && field.id);
@@ -251,105 +278,82 @@ export function SpeakPage() {
         </ol>
       </nav>
 
-      <section className="flex min-h-0 flex-col lg:col-span-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-foreground px-5 py-3">
-          <div>
-            <h1 className="font-display text-4xl leading-none">Draft filling live</h1>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Fields vary by bank. Nothing is sent to a bank.
+      <section className="min-h-0 overflow-y-auto bg-background lg:col-span-6">
+        <div className="px-3 py-4 sm:px-4">
+          <article className="border border-[#112239] bg-[#fcfaf4] px-4 py-4 text-[#112239] shadow-[4px_4px_0_0_#d5d1c7] sm:px-5 sm:py-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#4f5b6a]">
+                  Generic bank-style form · illustrative layout
+                </p>
+                <h1 className="mt-2 font-display text-4xl leading-none">{label}</h1>
+                <p className="mt-1 text-sm text-[#4f5b6a]">Customer information sheet — individual</p>
+              </div>
+              <div
+                aria-hidden="true"
+                className="grid size-[4.5rem] shrink-0 place-items-center border border-dashed border-[#112239] text-center leading-tight"
+              >
+                <span>
+                  <span className="block text-[10px] font-semibold tracking-wide">PHOTO</span>
+                  <span className="block text-[9px]">affix here</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-3 h-px bg-[#112239]" />
+            <p className="mt-3 bg-[#f2ddbd] px-2 py-1.5 text-center text-[11px] font-semibold">
+              DRAFT · NOT SUBMITTED · Fields vary by bank
             </p>
-          </div>
-          <button
-            type="button"
-            className={`${BTN_OUTLINE} ${BTN_MD}`}
-            onClick={() => setPreview((open) => !open)}
-          >
-            <FileTextIcon /> Preview form <span className="bg-foreground px-1.5 text-[10px] text-background">v{turns}</span>
-          </button>
-        </div>
-        {preview ? (
-          <div className="border-b-2 border-foreground bg-background px-5 py-3 text-xs">
-            <p className="text-[10px] uppercase text-muted-foreground">Preview · draft only · not submitted</p>
-            <ul className="mt-2 grid gap-1 sm:grid-cols-2">
-              {FIELDS.map((field) => (
-                <li key={field.label}>
-                  <span className="text-muted-foreground">{field.label}: </span>
-                  {field.id && isFilled(session.values[field.id])
-                    ? pretty(String(session.values[field.id]))
-                    : '—'}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-          {SECTIONS.map((name, index) => {
-            const stat = sectionStats[index];
-            const rows = FIELDS.filter((field) => field.section === name);
-            return (
-              <section key={name} id={`speak-section-${index}`} className="border-2 border-foreground">
-                <header className="flex items-center justify-between bg-primary px-4 py-2 text-primary-foreground">
-                  <h2 className="text-sm font-bold uppercase tracking-wide">
-                    {String(index + 1).padStart(2, '0')} · {name}
-                  </h2>
-                  <span className="text-[10px]">
-                    {stat.done}/{stat.total}
-                  </span>
-                </header>
-                <div className="grid sm:grid-cols-2">
-                  {rows.map((field) => {
-                    const asking = asked.label === field.label && Boolean(field.id);
-                    const raw = field.id ? session.values[field.id] : '';
-                    const value = typeof raw === 'string' ? raw : '';
-                    const filled = Boolean(field.id && isFilled(session.values[field.id]));
-                    const options = field.enumRef ? SCHEMA.enums[field.enumRef] ?? [] : null;
-                    return (
-                      <div
-                        key={field.label}
-                        className={`border-b border-r border-foreground/15 px-4 py-3 ${asking ? 'bg-primary/10' : ''}`}
-                      >
-                        <div className="flex items-center justify-between gap-2 text-[10px] uppercase">
-                          <span className="text-muted-foreground">
-                            {field.label}
-                            {field.required ? ' *' : ''}
-                          </span>
-                          <span className={asking ? 'font-bold text-saffron' : filled ? 'text-primary' : 'text-muted-foreground'}>
-                            {asking ? 'Asking' : filled ? 'Filled' : 'Missing'}
-                          </span>
-                        </div>
-                        {field.id && options ? (
-                          <select
-                            aria-label={field.label}
-                            value={value}
-                            onChange={(event) => session.onChange(field.id as string, event.target.value)}
-                            className="mt-1 w-full bg-transparent text-sm font-semibold outline-none"
-                          >
-                            <option value="">{field.hint}</option>
-                            {options.map((option) => (
-                              <option key={option} value={option}>
-                                {pretty(option)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : field.id ? (
-                          <input
-                            aria-label={field.label}
-                            value={value}
-                            placeholder={field.hint}
-                            onChange={(event) => session.onChange(field.id as string, event.target.value)}
-                            className="mt-1 w-full bg-transparent text-sm font-semibold outline-none placeholder:font-normal placeholder:text-foreground/55"
-                          />
-                        ) : (
-                          <p className="mt-1 text-sm text-foreground/55">{field.hint}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-foreground pt-4">
+            <div className="mt-4 space-y-4">
+              {SECTIONS.map((name, index) => {
+                const rows = FIELDS.filter((field) => field.section === name);
+                return (
+                  <section key={name} id={`speak-section-${index}`} className="scroll-mt-2">
+                    <h2 className="bg-[#112239] px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#fcfaf4]">
+                      {String.fromCharCode(65 + index)}. {name}
+                    </h2>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-4 px-1 py-3">
+                      {rows.map((field) => {
+                        const asking = asked.label === field.label && Boolean(field.id);
+                        const raw = field.id && typeof session.values[field.id] === 'string' ? session.values[field.id] : '';
+                        const value = typeof raw === 'string' ? raw : '';
+                        return (
+                          <div key={field.label} className={asking ? 'bg-saffron/20 px-1' : 'px-1'}>
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-[#3d4c5f]">
+                              {field.label}
+                              {field.required ? ' *' : ''}
+                            </p>
+                            {field.id ? (
+                              <input
+                                aria-label={field.label}
+                                autoComplete="off"
+                                spellCheck={false}
+                                value={shownValue(field, value)}
+                                onChange={(event) => commitField(field, event.target.value, session.onChange)}
+                                className={`mt-1 w-full border-0 bg-transparent px-0 text-[13px] uppercase leading-none text-[#112239] outline-none ${DOT_LINE}`}
+                              />
+                            ) : (
+                              <div className={`mt-1 ${DOT_LINE}`} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-x-8 px-1 pb-1">
+              <div>
+                <p className="text-sm">Signature of applicant</p>
+                <div className="mt-5 h-px bg-[#112239]" />
+              </div>
+              <div>
+                <p className="text-sm">Date</p>
+                <div className="mt-5 h-px bg-[#112239]" />
+              </div>
+            </div>
+          </article>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
               className={`${BTN_OUTLINE} ${BTN_MD}`}
@@ -360,7 +364,6 @@ export function SpeakPage() {
                 setTurns(0);
                 setSampleStep(0);
                 setPinned(null);
-                setPreview(false);
               }}
             >
               <RotateIcon /> Clear draft
