@@ -7,10 +7,15 @@ import {
   type ExtractResponse,
   type FormValues,
 } from './heuristic';
+import { callGeminiJson } from './geminiClient';
 import { acceptPersonName } from './personName';
 import { detectUtteranceLang, localizeAsk, preferredLanguageLabel } from './utteranceLang';
 
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
+
+// setGlobalOptions must run before any onRequest function is defined, so
+// this import (which defines the `sfe` function) stays after the call above.
+export { sfe } from './sfe';
 
 const FIELD_IDS = [
   'journey_mode',
@@ -60,32 +65,69 @@ const FIELD_IDS = [
   'no_live_submit_ack',
 ];
 
+// Gemini's REST responseSchema is a restricted OpenAPI subset: it has no
+// `additionalProperties` (a schema using it is rejected with an HTTP 400,
+// which this file's catch clause silently swallows into the heuristic
+// fallback), and a dynamically-keyed object declared as a bare
+// `{ type: 'object' }` with no `properties` was observed to make the
+// model always return `{}` for it. FIELD_IDS is small and fixed, so every
+// field is listed explicitly instead.
+const BOOLEAN_FIELD_IDS = new Set([
+  'pan_available',
+  'form60_declared',
+  'addr_permanent_same_as_current',
+  'ovd_poa_same_as_poi',
+  'aadhaar_voluntary_consent',
+  'photo_consent',
+  'ovd_originals_ack',
+  'existing_bank_customer',
+  'pep_declaration',
+  'tax_resident_india_only',
+  'readback_confirmed',
+  'draft_only_ack',
+  'no_live_submit_ack',
+]);
+const FIELD_PROPERTIES = Object.fromEntries(
+  FIELD_IDS.map((id) => [id, { type: BOOLEAN_FIELD_IDS.has(id) ? 'boolean' : 'string', nullable: true }]),
+);
+
 const RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     field_updates: {
       type: 'object',
-      description: 'Only fields explicitly present or clearly implied in the utterance',
-      additionalProperties: true,
+      description: 'Only fields explicitly present or clearly implied in the utterance. Omit fields not mentioned.',
+      properties: FIELD_PROPERTIES,
     },
     gates: {
       type: 'object',
       properties: {
         answers: {
           type: 'object',
-          additionalProperties: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['choice', 'score', 'noul'] },
-              choice: { type: 'string', nullable: true },
-              score: { type: 'number', nullable: true },
-              noul: { type: 'number', nullable: true },
-              confidence: { type: 'number', nullable: true },
-              probabilities: { type: 'object', additionalProperties: { type: 'number' } },
-              levels: { type: 'array', items: { type: 'string' } },
-            },
-            required: ['type'],
-          },
+          description: 'Keyed by gate name; each value is a {type, choice|score|noul, confidence?} object as described in the prompt.',
+          properties: Object.fromEntries(
+            [
+              'journey_type',
+              'score_completeness',
+              'noul_ready_for_readback',
+              'noul_requests_live_bank_submit',
+              'noul_out_of_scope_excluded_product',
+              'noul_user_confirmed_readback',
+            ].map((gate) => [
+              gate,
+              {
+                type: 'object',
+                properties: {
+                  type: { type: 'string', enum: ['choice', 'score', 'noul'] },
+                  choice: { type: 'string', nullable: true },
+                  score: { type: 'number', nullable: true },
+                  noul: { type: 'number', nullable: true },
+                  confidence: { type: 'number', nullable: true },
+                  levels: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            ]),
+          ),
         },
       },
       required: ['answers'],
@@ -122,42 +164,14 @@ Rules:
 - Utterance: ${JSON.stringify(utterance)}
 Return JSON matching the schema. Include gates.answers for journey_type (choice), score_completeness (score 1-4), noul_ready_for_readback, noul_requests_live_bank_submit, noul_out_of_scope_excluded_product, noul_user_confirmed_readback.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
-      },
-    }),
-  });
-
-  if (!res.ok) {
-    console.warn('Gemini HTTP', res.status, await res.text());
-    return null;
-  }
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) return null;
-
-  let parsed: {
+  const parsed = await callGeminiJson<{
     field_updates?: FormValues;
     gates?: { answers: Record<string, unknown> };
     refuse_live_submit?: boolean;
     out_of_scope?: boolean;
     assistant_message?: string;
-  };
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return null;
-  }
+  }>(apiKey, prompt, RESPONSE_SCHEMA);
+  if (!parsed) return null;
 
   const updates: FormValues = {};
   for (const [k, v] of Object.entries(parsed.field_updates || {})) {

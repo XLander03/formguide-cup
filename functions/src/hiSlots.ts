@@ -8,7 +8,7 @@ import { acceptPersonName } from './personName';
 
 export type SlotValue = string | boolean;
 
-const PLACES: Array<{ re: RegExp; city?: string; state?: string }> = [
+export const PLACES: Array<{ re: RegExp; city?: string; state?: string }> = [
   { re: /नई दिल्ली|नयी दिल्ली/, city: 'New Delhi', state: 'Delhi' },
   {
     re: /बैंगलुरु|बैंगलूरु|बैंग्लुरु|बेंगलुरु|बेंगलूरु|बेंगलूर|बंगलुरु|बैंगलोर|बेंगलोर|बंगलोर/,
@@ -509,7 +509,7 @@ function digitsAfterCue(tail: string, exact: number): string | null {
   return run.length === exact ? run : null;
 }
 
-function extractSpokenPin(text: string): string | null {
+export function extractSpokenPin(text: string): string | null {
   const cue =
     /(?:\bpin(?:\s*code)?\b|\bpincode\b|(?<![\u0900-\u097F])पिन(?:\s*कोड)?(?![\u0900-\u097F]))/gi;
   let m: RegExpExecArray | null;

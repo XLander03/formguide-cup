@@ -8,6 +8,10 @@
         "function": "extract"
       },
       {
+        "source": "/sfe/**",
+        "function": "sfe"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
