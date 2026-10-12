@@ -1,7 +1,13 @@
+export interface SpeakHooks {
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: (error: string) => void;
+}
+
 export function speak(
   text: string,
   lang: 'en-IN' | 'hi-IN' = 'en-IN',
-  onStart?: () => void,
+  hooks?: SpeakHooks,
 ): Promise<void> {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window) || !text.trim()) {
@@ -12,9 +18,15 @@ export function speak(
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
     u.rate = 0.95;
-    if (onStart) u.onstart = () => onStart();
-    u.onend = () => resolve();
-    u.onerror = () => resolve();
+    u.onstart = () => hooks?.onStart?.();
+    u.onend = () => {
+      hooks?.onEnd?.();
+      resolve();
+    };
+    u.onerror = (event) => {
+      hooks?.onError?.(String((event as SpeechSynthesisErrorEvent).error ?? 'unknown'));
+      resolve();
+    };
     window.speechSynthesis.speak(u);
   });
 }
@@ -23,20 +35,20 @@ export function speak(
 export async function speakForUtterance(
   text: string,
   lang: 'en' | 'hi' | 'mixed',
-  onStart?: () => void,
+  hooks?: SpeakHooks,
 ): Promise<void> {
   if (lang !== 'mixed') {
-    await speak(text, lang === 'hi' ? 'hi-IN' : 'en-IN', onStart);
+    await speak(text, lang === 'hi' ? 'hi-IN' : 'en-IN', hooks);
     return;
   }
   const marker = 'Please confirm this read-back.';
   const splitAt = text.indexOf(marker);
   if (splitAt <= 0) {
-    await speak(text, 'hi-IN', onStart);
+    await speak(text, 'hi-IN', hooks);
     return;
   }
-  await speak(text.slice(0, splitAt).trim(), 'hi-IN', onStart);
-  await speak(text.slice(splitAt).trim(), 'en-IN', onStart);
+  await speak(text.slice(0, splitAt).trim(), 'hi-IN', hooks);
+  await speak(text.slice(splitAt).trim(), 'en-IN', hooks);
 }
 
 export function stopSpeaking(): void {

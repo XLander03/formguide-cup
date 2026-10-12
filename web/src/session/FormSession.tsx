@@ -422,7 +422,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setDraftReady(false);
   }, [journey, language]);
 
-  const readbackWatch = useRef<{ poll: number; cap: number; finish: () => void } | null>(null);
+  const readbackWatch = useRef<{ poll: number; cap: number; finish: () => void; startedAt: number } | null>(null);
   const clearReadbackWatch = useCallback(() => {
     const w = readbackWatch.current;
     if (w) {
@@ -455,26 +455,39 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         };
         const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
         const startedAt = Date.now();
+        const log = (msg: string, ...rest: unknown[]) =>
+          console.info(`[readback] +${Date.now() - startedAt}ms ${msg}`, ...rest);
+        const capMs = Math.min(15000, Math.max(3000, text.length * 60) + 1000);
         const poll = window.setInterval(() => {
           if (!started) {
             if (Date.now() - startedAt >= 1500) {
+              log('no-start timeout (no onstart within 1500ms) → cancel');
               stopSpeaking();
               finish();
             }
           } else if (!synth || (!synth.speaking && !synth.pending)) {
+            log('poll: speaking/pending false', { speaking: synth?.speaking, pending: synth?.pending });
             finish();
           }
         }, 500);
         // Hard cap clears UI state only. It never cancels speech: real read-backs can exceed 15s.
         const cap = window.setTimeout(
           () => {
+            log(`hard cap fired (capMs=${capMs}) → clear pill only`);
             finish();
           },
-          Math.min(15000, Math.max(3000, text.length * 60) + 1000),
+          capMs,
         );
-        readbackWatch.current = { poll, cap, finish };
-        speakForUtterance(text, lang, () => {
-          started = true;
+        readbackWatch.current = { poll, cap, finish, startedAt };
+        // Cap timer above is armed here, at speak time — not after onstart.
+        log(`speak called (chars=${text.length}, capMs=${capMs}, lang=${lang})`);
+        speakForUtterance(text, lang, {
+          onStart: () => {
+            started = true;
+            log('onstart');
+          },
+          onEnd: () => log('onend'),
+          onError: (error) => log('onerror', error),
         }).then(finish, finish);
       });
     },
@@ -506,6 +519,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const onStopReadback = useCallback(() => {
     stopSpeaking();
+    if (readbackWatch.current)
+      console.info(`[readback] +${Date.now() - readbackWatch.current.startedAt}ms manual stop`);
     // Resolve the pending watcher so onReadback's finally runs.
     if (readbackWatch.current) readbackWatch.current.finish();
     else clearReadbackWatch();
