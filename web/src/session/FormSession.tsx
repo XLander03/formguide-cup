@@ -105,7 +105,8 @@ export interface FormSessionValue {
   onChange: (id: string, value: string | boolean | null) => void;
   onSubmitUtterance: (text: string) => Promise<void>;
   onSubmitSpeakClip: (wav: Blob) => Promise<{ transcript: string | null; error: string | null }>;
-  onPriya: () => void;
+  /** Pass true for the demo-only low-confidence variant (DOB + mobile flagged). */
+  onPriya: (withFlags?: boolean) => void;
   onClear: () => void;
   onReadback: () => Promise<void>;
   onStopReadback: () => void;
@@ -338,14 +339,22 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [micLang, values, applyUpdates],
   );
 
-  const onPriya = useCallback(() => {
+  const onPriya = useCallback((withFlags?: boolean) => {
     stopSpeaking();
     setSpeaking(false);
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
     setValues(persona);
-    setConfidence({});
+    // Demo-only: strict === true so a click event passed as arg never triggers flags.
+    setConfidence(
+      withFlags === true
+        ? {
+            dob: { confidence: 0.6, reason: 'Digits unclear in audio', confirmed: false },
+            mobile_registered: { confidence: 0.58, reason: 'Digits unclear in audio', confirmed: false },
+          }
+        : {},
+    );
     if (isJourneyId(persona.journey_mode)) setJourney(persona.journey_mode);
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);

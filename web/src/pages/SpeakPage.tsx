@@ -296,7 +296,13 @@ export function SpeakPage() {
                 type="button"
                 className={lightBtn}
                 disabled={session.busy}
-                onClick={() => session.onPriya()}
+                onClick={(event) => {
+                  const demoFlags =
+                    event.shiftKey ||
+                    event.altKey ||
+                    new URLSearchParams(window.location.search).get('flags') === '1';
+                  session.onPriya(demoFlags);
+                }}
               >
                 Fake prefill
               </button>
