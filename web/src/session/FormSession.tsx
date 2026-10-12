@@ -86,6 +86,8 @@ export interface FormSessionValue {
   values: FormValues;
   busy: boolean;
   speaking: boolean;
+  /** True only while the read-back script is being spoken (not next-ask TTS). */
+  readingBack: boolean;
   last: ExtractResponse | null;
   flashIds: Set<string>;
   refuseMsg: string | null;
@@ -126,6 +128,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [values, setValues] = useState<FormValues>(() => seedValues(saved));
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [readingBack, setReadingBack] = useState(false);
   const [last, setLast] = useState<ExtractResponse | null>(null);
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
@@ -342,6 +345,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const onPriya = useCallback((withFlags?: boolean) => {
     stopSpeaking();
     setSpeaking(false);
+    setReadingBack(false);
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
@@ -405,6 +409,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const onClear = useCallback(() => {
     stopSpeaking();
     setSpeaking(false);
+    setReadingBack(false);
     const next = emptyValues();
     if (journey) next.journey_mode = journey;
     if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
@@ -430,16 +435,19 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       assistant_message: script,
     }));
     setSpeaking(true);
+    setReadingBack(true);
     try {
       await speakForUtterance(script, readbackLang);
     } finally {
       setSpeaking(false);
+      setReadingBack(false);
     }
   }, [values, missing, completeness, readbackLang]);
 
   const onStopReadback = useCallback(() => {
     stopSpeaking();
     setSpeaking(false);
+    setReadingBack(false);
   }, []);
 
   const onTryLiveSubmit = useCallback(() => {
@@ -482,6 +490,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     values,
     busy,
     speaking,
+    readingBack,
     last,
     flashIds,
     refuseMsg,

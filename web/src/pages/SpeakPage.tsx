@@ -237,6 +237,13 @@ export function SpeakPage() {
                     : 'Asks next · none missing'
                   : 'Asks next · missing required (one dump can fill many)'}
               </p>
+              {session.readingBack ? (
+                <p role="status" aria-live="polite" className="mt-1 text-[10px] uppercase">
+                  <span className="text-primary">
+                    ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
+                  </span>
+                </p>
+              ) : null}
               {askComplete && flagLine ? (
                 <p className="mt-1 text-sm font-semibold">
                   {flagLine}
@@ -417,7 +424,17 @@ export function SpeakPage() {
                     return (
                       <div
                         key={field.label}
-                        className={`border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
+                        onClick={
+                          isFlagged
+                            ? (event) => {
+                                // Inline edit controls never toggle the row.
+                                const target = event.target as HTMLElement;
+                                if (target.closest('input, select, textarea, button, a, label')) return;
+                                setChecking(open ? null : field.id);
+                              }
+                            : undefined
+                        }
+                        className={`${isFlagged ? 'cursor-pointer ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
                           filling ? 'bg-saffron/30' : asking ? 'bg-primary/10' : ''
                         }`}
                       >
@@ -430,8 +447,13 @@ export function SpeakPage() {
                             <button
                               type="button"
                               aria-expanded={open}
-                              title={conf?.reason || 'Low confidence — please check'}
-                              onClick={() => {
+                              aria-label={`${field.label}: check this value`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (open) {
+                                  setChecking(null);
+                                  return;
+                                }
                                 setChecking(field.id);
                                 window.setTimeout(() => {
                                   const el = inputId ? document.getElementById(inputId) : null;
