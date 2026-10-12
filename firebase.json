@@ -1,11 +1,18 @@
 {
   "hosting": {
-    "public": "web/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "rewrites": [
       {
-        "source": "/api/**",
-        "function": "extract"
+        "source": "/api/speak",
+        "function": {
+          "functionId": "speak",
+          "region": "us-central1"
+        }
       },
       {
         "source": "**",
@@ -17,13 +24,16 @@
     {
       "source": "functions",
       "codebase": "default",
-      "ignore": ["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log", "*.local"],
-      "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
     }
-  ],
-  "emulators": {
-    "functions": { "port": 5001 },
-    "hosting": { "port": 5000 },
-    "ui": { "enabled": true, "port": 4000 }
-  }
+  ]
 }

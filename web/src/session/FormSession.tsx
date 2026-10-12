@@ -88,6 +88,7 @@ export interface FormSessionValue {
   setMicLang: (lang: MicLang) => void;
   onChange: (id: string, value: string | boolean | null) => void;
   onSubmitUtterance: (text: string) => Promise<void>;
+  onSubmitSpeakClip: (wav: Blob) => Promise<{ transcript: string | null; error: string | null }>;
   onPriya: () => void;
   onClear: () => void;
   onReadback: () => Promise<void>;
@@ -189,6 +190,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         const next = { ...prev };
         for (const [key, value] of Object.entries(updates)) {
           if (value === undefined) continue;
+          // Merge only provided keys; do not clear an already-filled value with empty/null.
+          if ((value === null || value === '') && prev[key] !== undefined && prev[key] !== null && prev[key] !== '') {
+            continue;
+          }
           next[key] = value;
         }
         return next;
@@ -237,6 +242,49 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [values, applyUpdates],
   );
 
+
+  const onSubmitSpeakClip = useCallback(
+    async (wav: Blob): Promise<{ transcript: string | null; error: string | null }> => {
+      setBusy(true);
+      setRefuseMsg(null);
+      setDraftReady(false);
+      const body = new FormData();
+      body.append('language', micLang);
+      body.append('current_values', JSON.stringify(values));
+      body.append('audio', wav, 'clip.wav');
+      const ctrl = new AbortController();
+      const timer = window.setTimeout(() => ctrl.abort(), 70000);
+      try {
+        const res = await fetch('/api/speak', { method: 'POST', body, signal: ctrl.signal });
+        const data = (await res.json()) as ExtractResponse & { transcript?: string; error?: string };
+        if (!res.ok) {
+          return {
+            transcript: typeof data?.transcript === 'string' ? data.transcript : null,
+            error: typeof data?.error === 'string' ? data.error : `speak_${res.status}`,
+          };
+        }
+        if (!data || !data.field_updates || typeof data.transcript !== 'string') {
+          return { transcript: null, error: 'bad_response' };
+        }
+        applyUpdates(data.field_updates, data, data.transcript);
+        const ask = data.next_ask?.trim() || '';
+        const hindi = data.reply_lang === 'hi' || /[\u0900-\u097F]/.test(data.transcript);
+        if (ask) {
+          setSpeaking(true);
+          await speakForUtterance(ask, hindi ? 'hi' : 'en');
+        }
+        return { transcript: data.transcript, error: null };
+      } catch {
+        return { transcript: null, error: 'network_error' };
+      } finally {
+        window.clearTimeout(timer);
+        setSpeaking(false);
+        setBusy(false);
+      }
+    },
+    [micLang, values, applyUpdates],
+  );
+
   const onPriya = useCallback(() => {
     stopSpeaking();
     setSpeaking(false);
@@ -260,8 +308,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       field_updates: persona,
       missing_required: miss,
       next_ask:
-        getNextAsk(miss, persona) ||
-        'Demo persona loaded (synthetic PAN/mobile). Tap TTS read-back, then confirm the three gates. Fields vary by bank.',
+        getNextAsk(miss, persona, language === 'hi' ? 'hi' : 'en') ||
+        (miss.length === 0
+          ? language === 'hi'
+            ? 'डेमो प्रीफ़िल पूरा। रीड-बैक सुनें, फिर तीन गेट कन्फ़र्म करें। Fields vary by bank.'
+            : 'Demo persona loaded (synthetic PAN/mobile). Tap TTS read-back, then confirm the three gates. Fields vary by bank.'
+          : null),
       gates: {
         answers: {
           journey_type: {
@@ -285,7 +337,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       assistant_message:
         'Filled Priya Sharma dry-run (synthetic PAN ABCPS1234D / mobile 9876543210). Confirm gates left for you after TTS. Fields vary by bank.',
     });
-  }, [flash]);
+  }, [flash, language]);
 
   const onClear = useCallback(() => {
     stopSpeaking();
@@ -380,6 +432,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setMicLang,
     onChange,
     onSubmitUtterance,
+    onSubmitSpeakClip,
     onPriya,
     onClear,
     onReadback,
