@@ -434,15 +434,19 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => clearReadbackWatch, [clearReadbackWatch]);
 
   /**
-   * Resolves when speech ends, OR when a watchdog decides it is done: speechSynthesis.speaking
-   * went false after starting, never started within 1.5s, or a hard cap of
-   * max(4s, chars*90ms)+2s elapsed. Covers devices with no audio where onend/onerror never fire.
+   * Speaks the read-back and resolves on end/error, OR when a watchdog decides it is done:
+   * - utterance onstart has not fired within 1.5s → cancel speech and finish (no-audio boxes
+   *   can report speechSynthesis.speaking=true with nothing playing, so we do not trust it here);
+   * - after onstart, speechSynthesis.speaking goes false → finish;
+   * - hard cap min(15s, max(3s, chars*60ms) + 1s) clears the pill only (never cancels speech).
+   * Only the no-start path cancels speech.
    */
   const watchReadback = useCallback(
-    (text: string, speech: Promise<void>): Promise<void> => {
+    (text: string, lang: UtteranceLang): Promise<void> => {
       clearReadbackWatch();
       return new Promise<void>((resolve) => {
         let settled = false;
+        let started = false;
         const finish = () => {
           if (settled) return;
           settled = true;
@@ -451,15 +455,27 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         };
         const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
         const startedAt = Date.now();
-        let started = false;
         const poll = window.setInterval(() => {
-          const active = Boolean(synth && (synth.speaking || synth.pending));
-          if (active) started = true;
-          else if (started || Date.now() - startedAt >= 1500) finish();
+          if (!started) {
+            if (Date.now() - startedAt >= 1500) {
+              stopSpeaking();
+              finish();
+            }
+          } else if (!synth || (!synth.speaking && !synth.pending)) {
+            finish();
+          }
         }, 500);
-        const cap = window.setTimeout(finish, Math.max(4000, text.length * 90) + 2000);
+        // Hard cap clears UI state only. It never cancels speech: real read-backs can exceed 15s.
+        const cap = window.setTimeout(
+          () => {
+            finish();
+          },
+          Math.min(15000, Math.max(3000, text.length * 60) + 1000),
+        );
         readbackWatch.current = { poll, cap, finish };
-        speech.then(finish, finish);
+        speakForUtterance(text, lang, () => {
+          started = true;
+        }).then(finish, finish);
       });
     },
     [clearReadbackWatch],
@@ -481,7 +497,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setSpeaking(true);
     setReadingBack(true);
     try {
-      await watchReadback(script, speakForUtterance(script, readbackLang));
+      await watchReadback(script, readbackLang);
     } finally {
       setSpeaking(false);
       setReadingBack(false);
