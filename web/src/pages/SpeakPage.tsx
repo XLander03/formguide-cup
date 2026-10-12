@@ -154,8 +154,8 @@ export function SpeakPage() {
   const flagLine =
     flagCount > 0
       ? session.language === 'hi'
-        ? `रीड-बैक से पहले ${flagCount} चिह्नित फ़ील्ड जाँचें`
-        : `Check ${flagCount} flagged field${flagCount === 1 ? '' : 's'} before read-back`
+        ? `जाँचने के लिए ${flagCount} फ़ील्ड · रीड-बैक उसके बाद`
+        : `${flagCount} field${flagCount === 1 ? '' : 's'} to check · read-back after`
       : null;
   const active = pinned ?? asked?.section ?? 'Identity';
   const started =
@@ -254,12 +254,12 @@ export function SpeakPage() {
                 </p>
               )}
               {!askComplete && flagLine ? (
-                <p className="mt-1 text-xs font-semibold text-saffron">⚑ {flagLine}</p>
+                <p className="mt-1 text-xs font-semibold text-saffron">{flagLine}</p>
               ) : null}
               {offPanelFlagged.map((id) => (
                 <div key={id} className="mt-2 flex items-center justify-between gap-2 text-xs">
                   <span className="min-w-0 truncate">
-                    ⚑ {fieldLabel(id)}: <span className="font-semibold">{String(session.values[id] ?? '')}</span>
+                    {fieldLabel(id)}: <span className="font-semibold">{String(session.values[id] ?? '')}</span>
                   </span>
                   <button
                     type="button"
@@ -412,7 +412,7 @@ export function SpeakPage() {
                       <div
                         key={field.label}
                         className={`border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
-                          filling ? 'bg-saffron/30' : isFlagged ? 'bg-saffron/15' : asking ? 'bg-primary/10' : ''
+                          filling ? 'bg-saffron/30' : asking ? 'bg-primary/10' : ''
                         }`}
                       >
                         <div className="flex items-center justify-between text-[10px] uppercase">
@@ -432,9 +432,9 @@ export function SpeakPage() {
                                   if (el) (el as HTMLInputElement).focus();
                                 }, 0);
                               }}
-                              className="border border-saffron px-1.5 font-bold text-saffron hover:bg-saffron hover:text-foreground"
+                              className="ml-2 shrink-0 rounded-full bg-saffron/30 px-2 font-bold normal-case text-saffron"
                             >
-                              ⚑ Check this
+                              Check this
                             </button>
                           ) : (
                             <span className={filled ? 'text-primary' : asking ? 'font-bold text-saffron' : 'text-muted-foreground'}>
@@ -445,6 +445,9 @@ export function SpeakPage() {
                         {field.id && options ? (
                           <select
                             id={inputId}
+                            onFocus={() => {
+                              if (isFlagged) setChecking(field.id);
+                            }}
                             aria-label={field.label}
                             value={raw}
                             onChange={(event) => session.onChange(field.id as string, event.target.value)}
@@ -460,6 +463,9 @@ export function SpeakPage() {
                         ) : field.id ? (
                           <input
                             id={inputId}
+                            onFocus={() => {
+                              if (isFlagged) setChecking(field.id);
+                            }}
                             aria-label={field.label}
                             value={raw}
                             placeholder={field.hint}
