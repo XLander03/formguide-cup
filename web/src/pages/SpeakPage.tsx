@@ -238,13 +238,13 @@ export function SpeakPage() {
                   : 'Asks next · missing required (one dump can fill many)'}
               </p>
               {session.readingBack ? (
-                <p role="status" aria-live="polite" className="mt-1 text-[10px] uppercase">
-                  <span className="text-primary">
+                <p role="status" aria-live="polite" className="mt-1">
+                  <span className="inline-block bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
                     ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
                   </span>
                 </p>
               ) : null}
-              {askComplete && flagLine ? (
+              {session.readingBack ? null : askComplete && flagLine ? (
                 <p className="mt-1 text-sm font-semibold">
                   {flagLine}
                   <span className="font-normal text-background/60">

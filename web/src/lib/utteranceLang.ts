@@ -206,10 +206,10 @@ export const MIXED_SAMPLE =
   'I want to open a savings account. मेरा नाम Ananya Reddy है, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001. मैं भारतीय निवासी हूँ।';
 
 export const EN_READBACK_FOLLOWUP =
-  'After listening, tick readback_confirmed, draft_only_ack, and no_live_submit_ack — or say “confirmed, draft only, no live submit”.';
+  'After listening, tick “I reviewed the filled details and corrections”, “I understand this saves a draft only”, and “I understand nothing is submitted to a bank” — or say “confirmed, draft only, no live submit”.';
 
 const HI_READBACK_FOLLOWUP =
-  'सुनने के बाद readback_confirmed, draft_only_ack, और no_live_submit_ack चुनें — या बोलें “सही है, केवल ड्राफ्ट, लाइव जमा नहीं”.';
+  'सुनने के बाद “मैंने भरे गए विवरण और सुधार देख लिए”, “मैं समझता/समझती हूँ कि यह केवल ड्राफ्ट है”, और “मैं समझता/समझती हूँ कि बैंक में कुछ जमा नहीं होगा” पर टिक करें — या बोलें “सही है, केवल ड्राफ्ट, लाइव जमा नहीं”.';
 
 export function readbackFollowup(lang: UtteranceLang): string {
   if (lang === 'en') return EN_READBACK_FOLLOWUP;

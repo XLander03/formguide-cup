@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -421,6 +422,49 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setDraftReady(false);
   }, [journey, language]);
 
+  const readbackWatch = useRef<{ poll: number; cap: number; finish: () => void } | null>(null);
+  const clearReadbackWatch = useCallback(() => {
+    const w = readbackWatch.current;
+    if (w) {
+      window.clearInterval(w.poll);
+      window.clearTimeout(w.cap);
+      readbackWatch.current = null;
+    }
+  }, []);
+  useEffect(() => clearReadbackWatch, [clearReadbackWatch]);
+
+  /**
+   * Resolves when speech ends, OR when a watchdog decides it is done: speechSynthesis.speaking
+   * went false after starting, never started within 1.5s, or a hard cap of
+   * max(4s, chars*90ms)+2s elapsed. Covers devices with no audio where onend/onerror never fire.
+   */
+  const watchReadback = useCallback(
+    (text: string, speech: Promise<void>): Promise<void> => {
+      clearReadbackWatch();
+      return new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearReadbackWatch();
+          resolve();
+        };
+        const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
+        const startedAt = Date.now();
+        let started = false;
+        const poll = window.setInterval(() => {
+          const active = Boolean(synth && (synth.speaking || synth.pending));
+          if (active) started = true;
+          else if (started || Date.now() - startedAt >= 1500) finish();
+        }, 500);
+        const cap = window.setTimeout(finish, Math.max(4000, text.length * 90) + 2000);
+        readbackWatch.current = { poll, cap, finish };
+        speech.then(finish, finish);
+      });
+    },
+    [clearReadbackWatch],
+  );
+
   const onReadback = useCallback(async () => {
     const script = buildReadbackScript(values, readbackLang);
     setLast((prev) => ({
@@ -437,18 +481,21 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setSpeaking(true);
     setReadingBack(true);
     try {
-      await speakForUtterance(script, readbackLang);
+      await watchReadback(script, speakForUtterance(script, readbackLang));
     } finally {
       setSpeaking(false);
       setReadingBack(false);
     }
-  }, [values, missing, completeness, readbackLang]);
+  }, [values, missing, completeness, readbackLang, watchReadback]);
 
   const onStopReadback = useCallback(() => {
     stopSpeaking();
+    // Resolve the pending watcher so onReadback's finally runs.
+    if (readbackWatch.current) readbackWatch.current.finish();
+    else clearReadbackWatch();
     setSpeaking(false);
     setReadingBack(false);
-  }, []);
+  }, [clearReadbackWatch]);
 
   const onTryLiveSubmit = useCallback(() => {
     setRefuseMsg(tryLiveMessage(readbackLang));
