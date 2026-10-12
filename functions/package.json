@@ -2,10 +2,14 @@
   "name": "formguide-speak-functions",
   "private": true,
   "main": "lib/index.js",
-  "engines": { "node": "20" },
-  "scripts": { "build": "tsc" },
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
   "dependencies": {
-    "firebase-functions": "^6.3.2"
+    "firebase-functions": "^7.4.0"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
