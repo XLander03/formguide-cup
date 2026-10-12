@@ -26,10 +26,20 @@ export type MicLang = 'en-IN' | 'hi-IN';
 
 const STORAGE_KEY = 'formguide.cup.session.v2';
 
+/** Fields below this model confidence get a 'Check this' flag until confirmed. */
+export const CONFIDENCE_FLAG_THRESHOLD = 0.75;
+
+export interface FieldConfidence {
+  confidence: number;
+  reason?: string;
+  confirmed: boolean;
+}
+
 interface Persisted {
   language: ShellLanguage | null;
   journey: JourneyId | null;
   values: FormValues;
+  confidence?: Record<string, FieldConfidence>;
 }
 
 function loadPersisted(): Persisted | null {
@@ -41,7 +51,9 @@ function loadPersisted(): Persisted | null {
     const journey = isJourneyId(data.journey) ? data.journey : null;
     const values =
       data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
-    return { language, journey, values };
+    const confidence =
+      data.confidence && typeof data.confidence === 'object' ? data.confidence : {};
+    return { language, journey, values, confidence };
   } catch {
     return null;
   }
@@ -82,6 +94,10 @@ export interface FormSessionValue {
   completeness: ExtractResponse['completeness'];
   canReadback: boolean;
   confirmGatesOk: boolean;
+  confidence: Record<string, FieldConfidence>;
+  /** Filled fields with confidence below threshold that the user has not confirmed. */
+  flaggedIds: string[];
+  confirmField: (id: string) => void;
   readyForFill: boolean;
   selectLanguage: (lang: ShellLanguage) => void;
   selectJourney: (id: JourneyId) => void;
@@ -114,6 +130,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const [said, setSaid] = useState<Record<string, string>>({});
+  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(
+    () => saved?.confidence ?? {},
+  );
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
@@ -123,17 +142,30 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     () => completenessLevel(values, missing),
     [values, missing],
   );
-  const canReadback = completeness === 'demo_ready' || completeness === 'full_bank_packet';
+  const flaggedIds = useMemo(
+    () =>
+      Object.entries(confidence)
+        .filter(([id, c]) => {
+          const v = values[id];
+          const filled = typeof v === 'boolean' || (typeof v === 'string' && v.trim() !== '');
+          return filled && !c.confirmed && c.confidence < CONFIDENCE_FLAG_THRESHOLD;
+        })
+        .map(([id]) => id),
+    [confidence, values],
+  );
+  const canReadback =
+    (completeness === 'demo_ready' || completeness === 'full_bank_packet') && flaggedIds.length === 0;
   const confirmGatesOk =
+    flaggedIds.length === 0 &&
     values.readback_confirmed === true &&
     values.draft_only_ack === true &&
     values.no_live_submit_ack === true;
   const readyForFill = language !== null && journey !== null;
 
   useEffect(() => {
-    const payload: Persisted = { language, journey, values };
+    const payload: Persisted = { language, journey, values, confidence };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [language, journey, values]);
+  }, [language, journey, values, confidence]);
 
   useEffect(() => {
     document.documentElement.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
@@ -208,6 +240,17 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           return next;
         });
       }
+      setConfidence((prev) => {
+        const next = { ...prev };
+        const conf = response.field_confidence ?? {};
+        for (const [key, value] of Object.entries(updates)) {
+          if (value === undefined || value === null || value === '') continue;
+          const c = conf[key];
+          const score = c && typeof c.confidence === 'number' ? c.confidence : 1;
+          next[key] = { confidence: score, reason: c?.reason, confirmed: false };
+        }
+        return next;
+      });
       if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
       flash(Object.keys(updates));
       setLast(response);
@@ -223,8 +266,18 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
     setValues((prev) => ({ ...prev, [id]: value }));
+    // Typed / edited by the user → confirmed.
+    setConfidence((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], confirmed: true } } : prev));
     setDraftReady(false);
     if (id === 'journey_mode' && isJourneyId(value)) setJourney(value);
+  }, []);
+
+  const confirmField = useCallback((id: string) => {
+    setConfidence((prev) => ({
+      ...prev,
+      [id]: { confidence: prev[id]?.confidence ?? 1, reason: prev[id]?.reason, confirmed: true },
+    }));
+    setDraftReady(false);
   }, []);
 
   const onSubmitUtterance = useCallback(
@@ -292,6 +345,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setDraftReady(false);
     const persona = priyaDemoValues();
     setValues(persona);
+    setConfidence({});
     if (isJourneyId(persona.journey_mode)) setJourney(persona.journey_mode);
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);
@@ -346,6 +400,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     if (journey) next.journey_mode = journey;
     if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
     setValues(next);
+    setConfidence({});
     setLast(null);
     setSaid({});
     setRefuseMsg(null);
@@ -426,6 +481,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     completeness,
     canReadback,
     confirmGatesOk,
+    confidence,
+    flaggedIds,
+    confirmField,
     readyForFill,
     selectLanguage,
     selectJourney,
