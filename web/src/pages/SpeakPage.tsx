@@ -6,6 +6,7 @@ import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
 import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
+import { useSpeakMic } from '../ui/useMic';
 
 const EN_SAMPLE =
   'Hi, I want to open a savings account. My name is Ananya Reddy, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001.';
@@ -24,9 +25,9 @@ type PreviewField = {
 /** Visual sections from the speak screen. Null ids are shown only — they are not schema fields. */
 const FIELDS: PreviewField[] = [
   { id: 'applicant_full_name', label: 'Full name', hint: 'As on your ID', required: true, section: 'Identity' },
-  { id: 'father_or_spouse_name', label: "Father's / spouse's name", hint: 'Full name', required: true, section: 'Identity' },
+  { id: 'father_or_spouse_name', label: "Father's / spouse's name", hint: 'Full name', required: false, section: 'Identity' },
   { id: 'dob', label: 'Date of birth', hint: 'DD Month YYYY', required: true, section: 'Identity' },
-  { id: 'gender', label: 'Gender', hint: 'Female / Male / Other', required: true, section: 'Identity', enumRef: 'gender' },
+  { id: 'gender', label: 'Gender', hint: 'Female / Male / Other', required: false, section: 'Identity', enumRef: 'gender' },
   { id: null, label: 'Marital status', hint: 'Single / Married', required: false, section: 'Identity' },
   { id: 'nationality', label: 'Nationality', hint: 'Indian', required: false, section: 'Identity' },
   { id: 'mobile_registered', label: 'Mobile number', hint: '10 digits', required: true, section: 'Contact' },
@@ -95,13 +96,24 @@ function GreenDots() {
 export function SpeakPage() {
   const { go } = useRoute();
   const session = useFormSession();
-  const [listening, setListening] = useState(false);
   const [said, setSaid] = useState('');
   const [saidIsSample, setSaidIsSample] = useState(false);
   const [turns, setTurns] = useState(0);
   const [sampleStep, setSampleStep] = useState(0);
   const [preview, setPreview] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
+  const [micNote, setMicNote] = useState<string | null>(null);
+  const mic = useSpeakMic(session.micLang, (wav) => {
+    setMicNote(null);
+    setSaidIsSample(false);
+    setTurns((count) => count + 1);
+    void session.onSubmitSpeakClip(wav).then((result) => {
+      if (result.transcript) setSaid(result.transcript);
+      if (result.error) setMicNote(result.error);
+      else if (!result.transcript) setMicNote('Could not transcribe that clip.');
+    });
+  });
+  const listening = mic.listening;
 
   useEffect(() => {
     if (!preview) return;
@@ -114,9 +126,27 @@ export function SpeakPage() {
 
   const requiredFields = FIELDS.filter((field) => field.required && field.id);
   const requiredFilled = requiredFields.filter((field) => field.id && isFilled(session.values[field.id])).length;
+  // Derive ask-next from live session.missing / values — never fall back to FIELDS[0] when done.
+  const askComplete =
+    session.missing.length === 0 ||
+    session.completeness === 'demo_ready' ||
+    session.completeness === 'full_bank_packet';
   const asked =
-    requiredFields.find((field) => field.id && !isFilled(session.values[field.id])) ?? FIELDS[0];
-  const active = pinned ?? asked.section;
+    (!askComplete && FIELDS.find((field) => field.id && field.id === session.missing[0])) ||
+    (!askComplete &&
+      requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
+    null;
+  const askNextLabel = askComplete
+    ? session.language === 'hi'
+      ? 'ज़रूरी जानकारी पूरी'
+      : 'Required details complete'
+    : asked?.label || (session.language === 'hi' ? 'अगला ज़रूरी फ़ील्ड' : 'Next required field');
+  const askNextHint = askComplete
+    ? session.language === 'hi'
+      ? 'रीड-बैक के लिए तैयार · Fields vary by bank.'
+      : 'Ready for read-back · Fields vary by bank.'
+    : asked?.hint || '';
+  const active = pinned ?? asked?.section ?? 'Identity';
   const started =
     turns > 0 ||
     Boolean(session.last) ||
@@ -154,14 +184,21 @@ export function SpeakPage() {
             type="button"
             aria-label="Tap and speak your details"
             aria-pressed={listening}
-            onClick={() => setListening((on) => !on)}
+            onClick={() => {
+              if (listening) mic.stop();
+              else if (!session.busy) {
+                setMicNote(null);
+                void mic.start();
+              }
+            }}
+            disabled={session.busy && !listening}
             className="grid size-40 place-items-center rounded-full bg-primary text-primary-foreground"
           >
             {listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
           </button>
           <div className="text-center">
             <p className="text-[11px] font-semibold uppercase tracking-wide">
-              {listening ? 'Listening · local only · not a transcript' : 'Tap and speak your details'}
+              {listening ? 'Recording · tap stop · 45 seconds max' : 'Tap and speak your details'}
             </p>
             <GreenDots />
           </div>
@@ -171,8 +208,9 @@ export function SpeakPage() {
               <p className="text-[10px] uppercase text-background/50">
                 {said ? (saidIsSample ? 'You said · sample' : 'You said') : 'You said'}
               </p>
-              <p className="sr-only">Not a live transcript</p>
               <p className="mt-1 font-display text-xl leading-snug">{said ? `“${said}”` : '—'}</p>
+              {micNote ? <p className="mt-1 text-xs text-saffron">{micNote}</p> : null}
+              {mic.error ? <p className="mt-1 text-xs text-saffron">{mic.error}</p> : null}
             </div>
             <div className="border-2 border-primary bg-primary/15 p-3">
               <p className="flex items-center gap-1 text-[10px] uppercase text-primary">
@@ -180,10 +218,17 @@ export function SpeakPage() {
               </p>
               <p className="mt-1 text-sm">{companion}</p>
             </div>
-            <div className="border border-saffron p-3">
-              <p className="text-[10px] uppercase text-saffron">Asks next · missing required</p>
+            <div className={`border p-3 ${askComplete ? 'border-primary' : 'border-saffron'}`}>
+              <p className={`text-[10px] uppercase ${askComplete ? 'text-primary' : 'text-saffron'}`}>
+                {askComplete
+                  ? 'Asks next · none missing'
+                  : 'Asks next · missing required (one dump can fill many)'}
+              </p>
               <p className="mt-1 text-sm font-semibold">
-                {asked.label} <span className="font-normal text-background/60">· {asked.hint}</span>
+                {askNextLabel}
+                {askNextHint ? (
+                  <span className="font-normal text-background/60"> · {askNextHint}</span>
+                ) : null}
               </p>
             </div>
           </div>
@@ -196,10 +241,11 @@ export function SpeakPage() {
               onClick={() => {
                 const text = SAMPLE_LINES[sampleStep % SAMPLE_LINES.length];
                 setSampleStep((step) => step + 1);
+                if (listening) mic.cancel();
                 setSaid(text);
                 setSaidIsSample(true);
+                setMicNote(null);
                 setTurns((count) => count + 1);
-                setListening(false);
                 void session.onSubmitUtterance(text);
               }}
             >
@@ -311,7 +357,7 @@ export function SpeakPage() {
                 </header>
                 <div className="grid sm:grid-cols-2">
                   {rows.map((field) => {
-                    const asking = asked.label === field.label && Boolean(field.id);
+                    const asking = Boolean(asked && asked.label === field.label && field.id);
                     const raw = fieldRaw(field, session.values);
                     const filled = Boolean(field.id && isFilled(session.values[field.id]));
                     const filling = Boolean(field.id && session.flashIds.has(field.id));
@@ -376,9 +422,11 @@ export function SpeakPage() {
               type="button"
               className={`${BTN_OUTLINE} ${BTN_MD}`}
               onClick={() => {
+                if (listening) mic.cancel();
                 session.onClear();
                 setSaid('');
                 setSaidIsSample(false);
+                setMicNote(null);
                 setTurns(0);
                 setSampleStep(0);
                 setPinned(null);
