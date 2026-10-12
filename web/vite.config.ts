@@ -8,7 +8,11 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // No /api proxy to Firebase emulator — extract is served by formguideDevExtractApi
-    // in Vite dev so the clickable demo works without emulators.
+    // /api/extract is served by formguideDevExtractApi so the text demo works offline.
+    // /api/speak needs the Gemini key, which only exists as a Firebase secret, so dev
+    // sends it to the deployed function.
+    proxy: {
+      '/api/speak': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
+    },
   },
 });

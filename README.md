@@ -13,7 +13,7 @@ Builders Cup clickable demo: **Hindi + English voice / text → AOF + KYC draft 
 - Confirm-before-submit · **no live bank submit**
 - UI copy: **“Fields vary by bank.”** — never invent bank form IDs
 - Schema: `aof_kyc_demo_v1` (working copy under `web/src/schema/`)
-- Stack: Vite + React + TypeScript (Hosting) · Firebase Functions Node 20 (Gemini structured JSON)
+- Stack: Vite + React + TypeScript (Hosting) · Firebase Functions Node 20 (`speak`: Gemini transcription + structured JSON)
 
 Teammate Researcher owns `docs/schema/`, `docs/research/`, and `corpus/`. This app does not modify those paths.
 
@@ -27,10 +27,10 @@ npm run dev
 
 Open the printed `http://localhost:5173` URL.
 
-**Works without `GEMINI_API_KEY`:**
+**Demo flow:**
 
 1. Text input → **Fill from text** (client heuristic: name / DOB / PAN / mobile / address / OVD / journey)
-2. Optional **Mic** (Web Speech API, `en-IN` or `hi-IN`) when the browser supports it. Missing prompts and TTS read-back follow the utterance language (Hindi, English, or mixed).
+2. **Mic** (`en-IN` or `hi-IN`) records a clip and sends it to the `speak` function for Gemini transcription and field fill. Missing prompts and TTS read-back follow the utterance language (Hindi, English, or mixed).
 3. **Fill Priya Sharma demo** — synthetic PAN `ABCPS1234D` / mobile `9876543210`
 4. Visible section fill: identity, contact, address, kyc_ovd, account_refs, profile_light, confirm_gates
 5. Missing always-required chips + next-ask copy
@@ -43,83 +43,59 @@ Open the printed `http://localhost:5173` URL.
 ```
 formguide-cup/
   README.md
-  firebase.json
-  .firebaserc          # placeholder project id: formguide-cup
+  firebase.json        # Hosting web/dist, /api/speak -> speak function
+  .firebaserc          # Firebase project faceapp-5397b
   web/                 # Vite React Hosting target
     src/schema/        # aof_kyc_demo_v1 copies for the app
-  functions/           # Firebase Functions (extract / extractLocal)
+  functions/           # Cloud Function `speak` (Gemini transcription + field JSON)
 ```
 
-## Firebase Functions
+## Live deployment
 
-```bash
-cd functions
-npm install
-npm run build
-```
+- App: [faceapp-5397b.web.app](https://faceapp-5397b.web.app) (Firebase project `faceapp-5397b`, Blaze)
+- Hosting serves `web/dist`. `/api/speak` rewrites to the `speak` function in `us-central1`; every other path serves `index.html`.
 
-Endpoints (us-central1):
+## Cloud Function `speak`
 
-| Function | Purpose |
-| --- | --- |
-| `extract` | Production path; binds Secret `GEMINI_API_KEY` when configured |
-| `extractLocal` | Emulator-friendly; reads `process.env.GEMINI_API_KEY` only |
-
-Request:
+The mic records a WAV clip in the browser and posts it as multipart form data:
 
 ```http
-POST /extract
-Content-Type: application/json
+POST /api/speak
+Content-Type: multipart/form-data
 
-{ "utterance": "…", "current_values": { } }
+language=en-IN | hi-IN
+current_values={...}   (JSON)
+audio=clip.wav
 ```
 
-Response includes `field_updates`, `missing_required`, `next_ask`, `gates.answers` (choice/score/noul), `completeness`, `refuse_live_submit`, `source`.
+The function uploads the clip to the Gemini Files API, transcribes it with `gemini-3.5-transcribe`, extracts `aof_kyc_demo_v1` fields with `gemini-3.5-flash-lite`, then deletes the upload. The response includes `transcript`, `field_updates`, `missing_required`, `next_ask`, `reply_lang`, `completeness`, and `refuse_live_submit`. The browser reads `next_ask` back with speech synthesis.
 
-### Set `GEMINI_API_KEY`
+Typed text does not call Gemini. **Fill from text** uses the client heuristic (`/api/extract` in Vite dev, otherwise in-browser).
 
-**Local emulator / shell:**
+### `GEMINI_API_KEY`
+
+The key lives only in the Firebase secret bound to `speak`:
 
 ```bash
-export GEMINI_API_KEY="your-key"
-# optional: point the web app at the emulator
-export VITE_FUNCTIONS_URL="http://127.0.0.1:5001/formguide-cup/us-central1"
-cd web && npm run dev
+npx firebase-tools functions:secrets:set GEMINI_API_KEY
 ```
 
-**Deployed Functions:** set the env/secret on the function, e.g.
+Never put it in the repo or the web build.
 
-```bash
-firebase functions:secrets:set GEMINI_API_KEY
-# then bind GEMINI_API_KEY into the extract function env in Firebase console,
-# or use params/defineSecret in a follow-up if you prefer Secret Manager injection.
-```
+## Local dev
 
-If the key is missing or Gemini errors, Functions **and the browser** degrade to the same heuristic parser.
-
-## Emulators
-
-```bash
-# from repo root — requires Firebase CLI (`npm i -g firebase-tools`)
-npm install --prefix web && npm install --prefix functions
-npm run build --prefix web
-npm run build --prefix functions
-firebase emulators:start --only hosting,functions
-```
-
-Vite already proxies `/api` → `http://127.0.0.1:5001/formguide-cup/us-central1` in dev. Hosting rewrites `/api/**` → `extract` for production.
+`npm run dev` serves `/api/extract` from a Vite middleware and proxies `/api/speak` to the deployed function on `faceapp-5397b.web.app`, so the mic uses real Gemini without a local key.
 
 ## Deploy Hosting + Functions
 
-1. Replace placeholder project in `.firebaserc` / `firebase use <your-project>`
-2. Enable Blaze if using Secrets / outbound Gemini
-3. Build & deploy:
+Requires `npx firebase-tools login` with an account that has access to `faceapp-5397b`.
 
 ```bash
-cd web && npm ci && npm run build
-cd ../functions && npm ci && npm run build
-cd .. && firebase deploy --only hosting,functions
+npm ci --prefix web && npm ci --prefix functions
+npm run deploy   # builds web/dist, then firebase deploy --only hosting,functions
 ```
+
+The functions predeploy hook runs `tsc`. Deploy only `hosting,functions`; the project's Realtime Database and Storage are not owned by this app.
 
 ## Notes
 
