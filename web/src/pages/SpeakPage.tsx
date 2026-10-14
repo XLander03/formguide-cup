@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
-import { useFormSession } from '../session/FormSession';
+import { flagsDemoRequested, useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
 import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
@@ -240,11 +240,20 @@ export function SpeakPage() {
                   : 'Asks next · missing required (one dump can fill many)'}
               </p>
               {session.readingBack ? (
-                <p role="status" aria-live="polite" className="mt-1">
-                  <span className="inline-block bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
-                    ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
-                  </span>
-                </p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p role="status" aria-live="polite">
+                    <span className="inline-block bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
+                      ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    className="shrink-0 border-2 border-background bg-background px-3 py-1 text-[11px] font-bold uppercase text-foreground hover:bg-primary hover:text-primary-foreground"
+                    onClick={() => session.onStopReadback()}
+                  >
+                    Stop
+                  </button>
+                </div>
               ) : null}
               {session.readingBack ? null : askComplete && flagLine ? (
                 <p className="mt-1 text-sm font-semibold">
@@ -306,23 +315,26 @@ export function SpeakPage() {
                 className={lightBtn}
                 disabled={session.busy}
                 onClick={(event) => {
-                  const demoFlags =
-                    event.shiftKey ||
-                    event.altKey ||
-                    new URLSearchParams(window.location.search).get('flags') === '1';
+                  const demoFlags = event.shiftKey || event.altKey || flagsDemoRequested();
                   session.onPriya(demoFlags);
                 }}
               >
                 Fake prefill
               </button>
-              <button
-                type="button"
-                className={lightBtn}
-                disabled={!session.canReadback || session.busy || session.speaking}
-                onClick={() => void session.onReadback()}
-              >
-                Read back
-              </button>
+              {session.readingBack ? (
+                <button type="button" className={lightBtn} onClick={() => session.onStopReadback()}>
+                  <StopIcon /> Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={lightBtn}
+                  disabled={!session.canReadback || session.busy || session.speaking}
+                  onClick={() => void session.onReadback()}
+                >
+                  Read back
+                </button>
+              )}
             </div>
             <p className="text-center text-[10px] font-semibold text-saffron">
               FAKE PREFILL DEMO · not CKYC or DigiLocker data

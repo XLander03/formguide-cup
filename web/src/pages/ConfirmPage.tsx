@@ -73,14 +73,6 @@ export function ConfirmPage() {
                 <RotateIcon /> New draft
               </button>
             </div>
-            <button
-              type="button"
-              className={`${BTN_OUTLINE} ${BTN_MD} mt-3 border-background text-background hover:bg-background hover:text-foreground`}
-              disabled={!session.canReadback || session.busy}
-              onClick={session.onTryLiveSubmit}
-            >
-              Try live bank submit
-            </button>
           </div>
           <Receipt rows={rows} session={session} />
         </section>
@@ -144,14 +136,6 @@ export function ConfirmPage() {
           onClick={session.emitDraft}
         >
           <CheckIcon /> Save draft only
-        </button>
-        <button
-          type="button"
-          className={`${BTN_OUTLINE} ${BTN_MD} mt-3 w-full`}
-          disabled={!session.canReadback || session.busy}
-          onClick={session.onTryLiveSubmit}
-        >
-          Try live bank submit
         </button>
         <p className="mt-3 text-center text-[11px] text-saffron">
           No Aadhaar OTP · no core-banking submit · no live CKYC

@@ -34,9 +34,8 @@ Open the printed `http://localhost:5173` URL.
 3. **Fill Priya Sharma demo** — synthetic PAN `ABCPS1234D` / mobile `9876543210`
 4. Visible section fill: identity, contact, address, kyc_ovd, account_refs, profile_light, confirm_gates
 5. Missing always-required chips + next-ask copy
-6. When `demo_ready+`: **TTS read-back** (`speechSynthesis`) → tick confirm gates (or speak confirmations)
-7. **Try live bank submit** → refused
-8. **Emit draft (local only)** after the three acks — JSON preview, no bank POST
+6. When `demo_ready+` and no field is flagged: **Read back** (`speechSynthesis`) → tick confirm gates (or speak confirmations)
+7. **Save draft only** after the three acks — JSON preview on this device. Nothing is submitted to a bank.
 
 ## Project layout
 

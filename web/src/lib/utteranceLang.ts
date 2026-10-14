@@ -216,15 +216,3 @@ export function readbackFollowup(lang: UtteranceLang): string {
   if (lang === 'mixed') return `${HI_READBACK_FOLLOWUP} ${EN_READBACK_FOLLOWUP}`;
   return HI_READBACK_FOLLOWUP;
 }
-
-export const EN_TRY_LIVE =
-  'Refused: this demo never posts to a bank. Live bank submit is disabled. Save a draft only after confirm gates. Fields vary by bank.';
-
-const HI_TRY_LIVE =
-  'मना किया: यह डेमो बैंक को कुछ नहीं भेजता। लाइव जमा बंद है। पुष्टि के बाद केवल ड्राफ्ट। Fields vary by bank.';
-
-export function tryLiveMessage(lang: UtteranceLang): string {
-  if (lang === 'en') return EN_TRY_LIVE;
-  if (lang === 'mixed') return `${HI_TRY_LIVE} ${EN_TRY_LIVE}`;
-  return HI_TRY_LIVE;
-}
