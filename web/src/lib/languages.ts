@@ -2,7 +2,9 @@
  * Picker + speak hint for India locales of gemini-3.5-transcribe.
  * Same codes as functions/src/languages.ts. English and Hindi are Supported;
  * every other code is Experimental on the model language table and shows Beta.
- * Tamil and Urdu are not on that table, so they are not listed.
+ * Tamil (ta-IN) and Urdu (ur-IN / ur-PK) are not on that table, so they are not listed.
+ * The table also lists Punjabi (Gurmukhi script) as pa-Guru-IN. The picker offers
+ * one Punjabi row and sends pa-IN. Sindhi is listed as sd-Arab-IN and is kept.
  * https://ai.google.dev/gemini-api/docs/models/gemini-3.5-transcribe
  * https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-transcribe
  */
@@ -19,7 +21,6 @@ export const LANGUAGES = [
   { id: 'pa', bcp47: 'pa-IN', englishName: 'Punjabi', pickerLabel: 'ਪੰਜਾਬੀ', beta: true },
   { id: 'as', bcp47: 'as-IN', englishName: 'Assamese', pickerLabel: 'অসমীয়া', beta: true },
   { id: 'sd', bcp47: 'sd-Arab-IN', englishName: 'Sindhi', pickerLabel: 'سنڌي', beta: true },
-  { id: 'pa-guru', bcp47: 'pa-Guru-IN', englishName: 'Punjabi (Gurmukhi)', pickerLabel: 'ਪੰਜਾਬੀ (Gurmukhi)', beta: true },
 ] as const;
 
 export type LanguageOption = (typeof LANGUAGES)[number];

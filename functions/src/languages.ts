@@ -6,6 +6,9 @@
  *
  * en-IN and hi-IN are Supported. Every other India code on that list is Experimental.
  * Not offered, because they are not on the list: Tamil (ta-IN), Urdu (ur-IN / ur-PK).
+ * The table also lists Punjabi (Gurmukhi script) as pa-Guru-IN. The picker sends
+ * one Punjabi hint, pa-IN, so pa-Guru-IN is not accepted.
+ * Sindhi (Arabic script) sd-Arab-IN is on the list and is accepted.
  * Also omitted: bn-BD (Bangladesh) and ne-NP (Nepal), which are not India locales.
  * Keep this list aligned with web/src/lib/languages.ts.
  */
@@ -22,7 +25,6 @@ export const SPEAK_LANGUAGES = [
   { bcp47: 'pa-IN', englishName: 'Punjabi', beta: true },
   { bcp47: 'as-IN', englishName: 'Assamese', beta: true },
   { bcp47: 'sd-Arab-IN', englishName: 'Sindhi', beta: true },
-  { bcp47: 'pa-Guru-IN', englishName: 'Punjabi (Gurmukhi)', beta: true },
 ] as const;
 
 export type SpeakLanguage = (typeof SPEAK_LANGUAGES)[number]['bcp47'];
