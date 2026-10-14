@@ -69,6 +69,20 @@ audio=clip.wav
 
 The function uploads the clip to the Gemini Files API, transcribes it with `gemini-3.5-transcribe`, extracts `aof_kyc_demo_v1` fields with `gemini-3.5-flash-lite`, then deletes the upload. The response includes `transcript`, `field_updates`, `missing_required`, `next_ask`, `reply_lang`, `completeness`, and `refuse_live_submit`. The browser reads `next_ask` back with speech synthesis.
 
+### PAN photo (`mode=pan`)
+
+The same `speak` function accepts one extra multipart mode. The browser downscales the photo to a JPEG about 1024px on the long edge and posts it on `/api/speak`. The function sends that JPEG inline to `gemini-3.5-flash-lite` (no Files API upload, nothing stored) and may return only `applicant_full_name`, `dob`, and `pan_number`.
+
+```http
+POST /api/speak
+Content-Type: multipart/form-data
+
+mode=pan
+image=pan.jpg
+```
+
+A blurry photo or anything that is not a PAN card returns an error and no field updates. Aadhaar is not read. Memory, instances, timeout, concurrency, and region are unchanged. A sample card marked SAMPLE is at `web/public/sample-pan.png` (fake name SAMPLE PERSON, DOB 15/08/1990, PAN SAMPL1234Z).
+
 Typed text does not call Gemini. **Fill from text** uses the client heuristic (`/api/extract` in Vite dev, otherwise in-browser).
 
 ### `GEMINI_API_KEY`

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
@@ -103,7 +103,11 @@ export function SpeakPage() {
   const [preview, setPreview] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
   const [micNote, setMicNote] = useState<string | null>(null);
+  const [panNote, setPanNote] = useState<string | null>(null);
+  const [panError, setPanError] = useState<string | null>(null);
+  const [readingPan, setReadingPan] = useState(false);
   const [checking, setChecking] = useState<string | null>(null);
+  const panFileRef = useRef<HTMLInputElement>(null);
   const mic = useSpeakMic(session.micLang, (wav) => {
     setMicNote(null);
     setSaidIsSample(false);
@@ -292,6 +296,48 @@ export function SpeakPage() {
           </div>
 
           <div className="mt-auto grid w-full gap-2">
+            <input
+              ref={panFileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                event.target.value = '';
+                if (!file || session.busy) return;
+                setMicNote(null);
+                setPanNote(null);
+                setPanError(null);
+                setReadingPan(true);
+                void session
+                  .onSubmitPanPhoto(file)
+                  .then((result) => {
+                    if (result.error) setPanError(result.error);
+                    else if (result.note) setPanNote(result.note);
+                  })
+                  .catch(() => {
+                    setPanError("Could not read that photo. Nothing was filled.");
+                  })
+                  .finally(() => setReadingPan(false));
+              }}
+            />
+            <button
+              type="button"
+              className={lightBtn}
+              disabled={session.busy || listening}
+              onClick={() => panFileRef.current?.click()}
+            >
+              {readingPan ? 'Reading PAN…' : 'Upload PAN photo'}
+            </button>
+            <a
+              href="/sample-pan.png"
+              download="sample-pan.png"
+              className="text-center text-[10px] text-background/70 underline"
+            >
+              Sample PAN card · marked SAMPLE
+            </a>
+            {panError ? <p className="text-center text-[10px] text-saffron">{panError}</p> : null}
+            {panNote ? <p className="text-center text-[10px] text-background/80">{panNote}</p> : null}
             <button
               type="button"
               className={lightBtn}
@@ -431,10 +477,19 @@ export function SpeakPage() {
                     const heard = field.id ? session.said[field.id] : '';
                     const options = field.enumRef ? SCHEMA.enums[field.enumRef] ?? [] : null;
                     const isFlagged = Boolean(field.id && flagged.includes(field.id));
+                    const fromDoc = Boolean(field.id && filled && session.documentFieldIds.includes(field.id));
                     const conf = field.id ? session.confidence[field.id] : undefined;
                     const open = isFlagged && checking === field.id;
                     const inputId = field.id ? `speak-field-${field.id}` : undefined;
-                    const status = filling ? '● filling' : filled ? '✓ heard' : asking ? 'asking' : 'missing';
+                    const status = filling
+                      ? '● filling'
+                      : fromDoc
+                        ? 'from document'
+                        : filled
+                          ? '✓ heard'
+                          : asking
+                            ? 'asking'
+                            : 'missing';
                     return (
                       <div
                         key={field.label}
@@ -479,8 +534,16 @@ export function SpeakPage() {
                               Check this
                             </button>
                           ) : (
-                            <span className={filled ? 'text-primary' : asking ? 'font-bold text-saffron' : 'text-muted-foreground'}>
-                              {status}
+                            <span
+                              className={
+                                fromDoc || filled
+                                  ? 'text-primary'
+                                  : asking
+                                    ? 'font-bold text-saffron'
+                                    : 'text-muted-foreground'
+                              }
+                            >
+                              <span className={fromDoc ? 'normal-case' : ''}>{status}</span>
                             </span>
                           )}
                         </div>
@@ -557,6 +620,9 @@ export function SpeakPage() {
                 setSaid('');
                 setSaidIsSample(false);
                 setMicNote(null);
+                setPanNote(null);
+                setPanError(null);
+                setReadingPan(false);
                 setTurns(0);
                 setSampleStep(0);
                 setPinned(null);
@@ -582,6 +648,7 @@ export function SpeakPage() {
           title={label}
           values={session.values}
           flashIds={session.flashIds}
+          documentFieldIds={session.documentFieldIds}
           onClose={() => setPreview(false)}
         />
       ) : null}
@@ -616,12 +683,14 @@ function FormPreview({
   title,
   values,
   flashIds,
+  documentFieldIds,
   onClose,
 }: {
   version: number;
   title: string;
   values: Record<string, string | boolean | null | undefined>;
   flashIds: Set<string>;
+  documentFieldIds: string[];
   onClose: () => void;
 }) {
   return (
@@ -687,6 +756,7 @@ function FormPreview({
                   {rows.map((field) => {
                     const raw = fieldRaw(field, values);
                     const fresh = Boolean(field.id && flashIds.has(field.id));
+                    const fromDoc = Boolean(field.id && documentFieldIds.includes(field.id) && raw);
                     const text = raw ? shownValue(field, raw).toUpperCase() : '';
                     return (
                       <div key={field.label} className="mt-2">
@@ -701,6 +771,7 @@ function FormPreview({
                         >
                           {text}
                         </p>
+                        {fromDoc ? <p className="text-[8px] normal-case text-primary">from document</p> : null}
                       </div>
                     );
                   })}

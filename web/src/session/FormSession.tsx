@@ -12,6 +12,16 @@ import {
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
+import { downscaleToJpeg } from '../lib/panImage';
+import {
+  PAN_MISMATCH_REASON,
+  decidePanApply,
+  displayPanValue,
+  panResultNote,
+  speechAgainstPan,
+  type PanDocId,
+  type PanDocValues,
+} from '../lib/panDocument';
 import { maskSensitiveFields } from '../lib/pii';
 import {
   completenessLevel,
@@ -142,6 +152,9 @@ export interface FormSessionValue {
   /** Filled fields with confidence below threshold that the user has not confirmed. */
   flaggedIds: string[];
   confirmField: (id: string) => void;
+  /** Name, DOB, and PAN last filled from a PAN photo. Memory only — not persisted. */
+  documentFieldIds: string[];
+  onSubmitPanPhoto: (file: Blob) => Promise<{ error: string | null; note: string | null }>;
   readyForFill: boolean;
   selectLanguage: (lang: ShellLanguage) => void;
   selectJourney: (id: JourneyId) => void;
@@ -187,12 +200,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(() =>
     bootFlags.current ? demoFlagConfidence() : (saved?.confidence ?? {}),
   );
-  /** Per-field provenance ('gemini' | 'heuristic' | 'manual' | 'priya_demo' |
-   * 'heuristic-dev') — drives the confidence badge in the bank-handoff
-   * preview and rides along in the exported JSON. Distinct from
-   * `confidence` above: that's a numeric model-sourced score that gates
-   * the readback flow; this is a categorical label for display/export. */
   const [fieldSource, setFieldSource] = useState<Record<string, string>>({});
+  // PAN photo bytes are never kept. These two track the read for this page load only.
+  const [fromDocument, setFromDocument] = useState<Set<string>>(() => new Set());
+  const fromDocumentRef = useRef<Set<string>>(new Set());
+  const panSnapshotRef = useRef<PanDocValues>({});
+  const documentFieldIds = useMemo(() => [...fromDocument], [fromDocument]);
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
@@ -223,6 +236,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const readyForFill = language !== null && journey !== null;
 
   useEffect(() => {
+    // Photo bytes and the PAN snapshot stay in memory only — never this payload.
     const payload: Persisted = { language, journey, values, confidence };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [language, journey, values, confidence]);
@@ -313,6 +327,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           const score = c && typeof c.confidence === 'number' ? c.confidence : 1;
           next[key] = { confidence: score, reason: c?.reason, confirmed: false };
         }
+        // A spoken value that arrives after the PAN fill is checked here too.
+        if (utterance?.trim()) {
+          const judged = speechAgainstPan(updates, panSnapshotRef.current);
+          for (const id of judged.matches) {
+            next[id] = { confidence: 1, confirmed: true };
+          }
+          for (const id of judged.conflicts) {
+            next[id] = { confidence: 0.4, reason: PAN_MISMATCH_REASON, confirmed: false };
+          }
+        }
         return next;
       });
       setFieldSource((prev) => {
@@ -322,6 +346,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      if (utterance?.trim()) {
+        const judged = speechAgainstPan(updates, panSnapshotRef.current);
+        if (judged.matches.length || judged.conflicts.length) {
+          const next = new Set(fromDocumentRef.current);
+          for (const id of judged.matches) next.delete(id);
+          for (const id of judged.conflicts) next.delete(id);
+          fromDocumentRef.current = next;
+          setFromDocument(next);
+        }
+      }
       if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
       flash(Object.keys(updates));
       setLast(response);
@@ -348,9 +382,15 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    // Typed / edited by the user → confirmed.
+    // Typed / edited by the user → confirmed, which clears a Check-this flag.
     setConfidence((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], confirmed: true } } : prev));
     setFieldSource((prev) => ({ ...prev, [id]: 'manual' }));
+    if (fromDocumentRef.current.has(id)) {
+      const next = new Set(fromDocumentRef.current);
+      next.delete(id);
+      fromDocumentRef.current = next;
+      setFromDocument(next);
+    }
     setDraftReady(false);
     if (id === 'journey_mode' && isJourneyId(value)) setJourney(value);
   }, []);
@@ -421,6 +461,108 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [micLang, values, applyUpdates],
   );
 
+  const onSubmitPanPhoto = useCallback(
+    async (file: Blob): Promise<{ error: string | null; note: string | null }> => {
+      setBusy(true);
+      setRefuseMsg(null);
+      setDraftReady(false);
+      const fail = "Could not read that photo. Nothing was filled.";
+      try {
+        let jpeg: Blob;
+        try {
+          jpeg = await downscaleToJpeg(file);
+        } catch (err) {
+          const tooBig = err instanceof Error && err.message === 'too_large';
+          return {
+            error: tooBig ? 'That photo is too large. Nothing was filled.' : fail,
+            note: null,
+          };
+        }
+        const body = new FormData();
+        body.append('mode', 'pan');
+        body.append('image', jpeg, 'pan.jpg');
+        const ctrl = new AbortController();
+        const timer = window.setTimeout(() => ctrl.abort(), 70000);
+        try {
+          const res = await fetch('/api/speak', { method: 'POST', body, signal: ctrl.signal });
+          const data = (await res.json()) as {
+            mode?: string;
+            field_updates?: PanDocValues;
+            message?: string;
+          };
+          if (!res.ok || data.mode !== 'pan' || !data.field_updates || typeof data.field_updates !== 'object') {
+            const message = typeof data?.message === 'string' && data.message.trim() ? data.message : fail;
+            return { error: message, note: null };
+          }
+          const extracted: PanDocValues = {};
+          for (const id of ['applicant_full_name', 'dob', 'pan_number'] as const) {
+            const value = data.field_updates[id];
+            if (typeof value === 'string' && value.trim()) extracted[id] = value;
+          }
+          if (!extracted.applicant_full_name && !extracted.dob && !extracted.pan_number) {
+            return {
+              error: "That photo isn't a readable PAN card. Nothing was filled.",
+              note: null,
+            };
+          }
+          const decision = decidePanApply(values, extracted, fromDocumentRef.current);
+          const snap: PanDocValues = {};
+          for (const id of Object.keys(extracted) as PanDocId[]) {
+            const raw = extracted[id];
+            if (raw) snap[id] = displayPanValue(id, raw);
+          }
+          panSnapshotRef.current = snap;
+          const nextDoc = new Set(fromDocumentRef.current);
+          for (const id of decision.conflicts) nextDoc.delete(id);
+          for (const id of decision.matches) nextDoc.delete(id);
+          for (const id of decision.fromDocument) nextDoc.add(id);
+          fromDocumentRef.current = nextDoc;
+          setFromDocument(nextDoc);
+          if (Object.keys(decision.fill).length) {
+            setValues((prev) => ({ ...prev, ...decision.fill }));
+            flash(Object.keys(decision.fill));
+          }
+          setConfidence((prev) => {
+            const next = { ...prev };
+            for (const id of decision.fromDocument) {
+              next[id] = { confidence: 1, confirmed: true };
+            }
+            for (const id of decision.matches) {
+              next[id] = { confidence: 1, confirmed: true };
+            }
+            for (const id of decision.conflicts) {
+              next[id] = { confidence: 0.4, reason: PAN_MISMATCH_REASON, confirmed: false };
+            }
+            return next;
+          });
+          const merged = { ...values, ...decision.fill };
+          const miss = getMissingRequired(merged);
+          const level = completenessLevel(merged, miss);
+          const note = panResultNote(decision, language === 'hi');
+          setLast((prev) => ({
+            field_updates: decision.fill,
+            missing_required: miss,
+            next_ask: getNextAsk(miss, merged, readbackLang),
+            gates: prev?.gates ?? { answers: {} },
+            completeness: level,
+            refuse_live_submit: false,
+            source: 'gemini',
+            reply_lang: readbackLang,
+            assistant_message: note,
+          }));
+          return { error: null, note };
+        } catch {
+          return { error: fail, note: null };
+        } finally {
+          window.clearTimeout(timer);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [values, flash, language, readbackLang],
+  );
+
   const onPriya = useCallback((withFlags?: boolean) => {
     stopSpeaking();
     setSpeaking(false);
@@ -432,6 +574,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setValues(persona);
     // Demo-only: strict === true so a click event passed as arg never triggers flags.
     setConfidence(withFlags === true ? demoFlagConfidence() : {});
+    panSnapshotRef.current = {};
+    fromDocumentRef.current = new Set();
+    setFromDocument(new Set());
     if (isJourneyId(persona.journey_mode)) setJourney(persona.journey_mode);
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);
@@ -503,6 +648,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
     setValues(next);
     setConfidence({});
+    panSnapshotRef.current = {};
+    fromDocumentRef.current = new Set();
+    setFromDocument(new Set());
     setLast(null);
     setSaid({});
     setFieldSource({});
@@ -653,6 +801,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     confidence,
     flaggedIds,
     confirmField,
+    documentFieldIds,
+    onSubmitPanPhoto,
     readyForFill,
     selectLanguage,
     selectJourney,

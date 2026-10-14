@@ -1,6 +1,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { readSpeakRequest } from './wav';
+import { extractPanFromImage, readPanImageRequest } from './pan';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
 
@@ -629,6 +630,36 @@ export const speak = onRequest(
 
     const raw = rawBuffer(req);
     const contentType = String(req.header('content-type') || '');
+    const panGate = readPanImageRequest(raw, contentType);
+    if (panGate.kind === 'reject') {
+      res.status(panGate.httpStatus).json({ error: panGate.error, message: panGate.message });
+      return;
+    }
+    if (panGate.kind === 'pan') {
+      const apiKey = geminiApiKey.value();
+      try {
+        const extracted = await extractPanFromImage(apiKey, panGate.image);
+        if (!extracted.ok) {
+          res.status(extracted.httpStatus).json({ error: extracted.error, message: extracted.message });
+          return;
+        }
+        res.json({
+          mode: 'pan',
+          field_updates: extracted.fields,
+          refuse_live_submit: false,
+          source: 'gemini',
+          assistant_message:
+            'Filled name, date of birth, and PAN from the document. Fields vary by bank.',
+        });
+      } catch {
+        console.error('pan_failed');
+        res.status(502).json({
+          error: 'pan_failed',
+          message: "Could not read that photo. Nothing was filled.",
+        });
+      }
+      return;
+    }
     const read = readSpeakRequest(raw, contentType);
     if (!read.ok) {
       res.status(400).json({ error: read.error });
