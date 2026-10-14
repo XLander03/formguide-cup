@@ -155,7 +155,7 @@ export function JourneyPage() {
           Just tell me what you need.
         </h1>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-background/80">
-          Speak in Hindi, English, or a mix. I'll detect your language and pick the right form.
+          Speak in your language, or mix in English. I'll detect your language and pick the right form.
         </p>
 
         <div className="mt-10 flex flex-col items-center">
