@@ -33,10 +33,12 @@ const OVD_CHECKBOX: Record<string, string> = {
   passport: 'chk_Passport',
   driving_licence: 'chk_Driving_Licence_No',
   voter_id: 'chk_Voter_Id_Card_No',
-  // proof_of_possession_of_aadhaar handled separately (own checkbox + the
-  // four last-digit boxes). nrega_job_card / npr_letter have no matching
-  // checkbox on this particular bank's form — left unticked rather than
-  // guessing, consistent with never inventing bank form fields.
+  // proof_of_possession_of_aadhaar stays a valid document type elsewhere.
+  // On this PDF, Chk_Adhaar stays unchecked and txt_9th_digit_of_adhaar
+  // through txt_12th_digit_of_adhaar stay empty — no Aadhaar number is written.
+  // nrega_job_card / npr_letter have no matching checkbox on this particular
+  // bank's form — left unticked rather than guessing, consistent with never
+  // inventing bank form fields.
 };
 
 const OVD_POA_CHECKBOX: Record<string, string> = {
@@ -67,11 +69,6 @@ function safeCheck(form: PDFForm, name: string | undefined): void {
 function isoToDmy(iso: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return match ? `${match[3]}/${match[2]}/${match[1]}` : iso;
-}
-
-function lastFourDigits(value: string): string | null {
-  const match = /(\d{4})\D*$/.exec(value);
-  return match ? match[1] : null;
 }
 
 function fillIdentity(form: PDFForm, v: FormValues): void {
@@ -109,19 +106,8 @@ function fillAddress(form: PDFForm, v: FormValues): void {
 
 function fillOvd(form: PDFForm, v: FormValues): void {
   const poiType = typeof v.ovd_poi_type === 'string' ? v.ovd_poi_type : null;
-  if (poiType === 'proof_of_possession_of_aadhaar') {
-    safeCheck(form, 'Chk_Adhaar');
-    // ovd_poi_number is already masked to "•••• •••• 1234" upstream — this
-    // form only ever wants the last 4 digits anyway, so the masking and
-    // this real form's own design happen to line up exactly.
-    const last4 = typeof v.ovd_poi_number === 'string' ? lastFourDigits(v.ovd_poi_number) : null;
-    if (last4) {
-      safeSetText(form, 'txt_9th_digit_of_adhaar', last4[0]);
-      safeSetText(form, 'txt_10th_digit_of_adhaar', last4[1]);
-      safeSetText(form, 'txt_11th_digit_of_adhaar', last4[2]);
-      safeSetText(form, 'txt_12th_digit_of_adhaar', last4[3]);
-    }
-  } else if (poiType && OVD_CHECKBOX[poiType]) {
+  // Never check Chk_Adhaar or write any Aadhaar digit onto this PDF.
+  if (poiType && poiType !== 'proof_of_possession_of_aadhaar' && OVD_CHECKBOX[poiType]) {
     safeCheck(form, OVD_CHECKBOX[poiType]);
     const number = typeof v.ovd_poi_number === 'string' ? v.ovd_poi_number : null;
     if (poiType === 'passport') {
