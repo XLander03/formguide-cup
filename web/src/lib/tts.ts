@@ -1,3 +1,6 @@
+/** Bumped by every new utterance and by stopSpeaking; a mixed read-back stops when it changes. */
+let speechGeneration = 0;
+
 export interface SpeakHooks {
   onStart?: () => void;
   onEnd?: () => void;
@@ -37,6 +40,7 @@ export async function speakForUtterance(
   lang: 'en' | 'hi' | 'mixed',
   hooks?: SpeakHooks,
 ): Promise<void> {
+  const generation = ++speechGeneration;
   if (lang !== 'mixed') {
     await speak(text, lang === 'hi' ? 'hi-IN' : 'en-IN', hooks);
     return;
@@ -48,9 +52,12 @@ export async function speakForUtterance(
     return;
   }
   await speak(text.slice(0, splitAt).trim(), 'hi-IN', hooks);
+  if (generation !== speechGeneration) return;
   await speak(text.slice(splitAt).trim(), 'en-IN', hooks);
 }
 
+/** Cancels the current clip and any queued clips of a multi-part utterance. */
 export function stopSpeaking(): void {
+  speechGeneration++;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }
