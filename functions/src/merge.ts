@@ -131,11 +131,15 @@ export function mergeFieldUpdatesWithMeta(
     const { meta } = unwrapUpdate({ value: null, ...src });
     if (meta) metaIn[key] = meta;
   }
+  const fatherSent = Object.keys(plain).some(
+    (rawKey) => (ALIASES[rawKey] || rawKey) === 'father_or_spouse_name' && isFilled(plain[rawKey]),
+  );
   const updates = mergeFieldUpdates(current, plain, transcript);
   const meta: FieldMetaMap = {};
   for (const key of Object.keys(updates)) {
-    // A name remapped to father inherits the applicant-name confidence.
-    const m = metaIn[key] || (key === 'father_or_spouse_name' ? metaIn.applicant_full_name : undefined);
+    // Only a father name that came from remapping the applicant name inherits its confidence.
+    const remapped = key === 'father_or_spouse_name' && !fatherSent;
+    const m = metaIn[key] || (remapped ? metaIn.applicant_full_name : undefined);
     if (m) meta[key] = m;
   }
   return { updates, meta };

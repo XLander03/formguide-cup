@@ -511,7 +511,8 @@ async function fieldJson(
       input: fieldPrompt(transcript, language, current, missingBefore),
       generation_config: {
         thinking_level: 'low',
-        max_output_tokens: 1024,
+        // Each field is {value, confidence, reason}; a full multi-field dump needs headroom.
+        max_output_tokens: 4096,
       },
       response_format: {
         type: 'text',
@@ -542,7 +543,9 @@ async function fieldJson(
   try {
     parsed = JSON.parse(stripFence(text)) as typeof parsed;
   } catch {
-    parsed = {};
+    // Usually a reply cut off at the token limit. Fail loudly so the client shows an error.
+    console.error('fields_bad_json', text.length);
+    throw speakFail('fields_bad_json', 502);
   }
   const hindi = parsed.reply_lang === 'hi' || /[\u0900-\u097F]/.test(transcript);
   const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
@@ -556,8 +559,6 @@ async function fieldJson(
       : {};
   const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
   const updates = sanitizeUpdates(mergedIncoming);
-  const fieldConfidence: FieldMetaMap = {};
-  for (const key of Object.keys(updates)) if (meta[key]) fieldConfidence[key] = meta[key];
   const merged: FormValues = { ...current, ...updates };
   const missing = getMissingRequired(merged);
   const refuse =
@@ -573,7 +574,7 @@ async function fieldJson(
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
   return {
     field_updates: updates,
-    field_confidence: fieldConfidence,
+    field_confidence: meta,
     next_ask: nextAsk,
     reply_lang: replyLang,
     refuse_live_submit: refuse,
