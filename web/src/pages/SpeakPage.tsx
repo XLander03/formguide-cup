@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
+import { buildDraftExport, downloadDraftJson, DRAFT_STATUS, type DraftExport } from '../lib/draftJson';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
-import { flagsDemoRequested, useFormSession } from '../session/FormSession';
+import { CONFIDENCE_FLAG_THRESHOLD, flagsDemoRequested, useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
-import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
+import { ArrowRightIcon, DownloadIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
 import { useSpeakMic } from '../ui/useMic';
 
 const EN_SAMPLE =
@@ -581,6 +582,7 @@ export function SpeakPage() {
           version={turns}
           title={label}
           values={session.values}
+          confidence={session.confidence}
           flashIds={session.flashIds}
           onClose={() => setPreview(false)}
         />
@@ -615,15 +617,25 @@ function FormPreview({
   version,
   title,
   values,
+  confidence,
   flashIds,
   onClose,
 }: {
   version: number;
   title: string;
   values: Record<string, string | boolean | null | undefined>;
+  confidence: Record<string, { confidence: number; confirmed: boolean }>;
   flashIds: Set<string>;
   onClose: () => void;
 }) {
+  const [handoff, setHandoff] = useState(false);
+  const handoffPayload = buildDraftExport({
+    journeyName: title,
+    fields: FIELDS,
+    values,
+    confidence,
+    shownValue,
+  });
   return (
     <div className="fg-print-host fixed inset-0 z-50">
       <button type="button" aria-label="Close form preview" className="absolute inset-0 bg-black/80" onClick={onClose} />
@@ -633,17 +645,24 @@ function FormPreview({
         aria-labelledby="form-preview-title"
         className="absolute inset-y-0 right-0 h-full w-full overflow-y-auto border-l border-foreground bg-background shadow-lg sm:max-w-xl"
       >
-        <div className="flex items-center justify-between gap-3 p-6 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">
           <h2 id="form-preview-title" className="flex items-center gap-2 text-lg font-semibold">
             <FileTextIcon className="size-4" /> Form preview · version {version}
           </h2>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
             onClick={downloadSheetPdf}
           >
             <FileTextIcon /> Download PDF
+          </button>
+          <button
+            type="button"
+            className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
+            onClick={() => setHandoff(true)}
+          >
+            <FileTextIcon /> Bank handoff (JSON)
           </button>
           <button
             type="button"
@@ -717,6 +736,96 @@ function FormPreview({
           </div>
         </div>
       </aside>
+      {handoff ? (
+        <HandoffPanel
+          payload={handoffPayload}
+          onClose={() => setHandoff(false)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function HandoffPanel({ payload, onClose }: { payload: DraftExport; onClose: () => void }) {
+  const labels = new Map(FIELDS.filter((field) => field.id).map((field) => [field.id as string, field.label]));
+  return (
+    <div className="fixed inset-0 z-50">
+      <button type="button" aria-label="Close" className="absolute inset-0 bg-black/80" onClick={onClose} />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bank-handoff-title"
+        className="absolute inset-y-0 right-0 h-full w-full overflow-y-auto border-l border-foreground bg-background shadow-lg sm:max-w-xl"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">
+          <h2 id="bank-handoff-title" className="flex items-center gap-2 text-lg font-semibold">
+            <FileTextIcon className="size-4" /> Bank handoff
+          </h2>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
+              onClick={() => downloadDraftJson(payload)}
+            >
+              <DownloadIcon /> Download JSON
+            </button>
+            <button
+              type="button"
+              className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
+              onClick={onClose}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="mx-4 mb-6 border border-foreground bg-card p-5 text-card-foreground shadow-[4px_4px_0_var(--foreground)]">
+          <p className="bg-saffron/25 px-2 py-1 text-[9px] font-bold">{DRAFT_STATUS}</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">Fields vary by bank. Nothing is sent to a bank.</p>
+          <p className="mt-3 text-[10px] uppercase text-muted-foreground">
+            {payload.journey} · schema {payload.schema_version} · submitted {String(payload.submitted)} ·{' '}
+            {payload.exported_at}
+          </p>
+          <div className="mt-4 border-2 border-foreground">
+            <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto_auto] gap-2 bg-foreground px-3 py-2 text-[10px] uppercase text-background">
+              <span>Field</span>
+              <span>Value</span>
+              <span>Confidence</span>
+              <span>Source</span>
+            </div>
+            {payload.fields.map((field) => (
+              <div
+                key={field.key}
+                className="grid grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-foreground/20 px-3 py-3 text-xs"
+              >
+                <span className="min-w-0 break-words font-semibold">{labels.get(field.key) ?? field.key}</span>
+                <span className={`min-w-0 break-words ${field.value === null ? 'text-muted-foreground' : ''}`}>
+                  {field.value === null ? 'null' : field.value}
+                </span>
+                <ConfidencePill confidence={field.confidence} />
+                <span className="whitespace-nowrap text-[10px] text-muted-foreground">{field.source ?? '—'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function ConfidencePill({ confidence }: { confidence: number | null }) {
+  if (confidence === null) {
+    return <span className="text-[10px] text-muted-foreground">—</span>;
+  }
+  const low = confidence < CONFIDENCE_FLAG_THRESHOLD;
+  return (
+    <span
+      className={
+        low
+          ? 'shrink-0 rounded-full bg-saffron/30 px-2 text-[10px] font-bold text-saffron'
+          : 'shrink-0 rounded-full bg-foreground px-2 text-[10px] font-bold text-background'
+      }
+    >
+      {Math.round(confidence * 100)}%
+    </span>
   );
 }
