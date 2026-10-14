@@ -2,6 +2,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { readSpeakRequest } from './wav';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
+import { maskSensitiveFields } from './pii';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 
@@ -560,6 +561,9 @@ async function fieldJson(
   const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
   const updates = sanitizeUpdates(mergedIncoming);
   const merged: FormValues = { ...current, ...updates };
+  // Aadhaar must never leave this function unmasked (schema requires last-4 only).
+  // Resolve type from `merged` — it may have been set in an earlier turn.
+  maskSensitiveFields(updates, merged);
   const missing = getMissingRequired(merged);
   const refuse =
     parsed.refuse_live_submit === true ||
@@ -580,6 +584,19 @@ async function fieldJson(
     refuse_live_submit: refuse,
     assistant_message: message,
   };
+}
+
+// Record types explicitly excluded from aof_kyc_demo_v1 (see schema
+// demo_constraints.excluded_from_this_schema). Caught here, deterministically,
+// before spending a Gemini call trying — and failing — to extract fields for
+// a journey this schema doesn't cover.
+const OUT_OF_SCOPE_RE =
+  /\b(neft|rtgs|imps)\b|\btransfer\s+(money|funds)\b|\b(personal|home|car|auto|vehicle)\s+loan\b|\bloan\b|\bscss\b|\bsenior\s+citizen\s+savings\b|\bform\s*15\s*[gh]\b|\bnomination\b|\bnominee\b/i;
+
+function outOfScopeReply(hindi: boolean): string {
+  return hindi
+    ? 'यह डेमो अभी केवल खाता खोलने और केवाईसी तक सीमित है। NEFT/RTGS/IMPS, लोन, SCSS, फॉर्म 15G/15H और नॉमिनेशन बाद के लिए हैं, अभी इस डेमो में शामिल नहीं हैं। Fields vary by bank.'
+    : "That's not covered in this demo yet — this covers account opening and KYC only. NEFT/RTGS/IMPS transfers, loans, SCSS, Form 15G/15H, and nomination are stretch items for later. Fields vary by bank.";
 }
 
 function rawBuffer(req: { rawBody?: unknown; body?: unknown }): Buffer {
@@ -626,6 +643,26 @@ export const speak = onRequest(
       const file = await uploadWav(apiKey, read.parts.audio);
       uploadedName = file.name;
       transcript = await transcribe(apiKey, file.uri, read.parts.language);
+
+      if (OUT_OF_SCOPE_RE.test(transcript)) {
+        const hindi = read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript);
+        const missing = getMissingRequired(current);
+        const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
+        res.json({
+          transcript,
+          reply_lang: replyLang,
+          field_updates: {},
+          missing_required: missing,
+          next_ask: buildNextAsk(missing, replyLang, replyLang === 'hi' ? HI_ASK : EN_ASK, ''),
+          gates: { answers: {} },
+          completeness: completeness(current, missing),
+          refuse_live_submit: false,
+          source: 'out_of_scope',
+          assistant_message: outOfScopeReply(hindi),
+        });
+        return;
+      }
+
       const extracted = await fieldJson(apiKey, transcript, read.parts.language, current);
       const merged: FormValues = { ...current, ...extracted.field_updates };
       const missing = getMissingRequired(merged);

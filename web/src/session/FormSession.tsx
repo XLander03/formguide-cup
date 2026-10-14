@@ -12,6 +12,7 @@ import {
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
+import { maskSensitiveFields } from '../lib/pii';
 import {
   completenessLevel,
   emptyValues,
@@ -155,6 +156,7 @@ export interface FormSessionValue {
   onStopReadback: () => void;
   emitDraft: () => void;
   said: Record<string, string>;
+  fieldSource: Record<string, string>;
   selectDraft: (id: JourneyId, product: string | null) => void;
 }
 
@@ -185,6 +187,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(() =>
     bootFlags.current ? demoFlagConfidence() : (saved?.confidence ?? {}),
   );
+  /** Per-field provenance ('gemini' | 'heuristic' | 'manual' | 'priya_demo' |
+   * 'heuristic-dev') — drives the confidence badge in the bank-handoff
+   * preview and rides along in the exported JSON. Distinct from
+   * `confidence` above: that's a numeric model-sourced score that gates
+   * the readback flow; this is a categorical label for display/export. */
+  const [fieldSource, setFieldSource] = useState<Record<string, string>>({});
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
@@ -280,6 +288,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           }
           next[key] = value;
         }
+        // Aadhaar must never land in state (and therefore sessionStorage,
+        // the screen, or a downloaded draft) unmasked, regardless of
+        // whether it came from speak, extract, or the heuristic fallback.
+        maskSensitiveFields(next);
         return next;
       });
       if (utterance?.trim()) {
@@ -303,6 +315,13 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      setFieldSource((prev) => {
+        const next = { ...prev };
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) next[key] = response.source;
+        }
+        return next;
+      });
       if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
       flash(Object.keys(updates));
       setLast(response);
@@ -317,9 +336,21 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
-    setValues((prev) => ({ ...prev, [id]: value }));
+    setValues((prev) => {
+      const next = { ...prev, [id]: value };
+      // Mask once a full Aadhaar-length number has been typed, so manual
+      // edits on the Review page can't leave a full number sitting in
+      // state. Only triggers at 12 digits so it doesn't fight live typing
+      // of shorter document numbers.
+      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof value === 'string') {
+        const digits = value.replace(/\D/g, '');
+        if (digits.length >= 12) maskSensitiveFields(next);
+      }
+      return next;
+    });
     // Typed / edited by the user → confirmed.
     setConfidence((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], confirmed: true } } : prev));
+    setFieldSource((prev) => ({ ...prev, [id]: 'manual' }));
     setDraftReady(false);
     if (id === 'journey_mode' && isJourneyId(value)) setJourney(value);
   }, []);
@@ -397,6 +428,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
+    maskSensitiveFields(persona);
     setValues(persona);
     // Demo-only: strict === true so a click event passed as arg never triggers flags.
     setConfidence(withFlags === true ? demoFlagConfidence() : {});
@@ -409,6 +441,13 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       const next: Record<string, string> = {};
       for (const [key, value] of Object.entries(persona)) {
         if (value !== undefined && value !== '' && value !== null) next[key] = clip;
+      }
+      return next;
+    });
+    setFieldSource(() => {
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(persona)) {
+        if (value !== undefined && value !== '' && value !== null) next[key] = 'priya_demo';
       }
       return next;
     });
@@ -466,6 +505,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setConfidence({});
     setLast(null);
     setSaid({});
+    setFieldSource({});
     setRefuseMsg(null);
     setDraftReady(false);
   }, [journey, language]);
@@ -626,6 +666,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     onStopReadback,
     emitDraft,
     said,
+    fieldSource,
     selectDraft,
   };
 

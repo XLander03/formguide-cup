@@ -1,14 +1,26 @@
 import { FIELD_GROUPS, SCHEMA, fieldLabel, isFilled } from '../lib/schema';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
+import { maskAadhaarLike } from '../lib/pii';
 import type { ShellLanguage } from '../session/FormSession';
 
-function displayValue(value: FormValues[string], language: ShellLanguage | null): string {
+function displayValue(
+  fieldId: string,
+  value: FormValues[string],
+  values: FormValues,
+  language: ShellLanguage | null,
+): string {
   if (value === true) return language === 'hi' ? 'हाँ' : 'Yes';
   if (value === false) return language === 'hi' ? 'नहीं' : 'No';
   if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
+  let trimmed = value.trim();
   if (!trimmed) return '';
+  // Defense in depth: mask here too even though state is already masked
+  // upstream, in case a future code path writes a raw value directly.
+  const aadhaarField =
+    (fieldId === 'ovd_poi_number' && values.ovd_poi_type === 'proof_of_possession_of_aadhaar') ||
+    (fieldId === 'ovd_poa_number' && values.ovd_poa_type === 'proof_of_possession_of_aadhaar');
+  if (aadhaarField && /\d/.test(trimmed)) trimmed = maskAadhaarLike(trimmed);
   return language === 'hi' ? hindiEnumLabel(trimmed) : trimmed.replace(/_/g, ' ');
 }
 
@@ -31,7 +43,7 @@ export function DraftSheet({
           .map((field) => ({
             id: field.id,
             label: fieldLabel(field.id),
-            value: displayValue(values[field.id], language),
+            value: displayValue(field.id, values[field.id], values, language),
           }));
         return (
           <section key={group.id} className="draft-group">

@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
+import { buildFilledKycPdf } from '../lib/pdfFill';
 import { useRoute } from '../routing/router';
-import { useFormSession } from '../session/FormSession';
+import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { displayValue } from '../ui/fields';
 import { CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
@@ -12,6 +14,51 @@ const GATES = [
   ['no_live_submit_ack', 'I understand nothing is submitted to a bank.'],
 ] as const;
 
+/**
+ * Prefers the real, model-sourced confidence score when one exists (set by
+ * the speak/extract response itself — see FormSession's `confidence`
+ * state) and flags anything below threshold that the user hasn't
+ * confirmed yet, same as the "Check this" treatment elsewhere in the app.
+ * Falls back to a provenance-based label (HOW a value was captured) when
+ * there's no per-field score — e.g. for the heuristic path, which doesn't
+ * return one. Either way this is what a bank's integration team actually
+ * needs: whether to auto-import a field or route it for human review.
+ */
+function confidenceLabel(
+  source: string | undefined,
+  modelConfidence: FieldConfidence | undefined,
+): 'Needs review' | 'High' | 'Medium' | 'Confirmed' | 'Demo' | 'Unknown' {
+  if (modelConfidence && !modelConfidence.confirmed && modelConfidence.confidence < CONFIDENCE_FLAG_THRESHOLD) {
+    return 'Needs review';
+  }
+  switch (source) {
+    case 'gemini':
+      return 'High';
+    case 'heuristic':
+    case 'heuristic-dev':
+      return 'Medium';
+    case 'manual':
+      return 'Confirmed';
+    case 'priya_demo':
+      return 'Demo';
+    default:
+      return 'Unknown';
+  }
+}
+
+function handoffFields(session: ReturnType<typeof useFormSession>) {
+  return SCHEMA.fields
+    .filter((field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]))
+    .map((field) => ({
+      id: field.id,
+      value: session.values[field.id],
+      source: session.fieldSource[field.id] ?? 'unknown',
+      confidence: confidenceLabel(session.fieldSource[field.id], session.confidence[field.id]),
+      model_confidence: session.confidence[field.id]?.confidence ?? null,
+      said: session.said[field.id] ?? null,
+    }));
+}
+
 function draftPayload(session: ReturnType<typeof useFormSession>) {
   return {
     schema_id: 'aof_kyc_demo_v1',
@@ -20,15 +67,40 @@ function draftPayload(session: ReturnType<typeof useFormSession>) {
     language: session.language,
     mic_lang: session.micLang,
     values: session.values,
+    // Structured handoff shape: per-field value + provenance + confidence.
+    // This is the part a bank's onboarding/core-banking system would
+    // actually import — the flat `values` above is kept for simple
+    // consumers that just want the data.
+    fields: handoffFields(session),
   };
 }
 
 export function ConfirmPage() {
   const { go } = useRoute();
   const session = useFormSession();
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
   });
+
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      const blob = await buildFilledKycPdf(session.values);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'formguide-hdfc-kyc-draft.pdf';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setPdfError('Could not generate the PDF. The JSON draft above still has everything captured.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
   const rows = SCHEMA.fields.filter(
     (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
   );
@@ -60,7 +132,15 @@ export function ConfirmPage() {
                   URL.revokeObjectURL(url);
                 }}
               >
-                <DownloadIcon /> Download draft
+                <DownloadIcon /> Download JSON
+              </button>
+              <button
+                type="button"
+                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+                disabled={pdfBusy}
+                onClick={() => void downloadPdf()}
+              >
+                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : 'Download PDF (HDFC KYC)'}
               </button>
               <button
                 type="button"
@@ -73,6 +153,7 @@ export function ConfirmPage() {
                 <RotateIcon /> New draft
               </button>
             </div>
+            {pdfError ? <p className="mt-3 max-w-sm text-xs text-saffron">{pdfError}</p> : null}
           </div>
           <Receipt rows={rows} session={session} />
         </section>
@@ -162,35 +243,58 @@ function Receipt({
     <section className="px-5 py-8 lg:col-span-7 lg:px-8">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[10px] uppercase text-primary">Receipt preview</p>
-          <h2 className="mt-2 font-display text-4xl">What was said vs filled</h2>
+          <p className="text-[10px] uppercase text-primary">Bank handoff preview</p>
+          <h2 className="mt-2 font-display text-4xl">Said, filled, and confidence</h2>
+          <p className="mt-2 max-w-md text-xs text-muted-foreground">
+            What a bank’s onboarding system would import per field — not just the value, but
+            where it came from and how much to trust it before auto-filing it.
+          </p>
         </div>
         <span className="border border-foreground px-2 py-1 text-[10px]">FAKE DEMO</span>
       </div>
       <div className="mt-6 border-2 border-foreground">
-        <div className="grid grid-cols-[.7fr_1.3fr_1fr] bg-foreground px-3 py-2 text-[10px] uppercase text-background">
+        <div className="grid grid-cols-[.6fr_1.1fr_.9fr_.6fr] bg-foreground px-3 py-2 text-[10px] uppercase text-background">
           <span>Field</span>
           <span>Said</span>
           <span>Filled</span>
+          <span>Confidence</span>
         </div>
         {rows.length === 0 ? (
           <p className="px-3 py-3 text-xs text-muted-foreground">Nothing filled yet.</p>
         ) : (
-          rows.map((field) => (
-            <div
-              key={field.id}
-              className="grid grid-cols-[.7fr_1.3fr_1fr] border-t border-foreground/20 px-3 py-3 text-xs"
-            >
-              <span className="font-semibold">{field.label_en}</span>
-              <span className="pr-3 text-muted-foreground">“{session.said[field.id] || '—'}”</span>
-              <span className="text-primary">
-                {field.id === 'applicant_full_name' && name
-                  ? name
-                  : displayValue(field.id, session.values[field.id], session.language === 'hi')}{' '}
-                ✓
-              </span>
-            </div>
-          ))
+          rows.map((field) => {
+            const confidence = confidenceLabel(session.fieldSource[field.id], session.confidence[field.id]);
+            return (
+              <div
+                key={field.id}
+                className="grid grid-cols-[.6fr_1.1fr_.9fr_.6fr] border-t border-foreground/20 px-3 py-3 text-xs"
+              >
+                <span className="font-semibold">{field.label_en}</span>
+                <span className="pr-3 text-muted-foreground">“{session.said[field.id] || '—'}”</span>
+                <span className="text-primary">
+                  {field.id === 'applicant_full_name' && name
+                    ? name
+                    : displayValue(field.id, session.values[field.id], session.language === 'hi')}{' '}
+                  ✓
+                </span>
+                <span>
+                  <span
+                    className={`border px-1.5 py-0.5 text-[10px] ${
+                      confidence === 'Needs review'
+                        ? 'border-saffron bg-saffron/10 text-saffron'
+                        : confidence === 'High'
+                          ? 'border-primary text-primary'
+                          : confidence === 'Confirmed'
+                            ? 'border-foreground text-foreground'
+                            : 'border-muted-foreground text-muted-foreground'
+                    }`}
+                  >
+                    {confidence}
+                  </span>
+                </span>
+              </div>
+            );
+          })
         )}
       </div>
       <div className="mt-5 flex items-start gap-3 border-2 border-saffron bg-saffron/10 p-4 text-xs">
