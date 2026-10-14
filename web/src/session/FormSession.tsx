@@ -18,6 +18,7 @@ import {
   emptyValues,
   getMissingRequired,
   getNextAsk,
+  isFilled,
   priyaDemoValues,
 } from '../lib/schema';
 import { speakForUtterance, stopSpeaking } from '../lib/tts';
@@ -222,10 +223,46 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     values.no_live_submit_ack === true;
   const readyForFill = language !== null && journey !== null;
 
+  // journey_mode / preferred_language / account_product_intent are always
+  // pre-seeded on a fresh session (see seedValues) — excluding them is what
+  // separates "nothing entered yet" from "there's real progress to lose."
+  const hasProgress = useMemo(
+    () =>
+      Object.entries(values).some(
+        ([id, v]) =>
+          id !== 'journey_mode' && id !== 'preferred_language' && id !== 'account_product_intent' && isFilled(v),
+      ),
+    [values],
+  );
+
   useEffect(() => {
     const payload: Persisted = { language, journey, values, confidence };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [language, journey, values, confidence]);
+
+  useEffect(() => {
+    // Browsers show their own fixed confirmation text on refresh/close —
+    // custom messages have been ignored by every major browser since
+    // ~2011 (anti-abuse measure), so this can't say the specific wording
+    // asked for, only trigger the native "leave site?" prompt.
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasProgress) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    // Fires only once the page actually unloads — i.e. the user confirmed
+    // "Leave" (or there was nothing to warn about). Never fires on Cancel,
+    // so the draft stays intact until a refresh/close is actually confirmed.
+    const handlePageHide = () => {
+      sessionStorage.removeItem(STORAGE_KEY);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [hasProgress]);
 
   useEffect(() => {
     document.documentElement.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
