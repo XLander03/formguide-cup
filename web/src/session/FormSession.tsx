@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -29,6 +30,29 @@ const STORAGE_KEY = 'formguide.cup.session.v2';
 
 /** Fields below this model confidence get a 'Check this' flag until confirmed. */
 export const CONFIDENCE_FLAG_THRESHOLD = 0.75;
+
+const DEMO_FLAG_REASON = 'Digits unclear in audio';
+
+/** Local demo only. DOB 0.60 and mobile 0.58 stay under the 0.75 flag threshold. */
+export function demoFlagConfidence(): Record<string, FieldConfidence> {
+  return {
+    dob: { confidence: 0.6, reason: DEMO_FLAG_REASON, confirmed: false },
+    mobile_registered: { confidence: 0.58, reason: DEMO_FLAG_REASON, confirmed: false },
+  };
+}
+
+/** True when this document was opened on /speak?flags=1. Latched so a later history rewrite cannot drop it. */
+export function flagsDemoRequested(): boolean {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (path !== '/speak') return false;
+  return new URLSearchParams(window.location.search).get('flags') === '1' || flagsQueryLatched;
+}
+
+const flagsQueryLatched =
+  typeof window !== 'undefined' &&
+  (window.location.pathname.replace(/\/+$/, '') || '/') === '/speak' &&
+  new URLSearchParams(window.location.search).get('flags') === '1';
 
 const READBACK_NO_START_MS = 5000;
 
@@ -138,10 +162,18 @@ const FormSessionContext = createContext<FormSessionValue | null>(null);
 
 export function FormSessionProvider({ children }: { children: ReactNode }) {
   const saved = useMemo(() => loadPersisted(), []);
+  // Captured once: a saved complete draft must not keep Read back enabled on /speak?flags=1.
+  const bootFlags = useRef(flagsDemoRequested());
   const [language, setLanguage] = useState<ShellLanguage | null>(saved?.language ?? 'en');
-  const [journey, setJourney] = useState<JourneyId | null>(saved?.journey ?? 'account_opening');
+  const [journey, setJourney] = useState<JourneyId | null>(() => {
+    if (!bootFlags.current) return saved?.journey ?? 'account_opening';
+    const persona = priyaDemoValues();
+    return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
+  });
   const [micLang, setMicLangState] = useState<MicLang>(saved?.language === 'hi' ? 'hi-IN' : 'en-IN');
-  const [values, setValues] = useState<FormValues>(() => seedValues(saved));
+  const [values, setValues] = useState<FormValues>(() =>
+    bootFlags.current ? priyaDemoValues() : seedValues(saved),
+  );
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [readingBack, setReadingBack] = useState(false);
@@ -150,8 +182,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const [said, setSaid] = useState<Record<string, string>>({});
-  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(
-    () => saved?.confidence ?? {},
+  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(() =>
+    bootFlags.current ? demoFlagConfidence() : (saved?.confidence ?? {}),
   );
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
@@ -367,14 +399,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     const persona = priyaDemoValues();
     setValues(persona);
     // Demo-only: strict === true so a click event passed as arg never triggers flags.
-    setConfidence(
-      withFlags === true
-        ? {
-            dob: { confidence: 0.6, reason: 'Digits unclear in audio', confirmed: false },
-            mobile_registered: { confidence: 0.58, reason: 'Digits unclear in audio', confirmed: false },
-          }
-        : {},
-    );
+    setConfidence(withFlags === true ? demoFlagConfidence() : {});
     if (isJourneyId(persona.journey_mode)) setJourney(persona.journey_mode);
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);
@@ -421,6 +446,14 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         'Filled Priya Sharma dry-run (synthetic PAN ABCPS1234D / mobile 9876543210). Confirm gates left for you after TTS. Fields vary by bank.',
     });
   }, [flash, language]);
+
+  const flagsBooted = useRef(false);
+  useLayoutEffect(() => {
+    // Same local persona as Shift/Alt-click. No extract or Gemini call.
+    if (!bootFlags.current || flagsBooted.current) return;
+    flagsBooted.current = true;
+    onPriya(true);
+  }, [onPriya]);
 
   const onClear = useCallback(() => {
     stopSpeaking();
@@ -510,6 +543,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const onReadback = useCallback(async () => {
+    // Flagged fields block read-back until each one is confirmed (threshold 0.75).
+    if (!canReadback) return;
     if (readbackRun.current) {
       stopSpeaking();
       readbackRun.current.finish();
@@ -538,7 +573,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         setReadingBack(false);
       }
     }
-  }, [values, missing, completeness, readbackLang, watchReadback]);
+  }, [values, missing, completeness, readbackLang, watchReadback, canReadback]);
 
   const onStopReadback = useCallback(() => {
     stopSpeaking();

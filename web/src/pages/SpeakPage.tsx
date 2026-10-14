@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
-import { useFormSession } from '../session/FormSession';
+import { flagsDemoRequested, useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
 import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
@@ -306,10 +306,7 @@ export function SpeakPage() {
                 className={lightBtn}
                 disabled={session.busy}
                 onClick={(event) => {
-                  const demoFlags =
-                    event.shiftKey ||
-                    event.altKey ||
-                    new URLSearchParams(window.location.search).get('flags') === '1';
+                  const demoFlags = event.shiftKey || event.altKey || flagsDemoRequested();
                   session.onPriya(demoFlags);
                 }}
               >
