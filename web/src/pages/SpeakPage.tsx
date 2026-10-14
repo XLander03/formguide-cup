@@ -110,7 +110,9 @@ export function SpeakPage() {
     setTurns((count) => count + 1);
     void session.onSubmitSpeakClip(wav).then((result) => {
       if (result.transcript) setSaid(result.transcript);
-      if (result.error) setMicNote(result.error);
+      if (result.error === 'fields_bad_json') {
+        setMicNote('Heard you, but could not fill the fields. Try again in shorter parts.');
+      } else if (result.error) setMicNote(result.error);
       else if (!result.transcript) setMicNote('Could not transcribe that clip.');
     });
   });
@@ -586,11 +588,15 @@ function downloadSheetPdf() {
     root.classList.remove('fg-printing');
     document.title = prevTitle;
     window.removeEventListener('afterprint', done);
+    window.removeEventListener('pointerdown', done);
+    window.removeEventListener('keydown', done);
   };
   window.addEventListener('afterprint', done);
   window.print();
-  // Some browsers (iOS) do not fire afterprint reliably.
-  window.setTimeout(done, 1500);
+  // Firefox/Safari return from print() while the dialog is still open, so no timer here.
+  // iOS may never fire afterprint; the next interaction with the page means the dialog is gone.
+  window.addEventListener('pointerdown', done);
+  window.addEventListener('keydown', done);
 }
 
 function FormPreview({
