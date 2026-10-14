@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -26,10 +27,38 @@ export type MicLang = 'en-IN' | 'hi-IN';
 
 const STORAGE_KEY = 'formguide.cup.session.v2';
 
+/** Fields below this model confidence get a 'Check this' flag until confirmed. */
+export const CONFIDENCE_FLAG_THRESHOLD = 0.75;
+
+const READBACK_NO_START_MS = 5000;
+
+export interface FieldConfidence {
+  confidence: number;
+  reason?: string;
+  confirmed: boolean;
+}
+
 interface Persisted {
   language: ShellLanguage | null;
   journey: JourneyId | null;
   values: FormValues;
+  confidence?: Record<string, FieldConfidence>;
+}
+
+function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
+  const out: Record<string, FieldConfidence> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { confidence, reason, confirmed } = entry as Record<string, unknown>;
+    if (typeof confidence !== 'number' || !Number.isFinite(confidence)) continue;
+    out[id] = {
+      confidence: Math.max(0, Math.min(1, confidence)),
+      reason: typeof reason === 'string' ? reason : undefined,
+      confirmed: confirmed === true,
+    };
+  }
+  return out;
 }
 
 function loadPersisted(): Persisted | null {
@@ -41,7 +70,7 @@ function loadPersisted(): Persisted | null {
     const journey = isJourneyId(data.journey) ? data.journey : null;
     const values =
       data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
-    return { language, journey, values };
+    return { language, journey, values, confidence: parseConfidence(data.confidence) };
   } catch {
     return null;
   }
@@ -74,6 +103,8 @@ export interface FormSessionValue {
   values: FormValues;
   busy: boolean;
   speaking: boolean;
+  /** True only while the read-back script is being spoken (not next-ask TTS). */
+  readingBack: boolean;
   last: ExtractResponse | null;
   flashIds: Set<string>;
   refuseMsg: string | null;
@@ -82,6 +113,10 @@ export interface FormSessionValue {
   completeness: ExtractResponse['completeness'];
   canReadback: boolean;
   confirmGatesOk: boolean;
+  confidence: Record<string, FieldConfidence>;
+  /** Filled fields with confidence below threshold that the user has not confirmed. */
+  flaggedIds: string[];
+  confirmField: (id: string) => void;
   readyForFill: boolean;
   selectLanguage: (lang: ShellLanguage) => void;
   selectJourney: (id: JourneyId) => void;
@@ -89,7 +124,8 @@ export interface FormSessionValue {
   onChange: (id: string, value: string | boolean | null) => void;
   onSubmitUtterance: (text: string) => Promise<void>;
   onSubmitSpeakClip: (wav: Blob) => Promise<{ transcript: string | null; error: string | null }>;
-  onPriya: () => void;
+  /** Pass true for the demo-only low-confidence variant (DOB + mobile flagged). */
+  onPriya: (withFlags?: boolean) => void;
   onClear: () => void;
   onReadback: () => Promise<void>;
   onStopReadback: () => void;
@@ -109,11 +145,15 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [values, setValues] = useState<FormValues>(() => seedValues(saved));
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [readingBack, setReadingBack] = useState(false);
   const [last, setLast] = useState<ExtractResponse | null>(null);
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const [said, setSaid] = useState<Record<string, string>>({});
+  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(
+    () => saved?.confidence ?? {},
+  );
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
@@ -123,17 +163,30 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     () => completenessLevel(values, missing),
     [values, missing],
   );
-  const canReadback = completeness === 'demo_ready' || completeness === 'full_bank_packet';
+  const flaggedIds = useMemo(
+    () =>
+      Object.entries(confidence)
+        .filter(([id, c]) => {
+          const v = values[id];
+          const filled = typeof v === 'boolean' || (typeof v === 'string' && v.trim() !== '');
+          return filled && !c.confirmed && c.confidence < CONFIDENCE_FLAG_THRESHOLD;
+        })
+        .map(([id]) => id),
+    [confidence, values],
+  );
+  const canReadback =
+    (completeness === 'demo_ready' || completeness === 'full_bank_packet') && flaggedIds.length === 0;
   const confirmGatesOk =
+    flaggedIds.length === 0 &&
     values.readback_confirmed === true &&
     values.draft_only_ack === true &&
     values.no_live_submit_ack === true;
   const readyForFill = language !== null && journey !== null;
 
   useEffect(() => {
-    const payload: Persisted = { language, journey, values };
+    const payload: Persisted = { language, journey, values, confidence };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [language, journey, values]);
+  }, [language, journey, values, confidence]);
 
   useEffect(() => {
     document.documentElement.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
@@ -208,6 +261,17 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           return next;
         });
       }
+      setConfidence((prev) => {
+        const next = { ...prev };
+        const conf = response.field_confidence ?? {};
+        for (const [key, value] of Object.entries(updates)) {
+          if (value === undefined || value === null || value === '') continue;
+          const c = conf[key];
+          const score = c && typeof c.confidence === 'number' ? c.confidence : 1;
+          next[key] = { confidence: score, reason: c?.reason, confirmed: false };
+        }
+        return next;
+      });
       if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
       flash(Object.keys(updates));
       setLast(response);
@@ -223,8 +287,18 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
     setValues((prev) => ({ ...prev, [id]: value }));
+    // Typed / edited by the user → confirmed.
+    setConfidence((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], confirmed: true } } : prev));
     setDraftReady(false);
     if (id === 'journey_mode' && isJourneyId(value)) setJourney(value);
+  }, []);
+
+  const confirmField = useCallback((id: string) => {
+    setConfidence((prev) => ({
+      ...prev,
+      [id]: { confidence: prev[id]?.confidence ?? 1, reason: prev[id]?.reason, confirmed: true },
+    }));
+    setDraftReady(false);
   }, []);
 
   const onSubmitUtterance = useCallback(
@@ -285,13 +359,23 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [micLang, values, applyUpdates],
   );
 
-  const onPriya = useCallback(() => {
+  const onPriya = useCallback((withFlags?: boolean) => {
     stopSpeaking();
     setSpeaking(false);
+    setReadingBack(false);
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
     setValues(persona);
+    // Demo-only: strict === true so a click event passed as arg never triggers flags.
+    setConfidence(
+      withFlags === true
+        ? {
+            dob: { confidence: 0.6, reason: 'Digits unclear in audio', confirmed: false },
+            mobile_registered: { confidence: 0.58, reason: 'Digits unclear in audio', confirmed: false },
+          }
+        : {},
+    );
     if (isJourneyId(persona.journey_mode)) setJourney(persona.journey_mode);
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);
@@ -342,17 +426,96 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const onClear = useCallback(() => {
     stopSpeaking();
     setSpeaking(false);
+    setReadingBack(false);
     const next = emptyValues();
     if (journey) next.journey_mode = journey;
     if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
     setValues(next);
+    setConfidence({});
     setLast(null);
     setSaid({});
     setRefuseMsg(null);
     setDraftReady(false);
   }, [journey, language]);
 
+  const readbackRun = useRef<{ id: number; finish: () => void; startedAt: number } | null>(null);
+  const readbackSeq = useRef(0);
+  useEffect(
+    () => () => {
+      if (readbackRun.current) {
+        stopSpeaking();
+        readbackRun.current.finish();
+      }
+    },
+    [],
+  );
+
+  /**
+   * Speaks the read-back and resolves on end/error, OR when a watchdog decides it is done:
+   * - no onstart within READBACK_NO_START_MS → cancel and finish (no-audio boxes can report
+   *   speechSynthesis.speaking=true with nothing playing; voices can take seconds to load on
+   *   first use, so the wait is deliberately generous);
+   * - after onstart, speechSynthesis.speaking and .pending both go false → finish;
+   * - safety cap well past the expected spoken length → cancel speech and finish, so the UI
+   *   never reports "done" while audio is still playing.
+   * Each run owns its timers; finishing one run never touches another run's timers.
+   */
+  const watchReadback = useCallback(
+    (id: number, text: string, lang: UtteranceLang): Promise<void> =>
+      new Promise<void>((resolve) => {
+        let settled = false;
+        let started = false;
+        const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
+        const startedAt = Date.now();
+        const log = (msg: string, ...rest: unknown[]) =>
+          console.info(`[readback #${id}] +${Date.now() - startedAt}ms ${msg}`, ...rest);
+        const capMs = Math.max(20000, text.length * 150) + 10000;
+        let poll = 0;
+        let cap = 0;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.clearInterval(poll);
+          window.clearTimeout(cap);
+          if (readbackRun.current?.id === id) readbackRun.current = null;
+          resolve();
+        };
+        poll = window.setInterval(() => {
+          if (!started) {
+            if (Date.now() - startedAt < READBACK_NO_START_MS) return;
+            log(`no-start timeout (no onstart within ${READBACK_NO_START_MS}ms) → cancel`);
+            stopSpeaking();
+            finish();
+          } else if (!synth || (!synth.speaking && !synth.pending)) {
+            log('poll: speaking/pending false', { speaking: synth?.speaking, pending: synth?.pending });
+            finish();
+          }
+        }, 500);
+        cap = window.setTimeout(() => {
+          log(`safety cap fired (capMs=${capMs}) → cancel`);
+          stopSpeaking();
+          finish();
+        }, capMs);
+        readbackRun.current = { id, finish, startedAt };
+        log(`speak called (chars=${text.length}, capMs=${capMs}, lang=${lang})`);
+        speakForUtterance(text, lang, {
+          onStart: () => {
+            started = true;
+            log('onstart');
+          },
+          onEnd: () => log('onend'),
+          onError: (error) => log('onerror', error),
+        }).then(finish, finish);
+      }),
+    [],
+  );
+
   const onReadback = useCallback(async () => {
+    if (readbackRun.current) {
+      stopSpeaking();
+      readbackRun.current.finish();
+    }
+    const id = ++readbackSeq.current;
     const script = buildReadbackScript(values, readbackLang);
     setLast((prev) => ({
       field_updates: {},
@@ -366,16 +529,27 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       assistant_message: script,
     }));
     setSpeaking(true);
+    setReadingBack(true);
     try {
-      await speakForUtterance(script, readbackLang);
+      await watchReadback(id, script, readbackLang);
     } finally {
-      setSpeaking(false);
+      // A newer read-back owns the speaking state once it has started.
+      if (readbackSeq.current === id) {
+        setSpeaking(false);
+        setReadingBack(false);
+      }
     }
-  }, [values, missing, completeness, readbackLang]);
+  }, [values, missing, completeness, readbackLang, watchReadback]);
 
   const onStopReadback = useCallback(() => {
     stopSpeaking();
+    const run = readbackRun.current;
+    if (run) {
+      console.info(`[readback #${run.id}] +${Date.now() - run.startedAt}ms manual stop`);
+      run.finish();
+    }
     setSpeaking(false);
+    setReadingBack(false);
   }, []);
 
   const onTryLiveSubmit = useCallback(() => {
@@ -418,6 +592,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     values,
     busy,
     speaking,
+    readingBack,
     last,
     flashIds,
     refuseMsg,
@@ -426,6 +601,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     completeness,
     canReadback,
     confirmGatesOk,
+    confidence,
+    flaggedIds,
+    confirmField,
     readyForFill,
     selectLanguage,
     selectJourney,

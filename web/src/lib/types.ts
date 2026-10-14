@@ -24,6 +24,8 @@ export type GateAnswer =
 
 export interface ExtractResponse {
   field_updates: FormValues;
+  /** Per-field model confidence (0–1) from the single field-JSON call. Absent = treat as high. */
+  field_confidence?: Record<string, { confidence: number; reason?: string }>;
   missing_required: string[];
   next_ask: string | null;
   gates: { answers: Record<string, GateAnswer> };

@@ -1,4 +1,17 @@
-export function speak(text: string, lang: 'en-IN' | 'hi-IN' = 'en-IN'): Promise<void> {
+/** Bumped by every new utterance and by stopSpeaking; a mixed read-back stops when it changes. */
+let speechGeneration = 0;
+
+export interface SpeakHooks {
+  onStart?: () => void;
+  onEnd?: () => void;
+  onError?: (error: string) => void;
+}
+
+export function speak(
+  text: string,
+  lang: 'en-IN' | 'hi-IN' = 'en-IN',
+  hooks?: SpeakHooks,
+): Promise<void> {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window) || !text.trim()) {
       resolve();
@@ -8,8 +21,15 @@ export function speak(text: string, lang: 'en-IN' | 'hi-IN' = 'en-IN'): Promise<
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
     u.rate = 0.95;
-    u.onend = () => resolve();
-    u.onerror = () => resolve();
+    u.onstart = () => hooks?.onStart?.();
+    u.onend = () => {
+      hooks?.onEnd?.();
+      resolve();
+    };
+    u.onerror = (event) => {
+      hooks?.onError?.(String((event as SpeechSynthesisErrorEvent).error ?? 'unknown'));
+      resolve();
+    };
     window.speechSynthesis.speak(u);
   });
 }
@@ -18,21 +38,26 @@ export function speak(text: string, lang: 'en-IN' | 'hi-IN' = 'en-IN'): Promise<
 export async function speakForUtterance(
   text: string,
   lang: 'en' | 'hi' | 'mixed',
+  hooks?: SpeakHooks,
 ): Promise<void> {
+  const generation = ++speechGeneration;
   if (lang !== 'mixed') {
-    await speak(text, lang === 'hi' ? 'hi-IN' : 'en-IN');
+    await speak(text, lang === 'hi' ? 'hi-IN' : 'en-IN', hooks);
     return;
   }
   const marker = 'Please confirm this read-back.';
   const splitAt = text.indexOf(marker);
   if (splitAt <= 0) {
-    await speak(text, 'hi-IN');
+    await speak(text, 'hi-IN', hooks);
     return;
   }
-  await speak(text.slice(0, splitAt).trim(), 'hi-IN');
-  await speak(text.slice(splitAt).trim(), 'en-IN');
+  await speak(text.slice(0, splitAt).trim(), 'hi-IN', hooks);
+  if (generation !== speechGeneration) return;
+  await speak(text.slice(splitAt).trim(), 'en-IN', hooks);
 }
 
+/** Cancels the current clip and any queued clips of a multi-part utterance. */
 export function stopSpeaking(): void {
+  speechGeneration++;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }

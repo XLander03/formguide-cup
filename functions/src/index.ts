@@ -1,7 +1,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { readSpeakRequest } from './wav';
-import { buildNextAsk, mergeFieldUpdates } from './merge';
+import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 
@@ -458,6 +458,8 @@ NAME FIELDS — critical:
 MULTI-FIELD EXTRACTION:
 - One spoken dump may fill many fields at once (name + DOB + PAN + mobile + address…).
 - Put every clearly stated fact into field_updates in this same turn.
+- Each field_updates entry is an object: {"value": <string|boolean|null>, "confidence": <0..1>, "reason": <optional short reason, max 8 words>}.
+- confidence = how sure you are the value was heard and assigned to the right id. Use < 0.75 for unclear audio, guessed spellings, ambiguous digits/dates, or uncertain which person a name belongs to; give a reason then.
 - Do not invent values. Do not clear unrelated filled fields. Only include keys you are setting.
 
 NORMALIZATION:
@@ -483,7 +485,7 @@ Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
 Transcript: ${JSON.stringify(transcript)}
 
-Return JSON: field_updates, next_ask, reply_lang, refuse_live_submit, assistant_message.`;
+Return JSON: field_updates (id → {value, confidence, reason?}), next_ask, reply_lang, refuse_live_submit, assistant_message.`;
 }
 
 async function fieldJson(
@@ -493,6 +495,7 @@ async function fieldJson(
   current: FormValues,
 ): Promise<{
   field_updates: FormValues;
+  field_confidence: FieldMetaMap;
   next_ask: string | null;
   reply_lang: 'hi' | 'en';
   refuse_live_submit: boolean;
@@ -508,7 +511,8 @@ async function fieldJson(
       input: fieldPrompt(transcript, language, current, missingBefore),
       generation_config: {
         thinking_level: 'low',
-        max_output_tokens: 1024,
+        // Each field is {value, confidence, reason}; a full multi-field dump needs headroom.
+        max_output_tokens: 4096,
       },
       response_format: {
         type: 'text',
@@ -530,6 +534,7 @@ async function fieldJson(
   }
   let parsed: {
     field_updates?: unknown;
+    field_confidence?: unknown;
     next_ask?: unknown;
     reply_lang?: unknown;
     refuse_live_submit?: unknown;
@@ -538,7 +543,9 @@ async function fieldJson(
   try {
     parsed = JSON.parse(stripFence(text)) as typeof parsed;
   } catch {
-    parsed = {};
+    // Usually a reply cut off at the token limit. Fail loudly so the client shows an error.
+    console.error('fields_bad_json', text.length);
+    throw speakFail('fields_bad_json', 502);
   }
   const hindi = parsed.reply_lang === 'hi' || /[\u0900-\u097F]/.test(transcript);
   const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
@@ -546,7 +553,11 @@ async function fieldJson(
     parsed.field_updates && typeof parsed.field_updates === 'object' && !Array.isArray(parsed.field_updates)
       ? (parsed.field_updates as Record<string, unknown>)
       : {};
-  const mergedIncoming = mergeFieldUpdates(current, rawUpdates, transcript);
+  const confMap =
+    parsed.field_confidence && typeof parsed.field_confidence === 'object' && !Array.isArray(parsed.field_confidence)
+      ? (parsed.field_confidence as Record<string, unknown>)
+      : {};
+  const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
   const updates = sanitizeUpdates(mergedIncoming);
   const merged: FormValues = { ...current, ...updates };
   const missing = getMissingRequired(merged);
@@ -563,6 +574,7 @@ async function fieldJson(
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
   return {
     field_updates: updates,
+    field_confidence: meta,
     next_ask: nextAsk,
     reply_lang: replyLang,
     refuse_live_submit: refuse,
@@ -621,6 +633,7 @@ export const speak = onRequest(
         transcript,
         reply_lang: extracted.reply_lang,
         field_updates: extracted.field_updates,
+        field_confidence: extracted.field_confidence,
         missing_required: missing,
         next_ask: extracted.next_ask,
         gates: { answers: {} },

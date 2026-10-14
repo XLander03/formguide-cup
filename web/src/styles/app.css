@@ -68,3 +68,60 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
 }
+
+/* Download PDF: print only the preview paper sheet, marked DRAFT · NOT SUBMITTED. */
+.fg-print-watermark {
+  display: none;
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  html.fg-printing body * {
+    visibility: hidden !important;
+  }
+  html.fg-printing,
+  html.fg-printing body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  html.fg-printing .fg-print-host,
+  html.fg-printing .fg-print-host aside {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    box-shadow: none !important;
+    border: 0 !important;
+  }
+  html.fg-printing #fg-print-sheet,
+  html.fg-printing #fg-print-sheet * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html.fg-printing #fg-print-sheet {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+  html.fg-printing .fg-print-watermark {
+    display: block;
+    position: absolute;
+    top: 40%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 44px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--color-foreground);
+    opacity: 0.12;
+    transform: rotate(-24deg);
+    pointer-events: none;
+  }
+}

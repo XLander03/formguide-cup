@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SCHEMA, getNextAsk, isFilled } from '../lib/schema';
+import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
@@ -103,13 +103,16 @@ export function SpeakPage() {
   const [preview, setPreview] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
   const [micNote, setMicNote] = useState<string | null>(null);
+  const [checking, setChecking] = useState<string | null>(null);
   const mic = useSpeakMic(session.micLang, (wav) => {
     setMicNote(null);
     setSaidIsSample(false);
     setTurns((count) => count + 1);
     void session.onSubmitSpeakClip(wav).then((result) => {
       if (result.transcript) setSaid(result.transcript);
-      if (result.error) setMicNote(result.error);
+      if (result.error === 'fields_bad_json') {
+        setMicNote('Heard you, but could not fill the fields. Try again in shorter parts.');
+      } else if (result.error) setMicNote(result.error);
       else if (!result.transcript) setMicNote('Could not transcribe that clip.');
     });
   });
@@ -146,6 +149,16 @@ export function SpeakPage() {
       ? 'रीड-बैक के लिए तैयार · Fields vary by bank.'
       : 'Ready for read-back · Fields vary by bank.'
     : asked?.hint || '';
+  const flagged = session.flaggedIds;
+  const flagCount = flagged.length;
+  const panelIds = new Set(FIELDS.map((field) => field.id).filter(Boolean) as string[]);
+  const offPanelFlagged = flagged.filter((id) => !panelIds.has(id));
+  const flagLine =
+    flagCount > 0
+      ? session.language === 'hi'
+        ? `जाँचने के लिए ${flagCount} फ़ील्ड · रीड-बैक उसके बाद`
+        : `${flagCount} field${flagCount === 1 ? '' : 's'} to check · read-back after`
+      : null;
   const active = pinned ?? asked?.section ?? 'Identity';
   const started =
     turns > 0 ||
@@ -218,18 +231,54 @@ export function SpeakPage() {
               </p>
               <p className="mt-1 text-sm">{companion}</p>
             </div>
-            <div className={`border p-3 ${askComplete ? 'border-primary' : 'border-saffron'}`}>
-              <p className={`text-[10px] uppercase ${askComplete ? 'text-primary' : 'text-saffron'}`}>
+            <div className={`border p-3 ${askComplete && !flagLine ? 'border-primary' : 'border-saffron'}`}>
+              <p className={`text-[10px] uppercase ${askComplete && !flagLine ? 'text-primary' : 'text-saffron'}`}>
                 {askComplete
-                  ? 'Asks next · none missing'
+                  ? flagLine
+                    ? 'Asks next · check flagged'
+                    : 'Asks next · none missing'
                   : 'Asks next · missing required (one dump can fill many)'}
               </p>
-              <p className="mt-1 text-sm font-semibold">
-                {askNextLabel}
-                {askNextHint ? (
-                  <span className="font-normal text-background/60"> · {askNextHint}</span>
-                ) : null}
-              </p>
+              {session.readingBack ? (
+                <p role="status" aria-live="polite" className="mt-1">
+                  <span className="inline-block bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
+                    ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
+                  </span>
+                </p>
+              ) : null}
+              {session.readingBack ? null : askComplete && flagLine ? (
+                <p className="mt-1 text-sm font-semibold">
+                  {flagLine}
+                  <span className="font-normal text-background/60">
+                    {' '}
+                    · {flagged.map((id) => FIELDS.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-1 text-sm font-semibold">
+                  {askNextLabel}
+                  {askNextHint ? (
+                    <span className="font-normal text-background/60"> · {askNextHint}</span>
+                  ) : null}
+                </p>
+              )}
+              {!askComplete && flagLine ? (
+                <p className="mt-1 text-xs font-semibold text-saffron">{flagLine}</p>
+              ) : null}
+              {offPanelFlagged.map((id) => (
+                <div key={id} className="mt-2 flex items-center justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate">
+                    {fieldLabel(id)}: <span className="font-semibold">{String(session.values[id] ?? '')}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 border border-background/40 px-2 py-0.5 text-[10px] uppercase hover:bg-background hover:text-foreground"
+                    onClick={() => session.confirmField(id)}
+                  >
+                    Looks right
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -256,7 +305,13 @@ export function SpeakPage() {
                 type="button"
                 className={lightBtn}
                 disabled={session.busy}
-                onClick={() => session.onPriya()}
+                onClick={(event) => {
+                  const demoFlags =
+                    event.shiftKey ||
+                    event.altKey ||
+                    new URLSearchParams(window.location.search).get('flags') === '1';
+                  session.onPriya(demoFlags);
+                }}
               >
                 Fake prefill
               </button>
@@ -363,11 +418,25 @@ export function SpeakPage() {
                     const filling = Boolean(field.id && session.flashIds.has(field.id));
                     const heard = field.id ? session.said[field.id] : '';
                     const options = field.enumRef ? SCHEMA.enums[field.enumRef] ?? [] : null;
+                    const isFlagged = Boolean(field.id && flagged.includes(field.id));
+                    const conf = field.id ? session.confidence[field.id] : undefined;
+                    const open = isFlagged && checking === field.id;
+                    const inputId = field.id ? `speak-field-${field.id}` : undefined;
                     const status = filling ? '● filling' : filled ? '✓ heard' : asking ? 'asking' : 'missing';
                     return (
                       <div
                         key={field.label}
-                        className={`border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
+                        onClick={
+                          isFlagged
+                            ? (event) => {
+                                // Inline edit controls never toggle the row.
+                                const target = event.target as HTMLElement;
+                                if (target.closest('input, select, textarea, button, a, label')) return;
+                                setChecking(open ? null : field.id);
+                              }
+                            : undefined
+                        }
+                        className={`${isFlagged ? 'cursor-pointer ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
                           filling ? 'bg-saffron/30' : asking ? 'bg-primary/10' : ''
                         }`}
                       >
@@ -376,12 +445,39 @@ export function SpeakPage() {
                             {field.label}
                             {field.required ? <span className="text-destructive"> *</span> : ''}
                           </span>
-                          <span className={filled ? 'text-primary' : asking ? 'font-bold text-saffron' : 'text-muted-foreground'}>
-                            {status}
-                          </span>
+                          {isFlagged ? (
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              aria-label={`${field.label}: check this value`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (open) {
+                                  setChecking(null);
+                                  return;
+                                }
+                                setChecking(field.id);
+                                window.setTimeout(() => {
+                                  const el = inputId ? document.getElementById(inputId) : null;
+                                  if (el) (el as HTMLInputElement).focus();
+                                }, 0);
+                              }}
+                              className="ml-2 shrink-0 rounded-full bg-saffron/30 px-2 font-bold normal-case text-saffron"
+                            >
+                              Check this
+                            </button>
+                          ) : (
+                            <span className={filled ? 'text-primary' : asking ? 'font-bold text-saffron' : 'text-muted-foreground'}>
+                              {status}
+                            </span>
+                          )}
                         </div>
                         {field.id && options ? (
                           <select
+                            id={inputId}
+                            onFocus={() => {
+                              if (isFlagged) setChecking(field.id);
+                            }}
                             aria-label={field.label}
                             value={raw}
                             onChange={(event) => session.onChange(field.id as string, event.target.value)}
@@ -396,6 +492,10 @@ export function SpeakPage() {
                           </select>
                         ) : field.id ? (
                           <input
+                            id={inputId}
+                            onFocus={() => {
+                              if (isFlagged) setChecking(field.id);
+                            }}
                             aria-label={field.label}
                             value={raw}
                             placeholder={field.hint}
@@ -407,6 +507,24 @@ export function SpeakPage() {
                         ) : (
                           <p className="mt-1 min-h-6 text-muted-foreground/60">{field.hint}</p>
                         )}
+                        {open ? (
+                          <div className="mt-1 flex items-center justify-between gap-2 text-[10px]">
+                            <span className="text-muted-foreground">
+                              {conf?.reason ? `Unsure: ${conf.reason}` : 'Unsure — edit above or confirm'}
+                              {conf ? ` · ${Math.round(conf.confidence * 100)}%` : ''}
+                            </span>
+                            <button
+                              type="button"
+                              className="shrink-0 border border-primary px-2 py-0.5 font-bold uppercase text-primary hover:bg-primary hover:text-primary-foreground"
+                              onClick={() => {
+                                if (field.id) session.confirmField(field.id);
+                                setChecking(null);
+                              }}
+                            >
+                              ✓ Looks right
+                            </button>
+                          </div>
+                        ) : null}
                         {heard ? (
                           <p className="mt-0.5 truncate text-[10px] italic text-muted-foreground">“{heard}”</p>
                         ) : null}
@@ -459,6 +577,28 @@ export function SpeakPage() {
   );
 }
 
+/** Export the existing paper sheet via the browser's print → Save as PDF (print CSS in app.css). */
+function downloadSheetPdf() {
+  const root = document.documentElement;
+  const prevTitle = document.title;
+  const stamp = new Date().toISOString().slice(0, 10);
+  document.title = `FormGuide-draft-NOT-SUBMITTED-${stamp}`;
+  root.classList.add('fg-printing');
+  const done = () => {
+    root.classList.remove('fg-printing');
+    document.title = prevTitle;
+    window.removeEventListener('afterprint', done);
+    window.removeEventListener('pointerdown', done);
+    window.removeEventListener('keydown', done);
+  };
+  window.addEventListener('afterprint', done);
+  window.print();
+  // Firefox/Safari return from print() while the dialog is still open, so no timer here.
+  // iOS may never fire afterprint; the next interaction with the page means the dialog is gone.
+  window.addEventListener('pointerdown', done);
+  window.addEventListener('keydown', done);
+}
+
 function FormPreview({
   version,
   title,
@@ -473,7 +613,7 @@ function FormPreview({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fg-print-host fixed inset-0 z-50">
       <button type="button" aria-label="Close form preview" className="absolute inset-0 bg-black/80" onClick={onClose} />
       <aside
         role="dialog"
@@ -485,6 +625,14 @@ function FormPreview({
           <h2 id="form-preview-title" className="flex items-center gap-2 text-lg font-semibold">
             <FileTextIcon className="size-4" /> Form preview · version {version}
           </h2>
+          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
+            onClick={downloadSheetPdf}
+          >
+            <FileTextIcon /> Download PDF
+          </button>
           <button
             type="button"
             aria-label="Close"
@@ -495,8 +643,9 @@ function FormPreview({
               ×
             </span>
           </button>
+          </div>
         </div>
-        <div className="mx-4 mb-6 border border-foreground bg-card p-5 font-mono text-[11px] text-card-foreground shadow-[4px_4px_0_var(--foreground)]">
+        <div id="fg-print-sheet" className="relative mx-4 mb-6 border border-foreground bg-card p-5 font-mono text-[11px] text-card-foreground shadow-[4px_4px_0_var(--foreground)]">
           <div className="flex items-start justify-between border-b-2 border-foreground pb-3">
             <div>
               <p className="text-[9px] uppercase">Generic bank-style form · illustrative layout</p>
@@ -547,6 +696,9 @@ function FormPreview({
               </div>
             );
           })}
+          <div aria-hidden="true" className="fg-print-watermark">
+            DRAFT · NOT SUBMITTED
+          </div>
           <div className="mt-6 grid grid-cols-2 gap-4 text-[9px]">
             <div className="h-12 border-b border-foreground">Signature of applicant</div>
             <div className="h-12 border-b border-foreground">Date</div>

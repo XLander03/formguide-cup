@@ -84,6 +84,67 @@ function normName(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+export type FieldMeta = { confidence: number; reason?: string };
+export type FieldMetaMap = Record<string, FieldMeta>;
+
+function clampConfidence(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(1, n));
+}
+
+/** Accepts either a bare value or {value, confidence, reason}. */
+function unwrapUpdate(raw: unknown): { value: unknown; meta: FieldMeta | null } {
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'value' in (raw as Record<string, unknown>)) {
+    const obj = raw as Record<string, unknown>;
+    const confidence = clampConfidence(obj.confidence);
+    if (confidence === null) return { value: obj.value, meta: null };
+    const reason = typeof obj.reason === 'string' && obj.reason.trim() ? obj.reason.trim().slice(0, 120) : undefined;
+    return { value: obj.value, meta: reason ? { confidence, reason } : { confidence } };
+  }
+  return { value: raw, meta: null };
+}
+
+/**
+ * Same as mergeFieldUpdates but also carries per-field confidence through key
+ * canonicalization and applicant→father remaps. Optional `confidenceMap`
+ * (id → {confidence, reason}) is merged with any inline {value, confidence}.
+ */
+export function mergeFieldUpdatesWithMeta(
+  current: FormValues,
+  rawUpdates: Record<string, unknown> | FormValues,
+  transcript = '',
+  confidenceMap: Record<string, unknown> = {},
+): { updates: FormValues; meta: FieldMetaMap } {
+  const plain: Record<string, unknown> = {};
+  const metaIn: FieldMetaMap = {};
+  for (const [rawKey, rawVal] of Object.entries(rawUpdates || {})) {
+    const key = ALIASES[rawKey] || rawKey;
+    const { value, meta } = unwrapUpdate(rawVal);
+    plain[rawKey] = value;
+    if (meta) metaIn[key] = meta;
+  }
+  for (const [rawKey, rawMeta] of Object.entries(confidenceMap || {})) {
+    const key = ALIASES[rawKey] || rawKey;
+    if (metaIn[key]) continue;
+    const src = rawMeta && typeof rawMeta === 'object' ? (rawMeta as Record<string, unknown>) : { confidence: rawMeta };
+    const { meta } = unwrapUpdate({ value: null, ...src });
+    if (meta) metaIn[key] = meta;
+  }
+  const fatherSent = Object.keys(plain).some(
+    (rawKey) => (ALIASES[rawKey] || rawKey) === 'father_or_spouse_name' && isFilled(plain[rawKey]),
+  );
+  const updates = mergeFieldUpdates(current, plain, transcript);
+  const meta: FieldMetaMap = {};
+  for (const key of Object.keys(updates)) {
+    // Only a father name that came from remapping the applicant name inherits its confidence.
+    const remapped = key === 'father_or_spouse_name' && !fatherSent;
+    const m = metaIn[key] || (remapped ? metaIn.applicant_full_name : undefined);
+    if (m) meta[key] = m;
+  }
+  return { updates, meta };
+}
+
 /**
  * Canonicalize keys, drop unknown ids, then protect filled fields.
  * Remaps a mis-bound second name onto father_or_spouse_name when needed.
