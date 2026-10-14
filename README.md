@@ -13,6 +13,7 @@ Builders Cup clickable demo: **Hindi + English voice / text → AOF + KYC draft 
 - Confirm-before-submit · **no live bank submit**
 - UI copy: **“Fields vary by bank.”** — never invent bank form IDs
 - Schema: `aof_kyc_demo_v1` (working copy under `web/src/schema/`)
+- Aadhaar stays a choice in the ID-proof list. Selecting it stores only the document type — no Aadhaar number, upload, or consent key in the draft.
 - Stack: Vite + React + TypeScript (Hosting) · Firebase Functions Node 20 (`speak`: Gemini transcription + structured JSON)
 
 Teammate Researcher owns `docs/schema/`, `docs/research/`, and `corpus/`. This app does not modify those paths.

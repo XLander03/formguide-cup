@@ -1,3 +1,4 @@
+import { isAadhaarOvd } from '../lib/aadhaarScope';
 import { FIELD_GROUPS, SCHEMA } from '../lib/schema';
 import type { FormValues } from '../lib/types';
 import { FieldInput } from './FieldInput';
@@ -17,7 +18,12 @@ export function FormSections({ values, flashIds, onChange, groups }: Props) {
   return (
     <div className="form-sections">
       {visible.map((g) => {
-        const fields = SCHEMA.fields.filter((f) => f.group === g.id);
+        const fields = SCHEMA.fields.filter((f) => {
+          if (f.group !== g.id || /aadhaar|aadhar/i.test(f.id)) return false;
+          if (f.id === 'ovd_poi_number' && isAadhaarOvd(values.ovd_poi_type)) return false;
+          if (f.id === 'ovd_poa_number' && isAadhaarOvd(values.ovd_poa_type)) return false;
+          return true;
+        });
         return (
           <section key={g.id} className="section" id={`group-${g.id}`}>
             <div className="section-head">

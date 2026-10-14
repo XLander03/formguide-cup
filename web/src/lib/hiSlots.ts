@@ -777,10 +777,8 @@ export function extractHindiSlots(text: string): Record<string, SlotValue> {
   if (/पासपोर्ट/.test(text)) out.ovd_poi_type = 'passport';
   else if (/ड्राइविंग\s*ला[इी]से(?:न्स|ंस)|चालक\s*ला[इी]से(?:न्स|ंस)/.test(text))
     out.ovd_poi_type = 'driving_licence';
-  else if (/आधार/.test(text)) {
-    out.ovd_poi_type = 'proof_of_possession_of_aadhaar';
-    out.aadhaar_voluntary_consent = true;
-  } else if (/वोटर|मतदाता/.test(text)) out.ovd_poi_type = 'voter_id';
+  else if (/आधार/.test(text)) out.ovd_poi_type = 'proof_of_possession_of_aadhaar';
+  else if (/वोटर|मतदाता/.test(text)) out.ovd_poi_type = 'voter_id';
   else if (/नरेगा|मनरेगा/.test(text)) out.ovd_poi_type = 'nrega_job_card';
   else if (/एनपीआर/.test(text)) out.ovd_poi_type = 'npr_letter';
 

@@ -1,5 +1,6 @@
 import compact from '../schema/aof_kyc_demo_v1.compact.json';
 import fullSchema from '../schema/aof_kyc_demo_v1.schema.json';
+import { isAadhaarOvd, omitAadhaarKeys, withoutAadhaarNumbers } from './aadhaarScope';
 import type { FormValues, SchemaField } from './types';
 import { localizeAsk, type UtteranceLang } from './utteranceLang';
 
@@ -42,6 +43,7 @@ export const ALWAYS_REQUIRED = SCHEMA.fields.filter((f) => f.required).map((f) =
 export function emptyValues(): FormValues {
   const v: FormValues = {};
   for (const f of SCHEMA.fields) {
+    if (/aadhaar|aadhar/i.test(f.id)) continue;
     if (f.type === 'boolean') v[f.id] = null;
     else v[f.id] = '';
   }
@@ -59,7 +61,7 @@ export function priyaDemoValues(): FormValues {
   out.readback_confirmed = false;
   out.draft_only_ack = false;
   out.no_live_submit_ack = false;
-  return out;
+  return withoutAadhaarNumbers(omitAadhaarKeys(out));
 }
 
 function fType(id: string): string {
@@ -92,6 +94,9 @@ export function getMissingRequired(values: FormValues): string[] {
   for (const f of SCHEMA.fields) {
     // Confirm gates are asked at the end, not during fill routing
     if (f.group === 'confirm_gates') continue;
+    if (/aadhaar|aadhar/i.test(f.id)) continue;
+    if (f.id === 'ovd_poi_number' && isAadhaarOvd(values.ovd_poi_type)) continue;
+    if (f.id === 'ovd_poa_number' && isAadhaarOvd(values.ovd_poa_type)) continue;
     if (!isEffectivelyRequired(f, values)) continue;
     if (!isFieldApplicable(f, values) && f.required_if) continue;
     if (!isFilled(values[f.id])) missing.push(f.id);

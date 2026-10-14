@@ -1,3 +1,4 @@
+import { isAadhaarOvd } from '../lib/aadhaarScope';
 import { FIELD_GROUPS, SCHEMA, fieldLabel, isFilled } from '../lib/schema';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
@@ -39,7 +40,13 @@ export function DraftSheet({
     <div className="draft-sheet">
       {groups.map((group) => {
         const rows = SCHEMA.fields
-          .filter((field) => field.group === group.id && isFilled(values[field.id]))
+          .filter((field) => {
+            if (field.group !== group.id || !isFilled(values[field.id])) return false;
+            if (/aadhaar|aadhar/i.test(field.id)) return false;
+            if (field.id === 'ovd_poi_number' && isAadhaarOvd(values.ovd_poi_type)) return false;
+            if (field.id === 'ovd_poa_number' && isAadhaarOvd(values.ovd_poa_type)) return false;
+            return true;
+          })
           .map((field) => ({
             id: field.id,
             label: fieldLabel(field.id),

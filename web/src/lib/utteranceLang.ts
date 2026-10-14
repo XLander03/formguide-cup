@@ -72,7 +72,6 @@ export const HI_FIELD_ASK: Record<string, string> = {
   addr_permanent_pin: 'स्थायी पते का पिन कोड बताएं।',
   ovd_poa_type: 'पते के प्रमाण का दस्तावेज़ कौन सा है?',
   ovd_poa_number: 'पते के प्रमाण का नंबर बताएं।',
-  aadhaar_voluntary_consent: 'क्या आप आधार का स्वैच्छिक उपयोग मानते हैं?',
   readback_confirmed: 'रीड-बैक सुनकर बताएं कि विवरण सही है।',
   draft_only_ack: 'पुष्टि करें कि यह केवल ड्राफ्ट है।',
   no_live_submit_ack: 'पुष्टि करें कि बैंक में लाइव जमा नहीं करना है।',

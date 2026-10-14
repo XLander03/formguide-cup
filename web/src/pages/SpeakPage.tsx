@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AADHAAR_OVD } from '../lib/aadhaarScope';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
@@ -70,6 +71,12 @@ function pretty(value: string): string {
   return ENUM_LABEL[value] ?? value.replace(/_/g, ' ');
 }
 
+/** Aadhaar stays in the ID list. Choosing it shows no document-number field. */
+function speakFields(values: Record<string, string | boolean | null | undefined>): PreviewField[] {
+  if (values.ovd_poi_type !== AADHAAR_OVD) return FIELDS;
+  return FIELDS.filter((field) => field.id !== 'ovd_poi_number');
+}
+
 
 function shownValue(field: PreviewField, raw: string): string {
   if (!raw || !field.enumRef) return raw;
@@ -131,7 +138,8 @@ export function SpeakPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [preview]);
 
-  const requiredFields = FIELDS.filter((field) => field.required && field.id);
+  const fields = speakFields(session.values);
+  const requiredFields = fields.filter((field) => field.required && field.id);
   const requiredFilled = requiredFields.filter((field) => field.id && isFilled(session.values[field.id])).length;
   // Derive ask-next from live session.missing / values — never fall back to FIELDS[0] when done.
   const askComplete =
@@ -139,7 +147,7 @@ export function SpeakPage() {
     session.completeness === 'demo_ready' ||
     session.completeness === 'full_bank_packet';
   const asked =
-    (!askComplete && FIELDS.find((field) => field.id && field.id === session.missing[0])) ||
+    (!askComplete && fields.find((field) => field.id && field.id === session.missing[0])) ||
     (!askComplete &&
       requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
     null;
@@ -155,7 +163,7 @@ export function SpeakPage() {
     : asked?.hint || '';
   const flagged = session.flaggedIds;
   const flagCount = flagged.length;
-  const panelIds = new Set(FIELDS.map((field) => field.id).filter(Boolean) as string[]);
+  const panelIds = new Set(fields.map((field) => field.id).filter(Boolean) as string[]);
   const offPanelFlagged = flagged.filter((id) => !panelIds.has(id));
   const flagLine =
     flagCount > 0
@@ -167,7 +175,7 @@ export function SpeakPage() {
   const started =
     turns > 0 ||
     Boolean(session.last) ||
-    FIELDS.some((field) => field.id && isFilled(session.values[field.id]));
+    fields.some((field) => field.id && isFilled(session.values[field.id]));
   const companion = !started
     ? session.language === 'hi'
       ? 'नमस्ते! अपना पूरा नाम बताइए।'
@@ -181,7 +189,7 @@ export function SpeakPage() {
   const lightBtn = `${BTN_OUTLINE} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
 
   const sectionStats = SECTIONS.map((name) => {
-    const rows = FIELDS.filter((field) => field.section === name);
+    const rows = fields.filter((field) => field.section === name);
     const done = rows.filter((field) => field.id && isFilled(session.values[field.id])).length;
     return { name, total: rows.length, done };
   });
@@ -264,7 +272,7 @@ export function SpeakPage() {
                   {flagLine}
                   <span className="font-normal text-background/60">
                     {' '}
-                    · {flagged.map((id) => FIELDS.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
+                    · {flagged.map((id) => fields.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
                   </span>
                 </p>
               ) : (
@@ -452,7 +460,7 @@ export function SpeakPage() {
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5" style={{ maxHeight: 'calc(100vh - 230px)' }}>
           {SECTIONS.map((name, index) => {
             const stat = sectionStats[index];
-            const rows = FIELDS.filter((field) => field.section === name);
+            const rows = fields.filter((field) => field.section === name);
             const activeSection = active === name;
             return (
               <section
@@ -693,6 +701,7 @@ function FormPreview({
   documentFieldIds: string[];
   onClose: () => void;
 }) {
+  const fields = speakFields(values);
   return (
     <div className="fg-print-host fixed inset-0 z-50">
       <button type="button" aria-label="Close form preview" className="absolute inset-0 bg-black/80" onClick={onClose} />
@@ -746,7 +755,7 @@ function FormPreview({
             DRAFT · NOT SUBMITTED · Fields vary by bank
           </p>
           {SECTIONS.map((name, index) => {
-            const rows = FIELDS.filter((field) => field.section === name);
+            const rows = fields.filter((field) => field.section === name);
             return (
               <div key={name} className="mt-4">
                 <p className="bg-foreground px-2 py-0.5 text-[10px] font-bold uppercase text-background">

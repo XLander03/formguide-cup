@@ -18,12 +18,12 @@ Do **not** add to this file: **NEFT/RTGS**, **loans**, **SCSS**, **Form 15G/15H*
 | --- | --- |
 | Total fields | **45** |
 | Always-required | **22** |
-| Conditional (`required_if`) | **11** |
+| Conditional (`required_if`) | **10** |
 | Sections | **8** |
 
 **Always required:** `journey_mode`, `applicant_full_name`, `dob`, `residential_status`, `pan_available`, `mobile_registered`, `addr_current_line1`, `addr_current_city`, `addr_current_state`, `addr_current_pin`, `addr_permanent_same_as_current`, `ovd_poi_type`, `ovd_poi_number`, `ovd_poa_same_as_poi`, `photo_consent`, `ovd_originals_ack`, `existing_bank_customer`, `pep_declaration`, `tax_resident_india_only`, `readback_confirmed`, `draft_only_ack`, `no_live_submit_ack`.
 
-**Conditional:** PAN vs Form 60; permanent address block; POA if ≠ POI; Aadhaar consent if Aadhaar OVD; CIF if existing customer; `account_product_intent` if AOF.
+**Conditional:** PAN vs Form 60; permanent address block; POA if ≠ POI; CIF if existing customer; `account_product_intent` if AOF. Choosing Aadhaar as ID proof records only `ovd_poi_type` — no number and no consent.
 
 ## Confirm / finalize
 

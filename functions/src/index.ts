@@ -1,5 +1,6 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
+import { dropAadhaarNumbers, isAadhaarOvd } from './aadhaarScope';
 import { readSpeakRequest } from './wav';
 import { extractPanFromImage, readPanImageRequest } from './pan';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
@@ -38,7 +39,6 @@ const FIELD_IDS = [
   'ovd_poa_same_as_poi',
   'ovd_poa_type',
   'ovd_poa_number',
-  'aadhaar_voluntary_consent',
   'photo_consent',
   'ovd_originals_ack',
   'existing_bank_customer',
@@ -93,7 +93,6 @@ const BOOLS = new Set([
   'form60_declared',
   'addr_permanent_same_as_current',
   'ovd_poa_same_as_poi',
-  'aadhaar_voluntary_consent',
   'photo_consent',
   'ovd_originals_ack',
   'existing_bank_customer',
@@ -135,7 +134,6 @@ const CONDITIONAL: Array<{ id: string; when: Record<string, unknown> }> = [
   { id: 'addr_permanent_pin', when: { addr_permanent_same_as_current: false } },
   { id: 'ovd_poa_type', when: { ovd_poa_same_as_poi: false } },
   { id: 'ovd_poa_number', when: { ovd_poa_same_as_poi: false } },
-  { id: 'aadhaar_voluntary_consent', when: { ovd_poi_type: 'proof_of_possession_of_aadhaar' } },
   { id: 'customer_id_cif', when: { existing_bank_customer: true } },
   { id: 'account_product_intent', when: { journey_mode: 'account_opening' } },
 ];
@@ -235,9 +233,11 @@ function isFilled(value: unknown): boolean {
 function getMissingRequired(values: FormValues): string[] {
   const missing: string[] = [];
   for (const id of ALWAYS_REQUIRED) {
+    if (id === 'ovd_poi_number' && isAadhaarOvd(values.ovd_poi_type)) continue;
     if (!isFilled(values[id])) missing.push(id);
   }
   for (const cond of CONDITIONAL) {
+    if (cond.id === 'ovd_poa_number' && isAadhaarOvd(values.ovd_poa_type)) continue;
     const match = Object.entries(cond.when).every(([key, expect]) => values[key] === expect);
     if (match && !isFilled(values[cond.id])) missing.push(cond.id);
   }
@@ -470,6 +470,7 @@ NORMALIZATION:
 - City/state as place names (बेंगलुरु→Bengaluru, मुंबई→Mumbai).
 - Spoken numbers → digits (mobile 10 digits, PIN 6 digits).
 - Booleans true/false only.
+- If ovd_poi_type or ovd_poa_type is proof_of_possession_of_aadhaar, set only that type. Do not set a document number, an Aadhaar number, or any consent flag.
 
 next_ask:
 - After this turn, ask only still-missing REQUIRED fields.
@@ -560,7 +561,7 @@ async function fieldJson(
       ? (parsed.field_confidence as Record<string, unknown>)
       : {};
   const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
-  const updates = sanitizeUpdates(mergedIncoming);
+  const updates = dropAadhaarNumbers(current, sanitizeUpdates(mergedIncoming));
   const merged: FormValues = { ...current, ...updates };
   // Aadhaar must never leave this function unmasked (schema requires last-4 only).
   // Resolve type from `merged` — it may have been set in an earlier turn.

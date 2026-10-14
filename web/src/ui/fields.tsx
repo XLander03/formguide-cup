@@ -1,3 +1,4 @@
+import { isAadhaarOvd } from '../lib/aadhaarScope';
 import { FIELD_GROUPS, SCHEMA, isEffectivelyRequired, isFieldApplicable, isFilled } from '../lib/schema';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
@@ -157,9 +158,13 @@ export function FieldGroups({
   return (
     <div className="space-y-5">
       {groups.map((group, index) => {
-        const fields = SCHEMA.fields.filter(
-          (field) => field.group === group.id && isFieldApplicable(field, values),
-        );
+        const fields = SCHEMA.fields.filter((field) => {
+          if (field.group !== group.id || !isFieldApplicable(field, values)) return false;
+          if (/aadhaar|aadhar/i.test(field.id)) return false;
+          if (field.id === 'ovd_poi_number' && isAadhaarOvd(values.ovd_poi_type)) return false;
+          if (field.id === 'ovd_poa_number' && isAadhaarOvd(values.ovd_poa_type)) return false;
+          return true;
+        });
         const confirmed = fields.filter(
           (field) => isFilled(values[field.id]) && !flashIds.has(field.id),
         ).length;

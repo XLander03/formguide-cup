@@ -1,6 +1,7 @@
 /**
  * PAN request gate and extract sanitizer. Run after tsc: node scripts/smoke-pan.cjs
  */
+const { dropAadhaarNumbers } = require('../lib/aadhaarScope');
 const { readPanImageRequest, sanitizePanExtract } = require('../lib/pan');
 
 function assert(cond, msg) {
@@ -81,5 +82,13 @@ assert(
   sanitizePanExtract({ ok: true, pan_number: '123412341234', applicant_full_name: null, dob: null }).ok === false,
   'aadhaar number is not a pan',
 );
+
+const dropped = dropAadhaarNumbers(
+  { ovd_poi_type: 'proof_of_possession_of_aadhaar' },
+  { ovd_poi_number: '123412341234', aadhaar_voluntary_consent: true, applicant_full_name: 'SAMPLE PERSON' },
+);
+assert(dropped.applicant_full_name === 'SAMPLE PERSON', 'name kept');
+assert(!('ovd_poi_number' in dropped), 'aadhaar number dropped');
+assert(!('aadhaar_voluntary_consent' in dropped), 'consent dropped');
 
 console.log('pan function gate ok');

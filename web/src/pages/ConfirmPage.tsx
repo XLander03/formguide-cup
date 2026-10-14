@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isAadhaarOvd, withoutAadhaarNumbers } from '../lib/aadhaarScope';
 import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
 import { buildFilledKycPdf } from '../lib/pdfFill';
 import { useRoute } from '../routing/router';
@@ -66,12 +67,15 @@ function draftPayload(session: ReturnType<typeof useFormSession>) {
     journey: session.journey,
     language: session.language,
     mic_lang: session.micLang,
-    values: session.values,
+    values: withoutAadhaarNumbers(session.values),
     // Structured handoff shape: per-field value + provenance + confidence.
-    // This is the part a bank's onboarding/core-banking system would
-    // actually import — the flat `values` above is kept for simple
-    // consumers that just want the data.
-    fields: handoffFields(session),
+    // Aadhaar numbers and Aadhaar keys are omitted.
+    fields: handoffFields(session).filter((field) => {
+      if (/aadhaar|aadhar/i.test(field.id)) return false;
+      if (field.id === 'ovd_poi_number' && isAadhaarOvd(session.values.ovd_poi_type)) return false;
+      if (field.id === 'ovd_poa_number' && isAadhaarOvd(session.values.ovd_poa_type)) return false;
+      return true;
+    }),
   };
 }
 
@@ -83,12 +87,11 @@ export function ConfirmPage() {
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
   });
-
   const downloadPdf = async () => {
     setPdfBusy(true);
     setPdfError(null);
     try {
-      const blob = await buildFilledKycPdf(session.values);
+      const blob = await buildFilledKycPdf(withoutAadhaarNumbers(session.values));
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -101,9 +104,12 @@ export function ConfirmPage() {
       setPdfBusy(false);
     }
   };
-  const rows = SCHEMA.fields.filter(
-    (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
-  );
+  const rows = SCHEMA.fields.filter((field) => {
+    if (field.group === 'confirm_gates' || /aadhaar|aadhar/i.test(field.id)) return false;
+    if (field.id === 'ovd_poi_number' && isAadhaarOvd(session.values.ovd_poi_type)) return false;
+    if (field.id === 'ovd_poa_number' && isAadhaarOvd(session.values.ovd_poa_type)) return false;
+    return isFilled(session.values[field.id]);
+  });
 
   if (session.draftReady) {
     return (

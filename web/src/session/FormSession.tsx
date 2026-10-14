@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { withoutAadhaarNumbers } from '../lib/aadhaarScope';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
@@ -22,7 +23,6 @@ import {
   type PanDocId,
   type PanDocValues,
 } from '../lib/panDocument';
-import { maskSensitiveFields } from '../lib/pii';
 import {
   completenessLevel,
   emptyValues,
@@ -125,7 +125,7 @@ function seedValues(saved: Persisted | null): FormValues {
   if (base.journey_mode === 'account_opening' && !base.account_product_intent) {
     base.account_product_intent = 'regular_savings';
   }
-  return base;
+  return withoutAadhaarNumbers(base);
 }
 
 export interface FormSessionValue {
@@ -302,11 +302,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           }
           next[key] = value;
         }
-        // Aadhaar must never land in state (and therefore sessionStorage,
-        // the screen, or a downloaded draft) unmasked, regardless of
-        // whether it came from speak, extract, or the heuristic fallback.
-        maskSensitiveFields(next);
-        return next;
+        return withoutAadhaarNumbers(next);
       });
       if (utterance?.trim()) {
         const clip = utterance.trim().replace(/\s+/g, ' ');
@@ -370,18 +366,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
-    setValues((prev) => {
-      const next = { ...prev, [id]: value };
-      // Mask once a full Aadhaar-length number has been typed, so manual
-      // edits on the Review page can't leave a full number sitting in
-      // state. Only triggers at 12 digits so it doesn't fight live typing
-      // of shorter document numbers.
-      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof value === 'string') {
-        const digits = value.replace(/\D/g, '');
-        if (digits.length >= 12) maskSensitiveFields(next);
-      }
-      return next;
-    });
+    setValues((prev) => withoutAadhaarNumbers({ ...prev, [id]: value }));
     // Typed / edited by the user → confirmed, which clears a Check-this flag.
     setConfidence((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], confirmed: true } } : prev));
     setFieldSource((prev) => ({ ...prev, [id]: 'manual' }));
@@ -569,8 +554,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setReadingBack(false);
     setRefuseMsg(null);
     setDraftReady(false);
-    const persona = priyaDemoValues();
-    maskSensitiveFields(persona);
+    const persona = withoutAadhaarNumbers(priyaDemoValues());
     setValues(persona);
     // Demo-only: strict === true so a click event passed as arg never triggers flags.
     setConfidence(withFlags === true ? demoFlagConfidence() : {});

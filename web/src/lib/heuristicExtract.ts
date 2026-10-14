@@ -464,13 +464,11 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   if (sameAddr !== null) updates.addr_permanent_same_as_current = sameAddr;
 
   const ovd = detectOvd(text);
-  if (ovd) {
-    updates.ovd_poi_type = ovd;
-    if (ovd === 'proof_of_possession_of_aadhaar') updates.aadhaar_voluntary_consent = true;
-  }
+  if (ovd) updates.ovd_poi_type = ovd;
 
   const ovdNum = extractOvdNumber(text);
-  if (ovdNum) updates.ovd_poi_number = ovdNum;
+  // Aadhaar records the document type only — never a number.
+  if (ovdNum && ovd !== 'proof_of_possession_of_aadhaar') updates.ovd_poi_number = ovdNum;
 
   const samePoa = yesNo(
     text,

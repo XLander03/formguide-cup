@@ -2,6 +2,7 @@
  * PAN document merge: spoken values win; a matching DOB is not flagged.
  * Run from web/: node --experimental-strip-types scripts/smoke-pan.ts
  */
+import { AADHAAR_OVD, withoutAadhaarNumbers } from '../src/lib/aadhaarScope.ts';
 import {
   PAN_MISMATCH_REASON,
   decidePanApply,
@@ -63,6 +64,18 @@ assert(after.matches.join(',') === 'applicant_full_name', 'later matching name i
 
 const laterMatch = speechAgainstPan({ dob: '1990-08-15' }, { dob: displayPanValue('dob', '15/08/1990') });
 assert(laterMatch.conflicts.length === 0 && laterMatch.matches.join(',') === 'dob', 'matching later dob');
+
+const aadhaarDraft = withoutAadhaarNumbers({
+  ovd_poi_type: AADHAAR_OVD,
+  ovd_poi_number: '123412341234',
+  aadhaar_voluntary_consent: true,
+  ovd_poa_type: 'passport',
+  ovd_poa_number: 'P1234567',
+});
+assert(aadhaarDraft.ovd_poi_type === AADHAAR_OVD, 'aadhaar type kept');
+assert(!('ovd_poi_number' in aadhaarDraft), 'aadhaar selection stores no number');
+assert(!('aadhaar_voluntary_consent' in aadhaarDraft), 'no consent key');
+assert(aadhaarDraft.ovd_poa_number === 'P1234567', 'other document numbers stay');
 
 assert(PAN_MISMATCH_REASON === "Doesn't match PAN", 'reason string');
 assert(panResultNote(clash, false).includes('Fields vary by bank.'), 'bank copy');

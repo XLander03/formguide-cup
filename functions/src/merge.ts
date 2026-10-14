@@ -34,7 +34,6 @@ const FIELD_IDS = [
   'ovd_poa_same_as_poi',
   'ovd_poa_type',
   'ovd_poa_number',
-  'aadhaar_voluntary_consent',
   'photo_consent',
   'ovd_originals_ack',
   'existing_bank_customer',

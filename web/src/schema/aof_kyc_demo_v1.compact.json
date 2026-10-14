@@ -582,8 +582,7 @@
       "group": "kyc_ovd",
       "validation": {
         "minLength": 4,
-        "maxLength": 30,
-        "aadhaar_rule": "If OVD is Aadhaar proof, store masked last-4 only in demo; never full Aadhaar in logs."
+        "maxLength": 30
       },
       "bank_varies": true
     },
@@ -636,18 +635,6 @@
         "minLength": 4,
         "maxLength": 30
       },
-      "bank_varies": true
-    },
-    {
-      "id": "aadhaar_voluntary_consent",
-      "label_en": "Voluntary Aadhaar / e-KYC consent (if using Aadhaar OVD)",
-      "type": "boolean",
-      "required": false,
-      "required_if": {
-        "ovd_poi_type": "proof_of_possession_of_aadhaar"
-      },
-      "group": "kyc_ovd",
-      "validation": {},
       "bank_varies": true
     },
     {
@@ -862,7 +849,6 @@
       "ovd_poa_same_as_poi": true,
       "ovd_poa_type": null,
       "ovd_poa_number": null,
-      "aadhaar_voluntary_consent": null,
       "photo_consent": true,
       "ovd_originals_ack": true,
       "existing_bank_customer": false,
