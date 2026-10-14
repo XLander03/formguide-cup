@@ -30,6 +30,8 @@ const STORAGE_KEY = 'formguide.cup.session.v2';
 /** Fields below this model confidence get a 'Check this' flag until confirmed. */
 export const CONFIDENCE_FLAG_THRESHOLD = 0.75;
 
+const READBACK_NO_START_MS = 5000;
+
 export interface FieldConfidence {
   confidence: number;
   reason?: string;
@@ -43,6 +45,22 @@ interface Persisted {
   confidence?: Record<string, FieldConfidence>;
 }
 
+function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
+  const out: Record<string, FieldConfidence> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { confidence, reason, confirmed } = entry as Record<string, unknown>;
+    if (typeof confidence !== 'number' || !Number.isFinite(confidence)) continue;
+    out[id] = {
+      confidence: Math.max(0, Math.min(1, confidence)),
+      reason: typeof reason === 'string' ? reason : undefined,
+      confirmed: confirmed === true,
+    };
+  }
+  return out;
+}
+
 function loadPersisted(): Persisted | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -52,9 +70,7 @@ function loadPersisted(): Persisted | null {
     const journey = isJourneyId(data.journey) ? data.journey : null;
     const values =
       data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
-    const confidence =
-      data.confidence && typeof data.confidence === 'object' ? data.confidence : {};
-    return { language, journey, values, confidence };
+    return { language, journey, values, confidence: parseConfidence(data.confidence) };
   } catch {
     return null;
   }
@@ -422,64 +438,65 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setDraftReady(false);
   }, [journey, language]);
 
-  const readbackWatch = useRef<{ poll: number; cap: number; finish: () => void; startedAt: number } | null>(null);
-  const clearReadbackWatch = useCallback(() => {
-    const w = readbackWatch.current;
-    if (w) {
-      window.clearInterval(w.poll);
-      window.clearTimeout(w.cap);
-      readbackWatch.current = null;
-    }
-  }, []);
-  useEffect(() => clearReadbackWatch, [clearReadbackWatch]);
+  const readbackRun = useRef<{ id: number; finish: () => void; startedAt: number } | null>(null);
+  const readbackSeq = useRef(0);
+  useEffect(
+    () => () => {
+      if (readbackRun.current) {
+        stopSpeaking();
+        readbackRun.current.finish();
+      }
+    },
+    [],
+  );
 
   /**
    * Speaks the read-back and resolves on end/error, OR when a watchdog decides it is done:
-   * - utterance onstart has not fired within 1.5s → cancel speech and finish (no-audio boxes
-   *   can report speechSynthesis.speaking=true with nothing playing, so we do not trust it here);
-   * - after onstart, speechSynthesis.speaking goes false → finish;
-   * - hard cap min(15s, max(3s, chars*60ms) + 1s) clears the pill only (never cancels speech).
-   * Only the no-start path cancels speech.
+   * - no onstart within READBACK_NO_START_MS → cancel and finish (no-audio boxes can report
+   *   speechSynthesis.speaking=true with nothing playing; voices can take seconds to load on
+   *   first use, so the wait is deliberately generous);
+   * - after onstart, speechSynthesis.speaking and .pending both go false → finish;
+   * - safety cap well past the expected spoken length → cancel speech and finish, so the UI
+   *   never reports "done" while audio is still playing.
+   * Each run owns its timers; finishing one run never touches another run's timers.
    */
   const watchReadback = useCallback(
-    (text: string, lang: UtteranceLang): Promise<void> => {
-      clearReadbackWatch();
-      return new Promise<void>((resolve) => {
+    (id: number, text: string, lang: UtteranceLang): Promise<void> =>
+      new Promise<void>((resolve) => {
         let settled = false;
         let started = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          clearReadbackWatch();
-          resolve();
-        };
         const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
         const startedAt = Date.now();
         const log = (msg: string, ...rest: unknown[]) =>
-          console.info(`[readback] +${Date.now() - startedAt}ms ${msg}`, ...rest);
-        const capMs = Math.min(15000, Math.max(3000, text.length * 60) + 1000);
-        const poll = window.setInterval(() => {
+          console.info(`[readback #${id}] +${Date.now() - startedAt}ms ${msg}`, ...rest);
+        const capMs = Math.max(20000, text.length * 150) + 10000;
+        let poll = 0;
+        let cap = 0;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.clearInterval(poll);
+          window.clearTimeout(cap);
+          if (readbackRun.current?.id === id) readbackRun.current = null;
+          resolve();
+        };
+        poll = window.setInterval(() => {
           if (!started) {
-            if (Date.now() - startedAt >= 1500) {
-              log('no-start timeout (no onstart within 1500ms) → cancel');
-              stopSpeaking();
-              finish();
-            }
+            if (Date.now() - startedAt < READBACK_NO_START_MS) return;
+            log(`no-start timeout (no onstart within ${READBACK_NO_START_MS}ms) → cancel`);
+            stopSpeaking();
+            finish();
           } else if (!synth || (!synth.speaking && !synth.pending)) {
             log('poll: speaking/pending false', { speaking: synth?.speaking, pending: synth?.pending });
             finish();
           }
         }, 500);
-        // Hard cap clears UI state only. It never cancels speech: real read-backs can exceed 15s.
-        const cap = window.setTimeout(
-          () => {
-            log(`hard cap fired (capMs=${capMs}) → clear pill only`);
-            finish();
-          },
-          capMs,
-        );
-        readbackWatch.current = { poll, cap, finish, startedAt };
-        // Cap timer above is armed here, at speak time — not after onstart.
+        cap = window.setTimeout(() => {
+          log(`safety cap fired (capMs=${capMs}) → cancel`);
+          stopSpeaking();
+          finish();
+        }, capMs);
+        readbackRun.current = { id, finish, startedAt };
         log(`speak called (chars=${text.length}, capMs=${capMs}, lang=${lang})`);
         speakForUtterance(text, lang, {
           onStart: () => {
@@ -489,12 +506,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           onEnd: () => log('onend'),
           onError: (error) => log('onerror', error),
         }).then(finish, finish);
-      });
-    },
-    [clearReadbackWatch],
+      }),
+    [],
   );
 
   const onReadback = useCallback(async () => {
+    if (readbackRun.current) {
+      stopSpeaking();
+      readbackRun.current.finish();
+    }
+    const id = ++readbackSeq.current;
     const script = buildReadbackScript(values, readbackLang);
     setLast((prev) => ({
       field_updates: {},
@@ -510,23 +531,26 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setSpeaking(true);
     setReadingBack(true);
     try {
-      await watchReadback(script, readbackLang);
+      await watchReadback(id, script, readbackLang);
     } finally {
-      setSpeaking(false);
-      setReadingBack(false);
+      // A newer read-back owns the speaking state once it has started.
+      if (readbackSeq.current === id) {
+        setSpeaking(false);
+        setReadingBack(false);
+      }
     }
   }, [values, missing, completeness, readbackLang, watchReadback]);
 
   const onStopReadback = useCallback(() => {
     stopSpeaking();
-    if (readbackWatch.current)
-      console.info(`[readback] +${Date.now() - readbackWatch.current.startedAt}ms manual stop`);
-    // Resolve the pending watcher so onReadback's finally runs.
-    if (readbackWatch.current) readbackWatch.current.finish();
-    else clearReadbackWatch();
+    const run = readbackRun.current;
+    if (run) {
+      console.info(`[readback #${run.id}] +${Date.now() - run.startedAt}ms manual stop`);
+      run.finish();
+    }
     setSpeaking(false);
     setReadingBack(false);
-  }, [clearReadbackWatch]);
+  }, []);
 
   const onTryLiveSubmit = useCallback(() => {
     setRefuseMsg(tryLiveMessage(readbackLang));

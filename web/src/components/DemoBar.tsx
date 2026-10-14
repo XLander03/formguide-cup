@@ -4,6 +4,8 @@ import { HINDI_SAMPLE, MIXED_SAMPLE, type UtteranceLang } from '../lib/utterance
 
 interface Props {
   busy: boolean;
+  /** Read-back or next-ask TTS in progress; blocks starting another read-back. */
+  speaking?: boolean;
   onSubmitUtterance: (text: string) => Promise<void>;
   onPriya: () => void;
   onClear: () => void;
@@ -27,6 +29,7 @@ interface Props {
 
 export function DemoBar({
   busy,
+  speaking = false,
   onSubmitUtterance,
   onPriya,
   onClear,
@@ -168,7 +171,7 @@ export function DemoBar({
       </div>
       {showFinalizeActions && !utteranceOnly && (
         <div className="row" style={{ marginTop: '0.5rem' }}>
-          <button className="btn" disabled={!canReadback || busy} onClick={onReadback}>
+          <button className="btn" disabled={!canReadback || busy || speaking} onClick={onReadback}>
             TTS read-back
           </button>
           <button className="btn danger" disabled={busy} onClick={onTryLiveSubmit}>
