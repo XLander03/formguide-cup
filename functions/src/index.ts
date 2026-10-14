@@ -3,6 +3,7 @@ import { defineSecret } from 'firebase-functions/params';
 import { readSpeakRequest } from './wav';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
+import { digitRecheckAsk, normalizeVoiceUpdates } from './voiceNormalize';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 
@@ -288,13 +289,10 @@ function sanitizeUpdates(raw: unknown): FormValues {
     }
     if (key === 'dob' || key === 'ovd_poi_expiry') text = toIsoDate(text);
     if (key === 'pan_number') text = text.toUpperCase().replace(/\s+/g, '');
-    if (key === 'mobile_registered') {
+    // Digit counts are checked in normalizeVoiceUpdates; a wrong count stays visible and flagged.
+    if (key === 'mobile_registered' || key === 'addr_current_pin' || key === 'addr_permanent_pin') {
       const digits = text.replace(/\D/g, '');
-      text = digits.length > 10 ? digits.slice(-10) : digits;
-    }
-    if (key === 'addr_current_pin' || key === 'addr_permanent_pin') {
-      const digits = text.replace(/\D/g, '');
-      if (digits) text = digits.slice(0, 6);
+      if (digits) text = digits;
     }
     out[key] = text;
   }
@@ -465,9 +463,9 @@ MULTI-FIELD EXTRACTION:
 
 NORMALIZATION:
 - Enums: journey_mode=account_opening|kyc_update|rekyc; gender=female|male|other|prefer_not_to_say; residential_status=resident_individual; ovd_poi_type/ovd_poa_type=passport|driving_licence|proof_of_possession_of_aadhaar|voter_id|nrega_job_card|npr_letter; account_product_intent=regular_savings|salary_savings|bsbda|individual_current|unspecified_varies_by_bank; occupation_bucket=salaried|self_employed|professional|student|homemaker|retired|other.
-- DOB → YYYY-MM-DD (English or Hindi spoken dates).
-- City/state as place names (बेंगलुरु→Bengaluru, मुंबई→Mumbai).
-- Spoken numbers → digits (mobile 10 digits, PIN 6 digits).
+- DOB → YYYY-MM-DD, day first. Hindi: "बारह मार्च उन्नीस सौ चौरानवे"→1994-03-12, "१२/०३/१९९४"→1994-03-12, "पाँच जनवरी दो हज़ार एक"→2001-01-05. Hinglish months too ("12 maarch 1994", "farvari"). No year heard → omit dob.
+- City/state: always the English Latin-script name, even when spoken in Devanagari (बेंगलुरु→Bengaluru, मुंबई→Mumbai, लखनऊ→Lucknow, दिल्ली→Delhi, कर्नाटक→Karnataka). A town you do not know: Latin transliteration with confidence < 0.75. Never drop a spoken city.
+- Spoken numbers → digit strings, one digit per spoken digit: "नौ आठ सात"→"987", "दो दो"→"22", "डबल पाँच"→"55", mixed "९८ seven छह"→"9876". Mobile = 10 digits, PIN = 6. Never pad, trim, or guess digits; if the count is wrong keep what was heard with confidence < 0.5 and reason.
 - Booleans true/false only.
 
 next_ask:
@@ -475,7 +473,7 @@ next_ask:
 - Currently missing required ids: ${JSON.stringify(missing)}
 - You may ask 1–2 missing requireds in one short natural question. Do not re-ask filled fields.
 - Null if nothing required remains.
-- Language: Hindi if transcript is Hindi, else English.
+- Language: Hindi if page language is hi-IN or the transcript is Hindi, else English.
 - reply_lang: "hi" or "en".
 
 OTHER:
@@ -548,7 +546,7 @@ async function fieldJson(
     console.error('fields_bad_json', text.length);
     throw speakFail('fields_bad_json', 502);
   }
-  const hindi = parsed.reply_lang === 'hi' || /[\u0900-\u097F]/.test(transcript);
+  const hindi = language === 'hi-IN' || parsed.reply_lang === 'hi' || /[\u0900-\u097F]/.test(transcript);
   const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
   const rawUpdates =
     parsed.field_updates && typeof parsed.field_updates === 'object' && !Array.isArray(parsed.field_updates)
@@ -558,8 +556,17 @@ async function fieldJson(
     parsed.field_confidence && typeof parsed.field_confidence === 'object' && !Array.isArray(parsed.field_confidence)
       ? (parsed.field_confidence as Record<string, unknown>)
       : {};
-  const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
-  const updates = sanitizeUpdates(mergedIncoming);
+  const { updates: mergedIncoming, meta: mergedMeta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
+  const voice = normalizeVoiceUpdates({
+    current,
+    updates: mergedIncoming,
+    meta: mergedMeta,
+    transcript,
+    hindi,
+    asked: missingBefore.slice(0, 2),
+  });
+  const meta = voice.meta;
+  const updates = sanitizeUpdates(voice.updates);
   const merged: FormValues = { ...current, ...updates };
   // Aadhaar must never leave this function unmasked (schema requires last-4 only).
   // Resolve type from `merged` — it may have been set in an earlier turn.
@@ -572,7 +579,7 @@ async function fieldJson(
     );
   const askTable = replyLang === 'hi' ? HI_ASK : EN_ASK;
   const modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
-  const nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
+  const nextAsk = digitRecheckAsk(voice.recheck, replyLang) ?? buildNextAsk(missing, replyLang, askTable, modelAsk);
   let message = typeof parsed.assistant_message === 'string' ? parsed.assistant_message.trim() : '';
   if (!message) message = nextAsk || 'Draft updated.';
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
