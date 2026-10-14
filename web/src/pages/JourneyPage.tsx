@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { JourneyId } from '../lib/journeys';
+import { registeredJourneys } from '../journeys';
+import { isJourneyId } from '../lib/journeys';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
@@ -10,7 +11,7 @@ type OpenCard = {
   kind: string;
   name: string;
   blurb: string;
-  journey: JourneyId;
+  journey: string;
   /** Existing account_product_intent value, or null for KYC journeys. */
   product: string | null;
   needs: string[];
@@ -104,6 +105,18 @@ const LATER = [
   'NEFT transfer',
 ];
 
+const EXTRA_CARDS: OpenCard[] = registeredJourneys().map((pack) => ({
+  id: pack.id,
+  kind: pack.card.kind,
+  name: pack.card.name,
+  blurb: pack.card.blurb,
+  journey: pack.id,
+  product: null,
+  needs: [...pack.card.needs],
+}));
+
+const CARDS = [...OPEN_CARDS, ...EXTRA_CARDS];
+
 const SAMPLES = [
   {
     text: 'मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है',
@@ -114,6 +127,11 @@ const SAMPLES = [
     cardId: 'rekyc',
   },
 ] as const;
+
+const PICKER_SAMPLES = [
+  ...SAMPLES,
+  ...registeredJourneys().flatMap((pack) => pack.pickerSamples),
+];
 
 function WaveMark() {
   const bars = [6, 10, 14, 8, 12];
@@ -142,7 +160,10 @@ export function JourneyPage() {
   const [listening, setListening] = useState(false);
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
-  const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
+  const selected = CARDS.find((card) => card.id === selectedId) ?? CARDS[0];
+  const later = LATER.filter(
+    (name) => !registeredJourneys().some((pack) => pack.hidesLater.includes(name)),
+  );
   const lang = language === 'hi' ? 'hi' : 'en';
 
   return (
@@ -201,7 +222,7 @@ export function JourneyPage() {
             No mic? Try a sample voice
           </p>
           <div className="mt-3 flex flex-col gap-2">
-            {SAMPLES.map((sample) => (
+            {PICKER_SAMPLES.map((sample) => (
               <button
                 key={sample.text}
                 type="button"
@@ -237,7 +258,7 @@ export function JourneyPage() {
         </div>
 
         <div className="mt-6 grid gap-px border-2 border-foreground bg-foreground sm:grid-cols-2">
-          {OPEN_CARDS.map((card) => {
+          {CARDS.map((card) => {
             const on = card.id === selected.id;
             return (
               <button
@@ -264,7 +285,7 @@ export function JourneyPage() {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {LATER.map((name) => (
+          {later.map((name) => (
             <span
               key={name}
               className="border border-dashed border-foreground/30 px-3 py-1.5 text-xs text-muted-foreground"
@@ -297,8 +318,8 @@ export function JourneyPage() {
             className={`${BTN_PRIMARY} ${BTN_LG}`}
             onClick={() => {
               if (language === null) selectLanguage(lang);
-              if (selected.product) selectDraft(selected.journey, selected.product);
-              selectJourney(selected.journey);
+              if (isJourneyId(selected.journey) && selected.product) selectDraft(selected.journey, selected.product);
+              else selectJourney(selected.journey);
               go('/speak');
             }}
           >

@@ -1,6 +1,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { readSpeakRequest } from './wav';
+import { clientFillJourney } from './journeyPacks';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
 
@@ -643,6 +644,26 @@ export const speak = onRequest(
       const file = await uploadWav(apiKey, read.parts.audio);
       uploadedName = file.name;
       transcript = await transcribe(apiKey, file.uri, read.parts.language);
+
+      const packId = clientFillJourney(read.parts.current);
+      if (packId) {
+        const hindi = /[\u0900-\u097F]/.test(transcript);
+        res.json({
+          transcript,
+          reply_lang: hindi ? 'hi' : 'en',
+          field_updates: {},
+          missing_required: [],
+          next_ask: null,
+          gates: { answers: {} },
+          completeness: 'empty',
+          refuse_live_submit: false,
+          source: 'transcript',
+          client_fill: true,
+          journey_pack: packId,
+          assistant_message: 'Fields vary by bank.',
+        });
+        return;
+      }
 
       if (OUT_OF_SCOPE_RE.test(transcript)) {
         const hindi = read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript);

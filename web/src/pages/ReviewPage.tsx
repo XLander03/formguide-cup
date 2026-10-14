@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
+import { confidenceFlag } from '../journeys/confidence';
+import { journeyPack } from '../journeys';
 import { buildReadbackScript } from '../lib/heuristicExtract';
+import { isFilled } from '../lib/schema';
 import { useRoute } from '../routing/router';
+import type { FormValues } from '../lib/types';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { FieldGroups } from '../ui/fields';
@@ -11,16 +15,20 @@ export function ReviewPage() {
   const { go } = useRoute();
   const session = useFormSession();
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(String(session.values.applicant_full_name || ''));
+  const pack = journeyPack(session.journey);
+  const nameField = pack?.primaryNameField ?? 'applicant_full_name';
+  const [name, setName] = useState(String(session.values[nameField] || ''));
   const languageLabel = session.language === 'hi' ? 'हिन्दी' : 'English';
-  const script = buildReadbackScript(session.values, session.readbackLang);
+  const script = pack
+    ? pack.readback(session.values, session.readbackLang)
+    : buildReadbackScript(session.values, session.readbackLang);
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
   });
 
   useEffect(() => {
-    setName(String(session.values.applicant_full_name || ''));
-  }, [session.values.applicant_full_name]);
+    setName(String(session.values[nameField] || ''));
+  }, [session.values, nameField]);
 
   useEffect(() => {
     return () => session.onStopReadback();
@@ -64,7 +72,7 @@ export function ReviewPage() {
                 type="button"
                 className={`${BTN_PRIMARY} ${BTN_MD}`}
                 onClick={() => {
-                  session.onChange('applicant_full_name', name);
+                  session.onChange(nameField, name);
                   setEditing(false);
                 }}
               >
@@ -76,7 +84,7 @@ export function ReviewPage() {
               <p className="mt-2 text-sm">Say “change my name”, or correct it here.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" className={`${BTN_OUTLINE} ${BTN_MD}`} onClick={() => setEditing(true)}>
-                  <PencilIcon /> Correct full name
+                  <PencilIcon /> {pack ? 'Correct account holder name' : 'Correct full name'}
                 </button>
                 <button
                   type="button"
@@ -102,7 +110,18 @@ export function ReviewPage() {
           <span className="border border-saffron px-2 py-1 text-[10px] font-semibold text-saffron">NOT SUBMITTED</span>
         </div>
         <div className="mt-6">
-          <FieldGroups values={session.values} flashIds={session.flashIds} hindi={session.language === 'hi'} />
+          {pack ? (
+            <PackReview
+              sections={pack.sections}
+              fields={pack.speakFields()}
+              values={session.values}
+              confidence={session.confidence}
+              flashIds={session.flashIds}
+              labels={pack.enumLabels}
+            />
+          ) : (
+            <FieldGroups values={session.values} flashIds={session.flashIds} hindi={session.language === 'hi'} />
+          )}
         </div>
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
           <p className="text-xs text-muted-foreground">
@@ -118,6 +137,78 @@ export function ReviewPage() {
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+function shown(value: FormValues[string], labels: Record<string, string>): string {
+  if (value === true) return 'Yes';
+  if (value === false) return 'No';
+  if (typeof value !== 'string' || !value.trim()) return '—';
+  return labels[value] ?? value.replace(/_/g, ' ');
+}
+
+function PackReview({
+  sections,
+  fields,
+  values,
+  confidence,
+  flashIds,
+  labels,
+}: {
+  sections: readonly string[];
+  fields: { id: string; label: string; section: string }[];
+  values: FormValues;
+  confidence: Record<string, { confidence: number; reason?: string; confirmed?: boolean }>;
+  flashIds: Set<string>;
+  labels: Record<string, string>;
+}) {
+  return (
+    <div className="space-y-5">
+      {sections.map((section, index) => {
+        const rows = fields.filter((field) => field.section === section);
+        const confirmed = rows.filter((row) => isFilled(values[row.id]) && !flashIds.has(row.id)).length;
+        return (
+          <section key={section} className="fg-rise" style={{ animationDelay: `${index * 80}ms` }}>
+            <div className="mb-2 flex items-center justify-between text-[10px] uppercase text-muted-foreground">
+              <h3>
+                Group {String.fromCharCode(65 + index)} · {section}
+              </h3>
+              <span>
+                {confirmed}/{rows.length}
+              </span>
+            </div>
+            <div className={`border-l-2 pl-3 ${index === 0 ? 'border-primary' : 'border-foreground/25'}`}>
+              {rows.map((row) => {
+                const filled = isFilled(values[row.id]);
+                const filling = flashIds.has(row.id) && filled;
+                const state = filling ? 'filling' : filled ? 'confirmed' : 'missing';
+                const flag = confidenceFlag(confidence[row.id]);
+                return (
+                  <div key={row.id} className="grid grid-cols-[1fr_auto] gap-3 border-b border-foreground/15 py-2.5">
+                    <div>
+                      <p className="font-semibold">{row.label}</p>
+                      <p className={state === 'missing' ? 'text-muted-foreground' : 'text-foreground/70'}>
+                        {shown(values[row.id], labels)}
+                      </p>
+                      {flag ? (
+                        <p className={`text-[10px] ${flag.low ? 'text-saffron' : 'text-primary'}`}>{flag.text}</p>
+                      ) : null}
+                    </div>
+                    <span
+                      className={`self-start text-[11px] ${
+                        state === 'confirmed' ? 'text-primary' : state === 'filling' ? 'text-saffron' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {state === 'confirmed' ? '✓ confirmed' : state === 'filling' ? '✎ filling' : '— awaiting'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

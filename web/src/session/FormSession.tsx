@@ -13,6 +13,7 @@ import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
 import { maskSensitiveFields } from '../lib/pii';
+import { journeyPack } from '../journeys';
 import {
   completenessLevel,
   emptyValues,
@@ -27,7 +28,8 @@ import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
 export type ShellLanguage = 'en' | 'hi';
 export type MicLang = 'en-IN' | 'hi-IN';
 
-const STORAGE_KEY = 'formguide.cup.session.v2';
+const STORAGE_V2 = 'formguide.cup.session.v2';
+const STORAGE_V3 = 'formguide.cup.session.v3';
 
 /** Fields below this model confidence get a 'Check this' flag until confirmed. */
 export const CONFIDENCE_FLAG_THRESHOLD = 0.75;
@@ -74,6 +76,10 @@ function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
   const out: Record<string, FieldConfidence> = {};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
   for (const [id, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof entry === 'number' && Number.isFinite(entry)) {
+      out[id] = { confidence: Math.max(0, Math.min(1, entry)), confirmed: false };
+      continue;
+    }
     if (!entry || typeof entry !== 'object') continue;
     const { confidence, reason, confirmed } = entry as Record<string, unknown>;
     if (typeof confidence !== 'number' || !Number.isFinite(confidence)) continue;
@@ -86,9 +92,27 @@ function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
   return out;
 }
 
+interface AofBucket {
+  journey: JourneyId;
+  values: FormValues;
+  said: Record<string, string>;
+  confidence: Record<string, FieldConfidence>;
+}
+
+interface PackBucket {
+  values: FormValues;
+  said: Record<string, string>;
+  confidence: Record<string, FieldConfidence>;
+}
+
+interface DraftMemory {
+  aof: AofBucket;
+  packs: Record<string, PackBucket>;
+}
+
 function loadPersisted(): Persisted | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_V2);
     if (!raw) return null;
     const data = JSON.parse(raw) as Partial<Persisted>;
     const language = data.language === 'hi' || data.language === 'en' ? data.language : null;
@@ -118,9 +142,108 @@ function seedValues(saved: Persisted | null): FormValues {
   return base;
 }
 
+function readStore(): {
+  language: ShellLanguage | null;
+  active: string;
+  values: FormValues;
+  said: Record<string, string>;
+  confidence: Record<string, FieldConfidence>;
+  drafts: DraftMemory;
+} {
+  const drafts: DraftMemory = {
+    aof: { journey: 'account_opening', values: seedValues(null), said: {}, confidence: {} },
+    packs: {},
+  };
+  let language: ShellLanguage | null = 'en';
+  let active = 'account_opening';
+  try {
+    const raw3 = sessionStorage.getItem(STORAGE_V3);
+    if (raw3) {
+      const data = JSON.parse(raw3) as {
+        language?: string | null;
+        active?: string;
+        aof?: Partial<AofBucket>;
+        packs?: Record<string, Partial<PackBucket>>;
+      };
+      if (data.language === 'hi' || data.language === 'en') language = data.language;
+      const aofJourney = isJourneyId(data.aof?.journey) ? data.aof.journey : 'account_opening';
+      drafts.aof = {
+        journey: aofJourney,
+        values: seedValues({
+          language,
+          journey: aofJourney,
+          values: (data.aof?.values as FormValues) || {},
+        }),
+        said: data.aof?.said && typeof data.aof.said === 'object' ? data.aof.said : {},
+        confidence: parseConfidence(data.aof?.confidence),
+      };
+      for (const [id, bucket] of Object.entries(data.packs || {})) {
+        const pack = journeyPack(id);
+        if (!pack || !bucket?.values || typeof bucket.values !== 'object') continue;
+        const values = pack.emptyValues();
+        for (const [key, value] of Object.entries(bucket.values)) {
+          if (key in values && (typeof value === 'string' || typeof value === 'boolean' || value === null)) {
+            values[key] = value;
+          }
+        }
+        drafts.packs[id] = {
+          values,
+          said: bucket.said && typeof bucket.said === 'object' ? bucket.said : {},
+          confidence: parseConfidence(bucket.confidence),
+        };
+      }
+      if (typeof data.active === 'string') active = data.active;
+    } else {
+      const saved = loadPersisted();
+      if (saved) {
+        language = saved.language ?? 'en';
+        const journey = saved.journey ?? 'account_opening';
+        drafts.aof = {
+          journey,
+          values: seedValues(saved),
+          said: {},
+          confidence: saved.confidence ?? {},
+        };
+        active = journey;
+      }
+    }
+  } catch {
+    active = 'account_opening';
+  }
+
+  const pack = journeyPack(active);
+  if (pack) {
+    const row = drafts.packs[pack.id] ?? {
+      values: pack.emptyValues(),
+      said: {},
+      confidence: {},
+    };
+    drafts.packs[pack.id] = row;
+    return {
+      language,
+      active: pack.id,
+      values: row.values,
+      said: row.said,
+      confidence: row.confidence,
+      drafts,
+    };
+  }
+  const aofJourney = isJourneyId(active) ? active : drafts.aof.journey;
+  drafts.aof.journey = aofJourney;
+  drafts.aof.values = { ...drafts.aof.values, journey_mode: aofJourney };
+  return {
+    language,
+    active: aofJourney,
+    values: drafts.aof.values,
+    said: drafts.aof.said,
+    confidence: drafts.aof.confidence,
+    drafts,
+  };
+}
+
 export interface FormSessionValue {
   language: ShellLanguage | null;
-  journey: JourneyId | null;
+  journey: string | null;
   micLang: MicLang;
   /** Language passed into the existing read-back script and TTS. Follows the mic. */
   readbackLang: UtteranceLang;
@@ -144,7 +267,7 @@ export interface FormSessionValue {
   confirmField: (id: string) => void;
   readyForFill: boolean;
   selectLanguage: (lang: ShellLanguage) => void;
-  selectJourney: (id: JourneyId) => void;
+  selectJourney: (id: string) => void;
   setMicLang: (lang: MicLang) => void;
   onChange: (id: string, value: string | boolean | null) => void;
   onSubmitUtterance: (text: string) => Promise<void>;
@@ -163,19 +286,18 @@ export interface FormSessionValue {
 const FormSessionContext = createContext<FormSessionValue | null>(null);
 
 export function FormSessionProvider({ children }: { children: ReactNode }) {
-  const saved = useMemo(() => loadPersisted(), []);
+  const boot = useMemo(() => readStore(), []);
   // Captured once: a saved complete draft must not keep Read back enabled on /speak?flags=1.
   const bootFlags = useRef(flagsDemoRequested());
-  const [language, setLanguage] = useState<ShellLanguage | null>(saved?.language ?? 'en');
-  const [journey, setJourney] = useState<JourneyId | null>(() => {
-    if (!bootFlags.current) return saved?.journey ?? 'account_opening';
+  const drafts = useRef(boot.drafts);
+  const [language, setLanguage] = useState<ShellLanguage | null>(boot.language);
+  const [journey, setJourney] = useState<string | null>(() => {
+    if (!bootFlags.current) return boot.active;
     const persona = priyaDemoValues();
-    return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
+    return isJourneyId(persona.journey_mode) ? persona.journey_mode : boot.active;
   });
-  const [micLang, setMicLangState] = useState<MicLang>(saved?.language === 'hi' ? 'hi-IN' : 'en-IN');
-  const [values, setValues] = useState<FormValues>(() =>
-    bootFlags.current ? priyaDemoValues() : seedValues(saved),
-  );
+  const [micLang, setMicLangState] = useState<MicLang>(boot.language === 'hi' ? 'hi-IN' : 'en-IN');
+  const [values, setValues] = useState<FormValues>(() => (bootFlags.current ? priyaDemoValues() : boot.values));
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [readingBack, setReadingBack] = useState(false);
@@ -183,9 +305,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
-  const [said, setSaid] = useState<Record<string, string>>({});
+  const [said, setSaid] = useState<Record<string, string>>(() => (bootFlags.current ? {} : boot.said));
   const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(() =>
-    bootFlags.current ? demoFlagConfidence() : (saved?.confidence ?? {}),
+    bootFlags.current ? demoFlagConfidence() : boot.confidence,
   );
   /** Per-field provenance ('gemini' | 'heuristic' | 'manual' | 'priya_demo' |
    * 'heuristic-dev') — drives the confidence badge in the bank-handoff
@@ -194,13 +316,28 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
    * the readback flow; this is a categorical label for display/export. */
   const [fieldSource, setFieldSource] = useState<Record<string, string>>({});
 
+  const valuesRef = useRef(values);
+  const saidRef = useRef(said);
+  const confidenceRef = useRef(confidence);
+  const journeyRef = useRef(journey);
+  const languageRef = useRef(language);
+  valuesRef.current = values;
+  saidRef.current = said;
+  confidenceRef.current = confidence;
+  journeyRef.current = journey;
+  languageRef.current = language;
+
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
+  const activePack = journeyPack(journey);
 
-  const missing = useMemo(() => getMissingRequired(values), [values]);
+  const missing = useMemo(
+    () => (activePack ? activePack.missing(values) : getMissingRequired(values)),
+    [activePack, values],
+  );
   const completeness = useMemo(
-    () => completenessLevel(values, missing),
-    [values, missing],
+    () => (activePack ? activePack.completeness(values, missing) : completenessLevel(values, missing)),
+    [activePack, values, missing],
   );
   const flaggedIds = useMemo(
     () =>
@@ -223,21 +360,63 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const readyForFill = language !== null && journey !== null;
 
   useEffect(() => {
-    const payload: Persisted = { language, journey, values, confidence };
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [language, journey, values, confidence]);
+    if (activePack) {
+      drafts.current.packs[activePack.id] = { values, said, confidence };
+    } else if (isJourneyId(journey)) {
+      drafts.current.aof = { journey, values, said, confidence };
+    }
+    const aof = drafts.current.aof;
+    sessionStorage.setItem(
+      STORAGE_V3,
+      JSON.stringify({
+        language,
+        active: journey,
+        aof,
+        packs: drafts.current.packs,
+      }),
+    );
+    // Account opening keeps the v2 key main already uses. Nomination stays in its own bucket.
+    const persisted: Persisted = {
+      language,
+      journey: aof.journey,
+      values: aof.values,
+      confidence: aof.confidence,
+    };
+    sessionStorage.setItem(STORAGE_V2, JSON.stringify(persisted));
+  }, [language, journey, values, said, confidence, activePack]);
 
   useEffect(() => {
     document.documentElement.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
   }, [language]);
 
+  const remember = useCallback(() => {
+    const id = journeyRef.current;
+    const pack = journeyPack(id);
+    if (pack) {
+      drafts.current.packs[pack.id] = {
+        values: valuesRef.current,
+        said: saidRef.current,
+        confidence: confidenceRef.current,
+      };
+      return;
+    }
+    if (isJourneyId(id)) {
+      drafts.current.aof = {
+        journey: id,
+        values: valuesRef.current,
+        said: saidRef.current,
+        confidence: confidenceRef.current,
+      };
+    }
+  }, []);
+
   const applyShellLanguage = useCallback((lang: ShellLanguage) => {
     setLanguage(lang);
     setMicLangState(lang === 'hi' ? 'hi-IN' : 'en-IN');
-    setValues((prev) => ({
-      ...prev,
-      preferred_language: lang === 'hi' ? 'Hindi' : 'English',
-    }));
+    setValues((prev) => {
+      if (journeyPack(journeyRef.current)) return prev;
+      return { ...prev, preferred_language: lang === 'hi' ? 'Hindi' : 'English' };
+    });
     setDraftReady(false);
   }, []);
 
@@ -248,21 +427,87 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [applyShellLanguage],
   );
 
-  const selectJourney = useCallback((id: JourneyId) => {
-    setJourney(id);
-    setValues((prev) => ({ ...prev, journey_mode: id }));
-    setDraftReady(false);
-  }, []);
+  const switchTo = useCallback(
+    (id: string) => {
+      remember();
+      const pack = journeyPack(id);
+      setLast(null);
+      setRefuseMsg(null);
+      setDraftReady(false);
+      setFlashIds(new Set());
+      if (pack) {
+        const row = drafts.current.packs[pack.id] ?? {
+          values: pack.emptyValues(),
+          said: {},
+          confidence: {},
+        };
+        drafts.current.packs[pack.id] = row;
+        setJourney(pack.id);
+        setValues(row.values);
+        setSaid(row.said);
+        setConfidence(row.confidence);
+        return;
+      }
+      if (!isJourneyId(id)) return;
+      const row = drafts.current.aof;
+      const next = {
+        ...row.values,
+        journey_mode: id,
+        preferred_language: languageRef.current === 'hi' ? 'Hindi' : 'English',
+      };
+      setJourney(id);
+      setValues(next);
+      setSaid(row.said);
+      setConfidence(row.confidence);
+    },
+    [remember],
+  );
 
-  const selectDraft = useCallback((id: JourneyId, product: string | null) => {
-    setJourney(id);
-    setValues((prev) => ({
-      ...prev,
-      journey_mode: id,
-      account_product_intent: product ?? '',
-    }));
-    setDraftReady(false);
-  }, []);
+  const selectJourney = useCallback(
+    (id: string) => {
+      if (journeyPack(id) || (isJourneyId(id) && journeyPack(journeyRef.current))) {
+        switchTo(id);
+        return;
+      }
+      if (!isJourneyId(id)) return;
+      setJourney(id);
+      setValues((prev) => ({ ...prev, journey_mode: id }));
+      setDraftReady(false);
+    },
+    [switchTo],
+  );
+
+  const selectDraft = useCallback(
+    (id: JourneyId, product: string | null) => {
+      const fromPack = Boolean(journeyPack(journeyRef.current));
+      if (fromPack) {
+        remember();
+        const row = drafts.current.aof;
+        const next = {
+          ...row.values,
+          journey_mode: id,
+          account_product_intent: product ?? '',
+          preferred_language: languageRef.current === 'hi' ? 'Hindi' : 'English',
+        };
+        drafts.current.aof = { journey: id, values: next, said: row.said, confidence: row.confidence };
+        setJourney(id);
+        setValues(next);
+        setSaid(row.said);
+        setConfidence(row.confidence);
+        setLast(null);
+        setRefuseMsg(null);
+      } else {
+        setJourney(id);
+        setValues((prev) => ({
+          ...prev,
+          journey_mode: id,
+          account_product_intent: product ?? '',
+        }));
+      }
+      setDraftReady(false);
+    },
+    [remember],
+  );
 
   const setMicLang = useCallback(
     (lang: MicLang) => {
@@ -369,30 +614,57 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       setRefuseMsg(null);
       setDraftReady(false);
       try {
-        const res = await extractFields(text, values);
+        const pack = journeyPack(journeyRef.current);
+        const res = pack
+          ? pack.extract(text, valuesRef.current)
+          : await extractFields(text, valuesRef.current);
         applyUpdates(res.field_updates, res, text);
       } finally {
         setBusy(false);
       }
     },
-    [values, applyUpdates],
+    [applyUpdates],
   );
-
 
   const onSubmitSpeakClip = useCallback(
     async (wav: Blob): Promise<{ transcript: string | null; error: string | null }> => {
       setBusy(true);
       setRefuseMsg(null);
       setDraftReady(false);
+      const pack = journeyPack(journeyRef.current);
       const body = new FormData();
       body.append('language', micLang);
-      body.append('current_values', JSON.stringify(values));
+      body.append(
+        'current_values',
+        JSON.stringify(pack ? { ...valuesRef.current, journey_pack: pack.id } : valuesRef.current),
+      );
       body.append('audio', wav, 'clip.wav');
       const ctrl = new AbortController();
       const timer = window.setTimeout(() => ctrl.abort(), 70000);
       try {
         const res = await fetch('/api/speak', { method: 'POST', body, signal: ctrl.signal });
-        const data = (await res.json()) as ExtractResponse & { transcript?: string; error?: string };
+        const data = (await res.json()) as ExtractResponse & {
+          transcript?: string;
+          error?: string;
+          client_fill?: boolean;
+        };
+        if (pack) {
+          const transcript = typeof data?.transcript === 'string' ? data.transcript : '';
+          if (!transcript) {
+            return {
+              transcript: null,
+              error: typeof data?.error === 'string' ? data.error : 'bad_response',
+            };
+          }
+          const local = pack.extract(transcript, valuesRef.current);
+          applyUpdates(local.field_updates, local, transcript);
+          const ask = local.next_ask?.trim() || '';
+          if (ask) {
+            setSpeaking(true);
+            await speakForUtterance(ask, local.reply_lang === 'hi' ? 'hi' : 'en');
+          }
+          return { transcript, error: null };
+        }
         if (!res.ok) {
           return {
             transcript: typeof data?.transcript === 'string' ? data.transcript : null,
@@ -418,7 +690,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         setBusy(false);
       }
     },
-    [micLang, values, applyUpdates],
+    [micLang, applyUpdates],
   );
 
   const onPriya = useCallback((withFlags?: boolean) => {
@@ -427,6 +699,46 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setReadingBack(false);
     setRefuseMsg(null);
     setDraftReady(false);
+    const pack = journeyPack(journeyRef.current);
+    if (pack) {
+      const persona = pack.demoValues();
+      setValues(persona);
+      setConfidence(pack.demoConfidence());
+      flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
+      const miss = pack.missing(persona);
+      const level = pack.completeness(persona, miss);
+      const clip = 'Fake prefill demo';
+      setSaid(() => {
+        const next: Record<string, string> = {};
+        for (const [key, value] of Object.entries(persona)) {
+          if (value !== undefined && value !== '' && value !== null) next[key] = clip;
+        }
+        return next;
+      });
+      setLast({
+        field_updates: persona,
+        field_confidence: pack.demoConfidence(),
+        missing_required: miss,
+        next_ask:
+          miss.length === 0
+            ? languageRef.current === 'hi'
+              ? 'डेमो प्रीफ़िल पूरा। रीड-बैक सुनें, फिर तीन गेट कन्फ़र्म करें। Fields vary by bank.'
+              : 'Demo nomination loaded (synthetic account and mobile). Tap read-back, then confirm the three gates. Fields vary by bank.'
+            : pack.extract('', persona).next_ask,
+        gates: {
+          answers: {
+            journey_type: { type: 'choice', choice: 'nomination', confidence: 0.9 },
+            noul_requests_live_bank_submit: { type: 'noul', noul: 0.04 },
+          },
+        },
+        completeness: level,
+        refuse_live_submit: false,
+        source: 'priya_demo',
+        assistant_message:
+          'Filled a synthetic nomination draft. Confirm gates are left for you. Fields vary by bank.',
+      });
+      return;
+    }
     const persona = priyaDemoValues();
     maskSensitiveFields(persona);
     setValues(persona);
@@ -498,10 +810,15 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     stopSpeaking();
     setSpeaking(false);
     setReadingBack(false);
-    const next = emptyValues();
-    if (journey) next.journey_mode = journey;
-    if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
-    setValues(next);
+    const pack = journeyPack(journeyRef.current);
+    if (pack) {
+      setValues(pack.emptyValues());
+    } else {
+      const next = emptyValues();
+      if (isJourneyId(journey)) next.journey_mode = journey;
+      if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
+      setValues(next);
+    }
     setConfidence({});
     setLast(null);
     setSaid({});
@@ -590,7 +907,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       readbackRun.current.finish();
     }
     const id = ++readbackSeq.current;
-    const script = buildReadbackScript(values, readbackLang);
+    const pack = journeyPack(journeyRef.current);
+    const script = pack ? pack.readback(values, readbackLang) : buildReadbackScript(values, readbackLang);
     setLast((prev) => ({
       field_updates: {},
       missing_required: missing,

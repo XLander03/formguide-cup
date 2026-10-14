@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { confidenceFlag } from '../journeys/confidence';
+import { journeyPack } from '../journeys';
 import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
 import { buildFilledKycPdf } from '../lib/pdfFill';
 import { useRoute } from '../routing/router';
@@ -60,19 +62,32 @@ function handoffFields(session: ReturnType<typeof useFormSession>) {
 }
 
 function draftPayload(session: ReturnType<typeof useFormSession>) {
+  const pack = journeyPack(session.journey);
   return {
-    schema_id: 'aof_kyc_demo_v1',
+    schema_id: pack?.schemaId ?? 'aof_kyc_demo_v1',
     demo_outcome: 'draft_ready_no_bank_submit',
     journey: session.journey,
+    journey_title: pack?.title,
     language: session.language,
     mic_lang: session.micLang,
     values: session.values,
+    field_confidence: pack ? session.confidence : undefined,
     // Structured handoff shape: per-field value + provenance + confidence.
-    // This is the part a bank's onboarding/core-banking system would
-    // actually import — the flat `values` above is kept for simple
-    // consumers that just want the data.
     fields: handoffFields(session),
   };
+}
+
+function downloadDraft(session: ReturnType<typeof useFormSession>) {
+  const pack = journeyPack(session.journey);
+  const blob = pack
+    ? pack.buildPdf({ values: session.values, confidence: session.confidence })
+    : new Blob([JSON.stringify(draftPayload(session), null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = pack ? 'formguide-nomination-draft.pdf' : 'formguide-draft.json';
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export function ConfirmPage() {
@@ -83,7 +98,6 @@ export function ConfirmPage() {
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
   });
-
   const downloadPdf = async () => {
     setPdfBusy(true);
     setPdfError(null);
@@ -101,9 +115,15 @@ export function ConfirmPage() {
       setPdfBusy(false);
     }
   };
-  const rows = SCHEMA.fields.filter(
-    (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
-  );
+  const pack = journeyPack(session.journey);
+  const rows = pack
+    ? pack
+        .speakFields()
+        .filter((field) => isFilled(session.values[field.id]))
+        .map((field) => ({ id: field.id, label_en: field.label }))
+    : SCHEMA.fields
+        .filter((field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]))
+        .map((field) => ({ id: field.id, label_en: field.label_en }));
 
   if (session.draftReady) {
     return (
@@ -120,28 +140,20 @@ export function ConfirmPage() {
               <button
                 type="button"
                 className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
-                onClick={() => {
-                  const blob = new Blob([JSON.stringify(draftPayload(session), null, 2)], {
-                    type: 'application/json',
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = 'formguide-draft.json';
-                  link.click();
-                  URL.revokeObjectURL(url);
-                }}
+                onClick={() => downloadDraft(session)}
               >
-                <DownloadIcon /> Download JSON
+                <DownloadIcon /> {pack ? 'Download draft' : 'Download JSON'}
               </button>
-              <button
-                type="button"
-                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
-                disabled={pdfBusy}
-                onClick={() => void downloadPdf()}
-              >
-                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : 'Download PDF (HDFC KYC)'}
-              </button>
+              {pack ? null : (
+                <button
+                  type="button"
+                  className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+                  disabled={pdfBusy}
+                  onClick={() => void downloadPdf()}
+                >
+                  <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : 'Download PDF (HDFC KYC)'}
+                </button>
+              )}
               <button
                 type="button"
                 className={`${BTN_OUTLINE} ${BTN_MD} border-background text-background hover:bg-background hover:text-foreground`}
@@ -234,21 +246,25 @@ function Receipt({
   rows,
   session,
 }: {
-  rows: typeof SCHEMA.fields;
+  rows: { id: string; label_en: string }[];
   session: ReturnType<typeof useFormSession>;
 }) {
   const { go } = useRoute();
-  const name = String(session.values.applicant_full_name || '');
+  const pack = journeyPack(session.journey);
+  const nameField = pack?.primaryNameField ?? 'applicant_full_name';
+  const name = String(session.values[nameField] || '');
   return (
     <section className="px-5 py-8 lg:col-span-7 lg:px-8">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[10px] uppercase text-primary">Bank handoff preview</p>
-          <h2 className="mt-2 font-display text-4xl">Said, filled, and confidence</h2>
-          <p className="mt-2 max-w-md text-xs text-muted-foreground">
-            What a bank’s onboarding system would import per field — not just the value, but
-            where it came from and how much to trust it before auto-filing it.
-          </p>
+          <p className="text-[10px] uppercase text-primary">{pack ? 'Receipt preview' : 'Bank handoff preview'}</p>
+          <h2 className="mt-2 font-display text-4xl">{pack ? pack.title : 'Said, filled, and confidence'}</h2>
+          {pack ? <p className="mt-2 text-[10px] font-semibold text-saffron">DRAFT · NOT SUBMITTED</p> : (
+            <p className="mt-2 max-w-md text-xs text-muted-foreground">
+              What a bank’s onboarding system would import per field — not just the value, but
+              where it came from and how much to trust it before auto-filing it.
+            </p>
+          )}
         </div>
         <span className="border border-foreground px-2 py-1 text-[10px]">FAKE DEMO</span>
       </div>
@@ -264,6 +280,7 @@ function Receipt({
         ) : (
           rows.map((field) => {
             const confidence = confidenceLabel(session.fieldSource[field.id], session.confidence[field.id]);
+            const flag = pack ? confidenceFlag(session.confidence[field.id]) : null;
             return (
               <div
                 key={field.id}
@@ -272,10 +289,11 @@ function Receipt({
                 <span className="font-semibold">{field.label_en}</span>
                 <span className="pr-3 text-muted-foreground">“{session.said[field.id] || '—'}”</span>
                 <span className="text-primary">
-                  {field.id === 'applicant_full_name' && name
+                  {field.id === nameField && name
                     ? name
                     : displayValue(field.id, session.values[field.id], session.language === 'hi')}{' '}
                   ✓
+                  {flag ? <span className={`mt-1 block ${flag.low ? 'text-saffron' : ''}`}>{flag.text}</span> : null}
                 </span>
                 <span>
                   <span

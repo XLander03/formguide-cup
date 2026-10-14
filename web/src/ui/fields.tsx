@@ -1,3 +1,4 @@
+import { journeyPack } from '../journeys';
 import { FIELD_GROUPS, SCHEMA, isEffectivelyRequired, isFieldApplicable, isFilled } from '../lib/schema';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
@@ -42,6 +43,8 @@ export function displayValue(id: string, value: FormValues[string], hindi = fals
 }
 
 export function draftChoiceLabel(journey: string | null | undefined, product: unknown): string {
+  const pack = journeyPack(journey);
+  if (pack) return pack.card.name;
   if (journey === 'kyc_update') return 'KYC update';
   if (journey === 'rekyc') return 'Re-KYC';
   if (product === 'salary_savings') return 'Salary account';

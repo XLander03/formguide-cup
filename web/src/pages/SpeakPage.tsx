@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { journeyPack } from '../journeys';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
@@ -20,6 +21,7 @@ type PreviewField = {
   required: boolean;
   section: string;
   enumRef?: string;
+  kind?: 'text' | 'boolean' | 'enum';
 };
 
 /** Visual sections from the speak screen. Null ids are shown only — they are not schema fields. */
@@ -66,20 +68,26 @@ const ENUM_LABEL: Record<string, string> = {
   retired: 'Retired',
 };
 
-function pretty(value: string): string {
-  return ENUM_LABEL[value] ?? value.replace(/_/g, ' ');
+function pretty(value: string, labels: Record<string, string> = ENUM_LABEL): string {
+  return labels[value] ?? value.replace(/_/g, ' ');
 }
 
-
-function shownValue(field: PreviewField, raw: string): string {
+function shownValue(
+  field: PreviewField,
+  raw: string,
+  enums: Record<string, string[]>,
+  labels: Record<string, string>,
+): string {
   if (!raw || !field.enumRef) return raw;
-  const options = SCHEMA.enums[field.enumRef] ?? [];
-  return options.includes(raw) ? pretty(raw) : raw;
+  const options = enums[field.enumRef] ?? [];
+  return options.includes(raw) ? pretty(raw, labels) : raw;
 }
 
 function fieldRaw(field: PreviewField, values: Record<string, string | boolean | null | undefined>): string {
   if (!field.id) return '';
   const raw = values[field.id];
+  if (raw === true) return 'Yes';
+  if (raw === false) return 'No';
   return typeof raw === 'string' ? raw : '';
 }
 
@@ -117,6 +125,14 @@ export function SpeakPage() {
     });
   });
   const listening = mic.listening;
+  const pack = journeyPack(session.journey);
+  const fields: PreviewField[] = pack ? pack.speakFields() : FIELDS;
+  const sections = pack ? pack.sections : SECTIONS;
+  const sampleLines = pack ? pack.sampleLines : SAMPLE_LINES;
+  const enums = pack?.enums ?? SCHEMA.enums;
+  const labels = { ...ENUM_LABEL, ...(pack?.enumLabels ?? {}) };
+  const requiredNow = (field: PreviewField) =>
+    Boolean(field.id && (pack ? pack.isRequired(session.values, field.id) : field.required));
 
   useEffect(() => {
     if (!preview) return;
@@ -127,7 +143,7 @@ export function SpeakPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [preview]);
 
-  const requiredFields = FIELDS.filter((field) => field.required && field.id);
+  const requiredFields = fields.filter((field) => requiredNow(field));
   const requiredFilled = requiredFields.filter((field) => field.id && isFilled(session.values[field.id])).length;
   // Derive ask-next from live session.missing / values — never fall back to FIELDS[0] when done.
   const askComplete =
@@ -135,7 +151,7 @@ export function SpeakPage() {
     session.completeness === 'demo_ready' ||
     session.completeness === 'full_bank_packet';
   const asked =
-    (!askComplete && FIELDS.find((field) => field.id && field.id === session.missing[0])) ||
+    (!askComplete && fields.find((field) => field.id && field.id === session.missing[0])) ||
     (!askComplete &&
       requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
     null;
@@ -163,7 +179,7 @@ export function SpeakPage() {
   const started =
     turns > 0 ||
     Boolean(session.last) ||
-    FIELDS.some((field) => field.id && isFilled(session.values[field.id]));
+    fields.some((field) => field.id && isFilled(session.values[field.id]));
   const companion = !started
     ? session.language === 'hi'
       ? 'नमस्ते! अपना पूरा नाम बताइए।'
@@ -176,8 +192,8 @@ export function SpeakPage() {
   const label = draftChoiceLabel(session.journey, session.values.account_product_intent);
   const lightBtn = `${BTN_OUTLINE} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
 
-  const sectionStats = SECTIONS.map((name) => {
-    const rows = FIELDS.filter((field) => field.section === name);
+  const sectionStats = sections.map((name) => {
+    const rows = fields.filter((field) => field.section === name);
     const done = rows.filter((field) => field.id && isFilled(session.values[field.id])).length;
     return { name, total: rows.length, done };
   });
@@ -260,7 +276,7 @@ export function SpeakPage() {
                   {flagLine}
                   <span className="font-normal text-background/60">
                     {' '}
-                    · {flagged.map((id) => FIELDS.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
+                    · {flagged.map((id) => fields.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
                   </span>
                 </p>
               ) : (
@@ -297,7 +313,7 @@ export function SpeakPage() {
               className={lightBtn}
               disabled={session.busy}
               onClick={() => {
-                const text = SAMPLE_LINES[sampleStep % SAMPLE_LINES.length];
+                const text = sampleLines[sampleStep % sampleLines.length];
                 setSampleStep((step) => step + 1);
                 if (listening) mic.cancel();
                 setSaid(text);
@@ -307,7 +323,7 @@ export function SpeakPage() {
                 void session.onSubmitUtterance(text);
               }}
             >
-              Try a sample phrase ({(sampleStep % SAMPLE_LINES.length) + 1}/3)
+              Try a sample phrase ({(sampleStep % sampleLines.length) + 1}/{sampleLines.length})
             </button>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -404,9 +420,9 @@ export function SpeakPage() {
           </button>
         </div>
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5" style={{ maxHeight: 'calc(100vh - 230px)' }}>
-          {SECTIONS.map((name, index) => {
+          {sections.map((name, index) => {
             const stat = sectionStats[index];
-            const rows = FIELDS.filter((field) => field.section === name);
+            const rows = fields.filter((field) => field.section === name);
             const activeSection = active === name;
             return (
               <section
@@ -429,7 +445,7 @@ export function SpeakPage() {
                     const filled = Boolean(field.id && isFilled(session.values[field.id]));
                     const filling = Boolean(field.id && session.flashIds.has(field.id));
                     const heard = field.id ? session.said[field.id] : '';
-                    const options = field.enumRef ? SCHEMA.enums[field.enumRef] ?? [] : null;
+                    const options = field.enumRef ? enums[field.enumRef] ?? [] : null;
                     const isFlagged = Boolean(field.id && flagged.includes(field.id));
                     const conf = field.id ? session.confidence[field.id] : undefined;
                     const open = isFlagged && checking === field.id;
@@ -455,7 +471,7 @@ export function SpeakPage() {
                         <div className="flex items-center justify-between text-[10px] uppercase">
                           <span className="text-muted-foreground">
                             {field.label}
-                            {field.required ? <span className="text-destructive"> *</span> : ''}
+                            {requiredNow(field) ? <span className="text-destructive"> *</span> : ''}
                           </span>
                           {isFlagged ? (
                             <button
@@ -484,7 +500,33 @@ export function SpeakPage() {
                             </span>
                           )}
                         </div>
-                        {field.id && options ? (
+                        {field.id && field.kind === 'boolean' ? (
+                          <select
+                            aria-label={field.label}
+                            value={
+                              session.values[field.id] === true
+                                ? 'yes'
+                                : session.values[field.id] === false
+                                  ? 'no'
+                                  : ''
+                            }
+                            onChange={(event) =>
+                              session.onChange(
+                                field.id as string,
+                                event.target.value === 'yes' ? true : event.target.value === 'no' ? false : null,
+                              )
+                            }
+                            className={`mt-1 min-h-6 w-full bg-transparent font-semibold outline-none ${
+                              session.values[field.id] === true || session.values[field.id] === false
+                                ? ''
+                                : 'text-muted-foreground/60'
+                            }`}
+                          >
+                            <option value="">{field.hint}</option>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                          </select>
+                        ) : field.id && options ? (
                           <select
                             id={inputId}
                             onFocus={() => {
@@ -498,7 +540,7 @@ export function SpeakPage() {
                             <option value="">{field.hint}</option>
                             {options.map((option) => (
                               <option key={option} value={option}>
-                                {pretty(option)}
+                                {pretty(option, labels)}
                               </option>
                             ))}
                           </select>
@@ -582,6 +624,10 @@ export function SpeakPage() {
           title={label}
           values={session.values}
           flashIds={session.flashIds}
+          fields={fields}
+          sections={sections}
+          enums={enums}
+          labels={labels}
           onClose={() => setPreview(false)}
         />
       ) : null}
@@ -616,12 +662,20 @@ function FormPreview({
   title,
   values,
   flashIds,
+  fields,
+  sections,
+  enums,
+  labels,
   onClose,
 }: {
   version: number;
   title: string;
   values: Record<string, string | boolean | null | undefined>;
   flashIds: Set<string>;
+  fields: PreviewField[];
+  sections: readonly string[];
+  enums: Record<string, string[]>;
+  labels: Record<string, string>;
   onClose: () => void;
 }) {
   return (
@@ -676,8 +730,8 @@ function FormPreview({
           <p className="mt-2 bg-saffron/25 px-2 py-1 text-[9px] font-bold">
             DRAFT · NOT SUBMITTED · Fields vary by bank
           </p>
-          {SECTIONS.map((name, index) => {
-            const rows = FIELDS.filter((field) => field.section === name);
+          {sections.map((name, index) => {
+            const rows = fields.filter((field) => field.section === name);
             return (
               <div key={name} className="mt-4">
                 <p className="bg-foreground px-2 py-0.5 text-[10px] font-bold uppercase text-background">
@@ -687,7 +741,7 @@ function FormPreview({
                   {rows.map((field) => {
                     const raw = fieldRaw(field, values);
                     const fresh = Boolean(field.id && flashIds.has(field.id));
-                    const text = raw ? shownValue(field, raw).toUpperCase() : '';
+                    const text = raw ? shownValue(field, raw, enums, labels).toUpperCase() : '';
                     return (
                       <div key={field.label} className="mt-2">
                         <p className="text-[8px] uppercase text-muted-foreground">

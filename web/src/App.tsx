@@ -6,6 +6,7 @@ import { LandingPage } from './pages/LandingPage';
 import { ReviewPage } from './pages/ReviewPage';
 import { SpeakPage } from './pages/SpeakPage';
 import { RouteProvider, useRoute } from './routing/router';
+import './journeys';
 import { FormSessionProvider } from './session/FormSession';
 
 function AppRoutes() {

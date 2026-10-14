@@ -1,0 +1,268 @@
+{
+  "title": "nomination_savings_demo_v1",
+  "description": "Voice draft for adding or changing one nominee on a savings account the customer already holds. Field set follows public Indian bank nomination forms (statutory DA-1 style and bank variants such as deposit nomination, cancellation, and variation). This is not a bank form number. Fields vary by bank. Confirm before save. Never submit live.",
+  "version": "1.0.0",
+  "form_type": "nomination_savings",
+  "locale": "en-IN",
+  "demo_constraints": {
+    "confirm_before_submit": true,
+    "live_bank_submit": false,
+    "invented_form_ids": false,
+    "bank_varies_copy": "Fields vary by bank.",
+    "single_nominee": true,
+    "reference": "Public nomination forms for savings deposits. Labels and extra columns differ by bank."
+  },
+  "public_hubs": [
+    {
+      "bank": "various",
+      "cite_as": "Banking Companies (Nomination) Rules — Form DA-1 style nomination for deposits",
+      "use_for": ["account holder", "account number", "nominee name", "relationship", "date of birth", "address", "guardian if the nominee is a minor"]
+    },
+    {
+      "bank": "Kotak",
+      "cite_as": "Form for nomination, cancellation of nomination and variation of nomination in respect of bank deposits"
+    },
+    {
+      "bank": "Axis",
+      "cite_as": "Nomination Form"
+    },
+    {
+      "bank": "HDFC",
+      "cite_as": "Multiple Nomination Form"
+    }
+  ],
+  "enums": {
+    "nominee_relationship": [
+      "wife",
+      "husband",
+      "son",
+      "daughter",
+      "father",
+      "mother",
+      "brother",
+      "sister",
+      "other"
+    ]
+  },
+  "field_groups": ["account", "nominee", "guardian", "confirm_gates"],
+  "sections": [
+    { "id": "account", "title_en": "Account", "order": 1 },
+    { "id": "nominee", "title_en": "Nominee", "order": 2 },
+    { "id": "guardian", "title_en": "Guardian", "order": 3 },
+    { "id": "confirm_gates", "title_en": "Confirm", "order": 4 }
+  ],
+  "fields": [
+    {
+      "id": "account_holder_name",
+      "label_en": "Account holder name",
+      "label_hi": "खाताधारक का नाम",
+      "type": "string",
+      "required": true,
+      "group": "account",
+      "section": "account",
+      "bank_varies": true,
+      "voice_hints": ["as it appears on the savings account"],
+      "ask_en": "What is the account holder's name?",
+      "ask_hi": "खाताधारक का नाम बताएं।"
+    },
+    {
+      "id": "account_number",
+      "label_en": "Account number",
+      "label_hi": "खाता संख्या",
+      "type": "string",
+      "required": true,
+      "group": "account",
+      "section": "account",
+      "bank_varies": true,
+      "voice_hints": ["savings account number"],
+      "ask_en": "What is the savings account number?",
+      "ask_hi": "बचत खाते की खाता संख्या बताएं।",
+      "notes": "Length and check digits vary by bank. Reference capture is 9 to 18 digits."
+    },
+    {
+      "id": "customer_id",
+      "label_en": "Customer ID",
+      "label_hi": "ग्राहक आईडी",
+      "type": "string",
+      "required": true,
+      "group": "account",
+      "section": "account",
+      "bank_varies": true,
+      "voice_hints": ["customer ID or CIF"],
+      "ask_en": "What is the customer ID?",
+      "ask_hi": "ग्राहक आईडी बताएं।"
+    },
+    {
+      "id": "mobile",
+      "label_en": "Mobile",
+      "label_hi": "मोबाइल",
+      "type": "string",
+      "required": false,
+      "group": "account",
+      "section": "account",
+      "bank_varies": true,
+      "voice_hints": ["optional 10-digit mobile"],
+      "ask_en": "What is the mobile number, if you want it on the draft?",
+      "ask_hi": "मोबाइल नंबर बताएं, अगर ड्राफ्ट पर चाहिए।"
+    },
+    {
+      "id": "nominee_name",
+      "label_en": "Nominee name",
+      "label_hi": "नॉमिनी का नाम",
+      "type": "string",
+      "required": true,
+      "group": "nominee",
+      "section": "nominee",
+      "bank_varies": true,
+      "voice_hints": ["person who should receive the balance"],
+      "ask_en": "What is the nominee's name?",
+      "ask_hi": "नॉमिनी का नाम बताएं।"
+    },
+    {
+      "id": "nominee_relationship",
+      "label_en": "Nominee relationship",
+      "label_hi": "नॉमिनी से रिश्ता",
+      "type": "enum",
+      "enum_ref": "nominee_relationship",
+      "required": true,
+      "group": "nominee",
+      "section": "nominee",
+      "bank_varies": true,
+      "voice_hints": ["wife, husband, son, daughter, father, mother, brother, sister"],
+      "ask_en": "What is the nominee's relationship to the account holder?",
+      "ask_hi": "नॉमिनी का रिश्ता क्या है?"
+    },
+    {
+      "id": "nominee_dob",
+      "label_en": "Nominee date of birth",
+      "label_hi": "नॉमिनी की जन्म तिथि",
+      "type": "string",
+      "required": true,
+      "group": "nominee",
+      "section": "nominee",
+      "bank_varies": true,
+      "voice_hints": ["day, month, and year"],
+      "ask_en": "What is the nominee's date of birth?",
+      "ask_hi": "नॉमिनी की जन्म तिथि बताएं।"
+    },
+    {
+      "id": "nominee_address",
+      "label_en": "Nominee address",
+      "label_hi": "नॉमिनी का पता",
+      "type": "string",
+      "required": true,
+      "group": "nominee",
+      "section": "nominee",
+      "bank_varies": true,
+      "voice_hints": ["address as you would write it on the form"],
+      "ask_en": "What is the nominee's address?",
+      "ask_hi": "नॉमिनी का पता बताएं।"
+    },
+    {
+      "id": "nominee_is_minor",
+      "label_en": "Nominee is a minor",
+      "label_hi": "नॉमिनी नाबालिग है",
+      "type": "boolean",
+      "required": true,
+      "group": "nominee",
+      "section": "nominee",
+      "bank_varies": true,
+      "voice_hints": ["under 18, or say not a minor"],
+      "ask_en": "Is the nominee a minor?",
+      "ask_hi": "क्या नॉमिनी नाबालिग है?",
+      "notes": "Filled from the date of birth when that date is known. Guardian name and address are required only when this is yes."
+    },
+    {
+      "id": "guardian_name",
+      "label_en": "Guardian name",
+      "label_hi": "अभिभावक का नाम",
+      "type": "string",
+      "required": false,
+      "required_if": { "nominee_is_minor": true },
+      "group": "guardian",
+      "section": "guardian",
+      "bank_varies": true,
+      "voice_hints": ["required when the nominee is under 18"],
+      "ask_en": "The nominee is a minor. What is the guardian's name?",
+      "ask_hi": "नॉमिनी नाबालिग है। अभिभावक का नाम बताएं।"
+    },
+    {
+      "id": "guardian_address",
+      "label_en": "Guardian address",
+      "label_hi": "अभिभावक का पता",
+      "type": "string",
+      "required": false,
+      "required_if": { "nominee_is_minor": true },
+      "group": "guardian",
+      "section": "guardian",
+      "bank_varies": true,
+      "voice_hints": ["required when the nominee is under 18"],
+      "ask_en": "What is the guardian's address?",
+      "ask_hi": "अभिभावक का पता बताएं।"
+    },
+    {
+      "id": "readback_confirmed",
+      "label_en": "I reviewed the filled details and corrections.",
+      "type": "boolean",
+      "required": true,
+      "group": "confirm_gates",
+      "section": "confirm_gates",
+      "bank_varies": false
+    },
+    {
+      "id": "draft_only_ack",
+      "label_en": "I understand this saves a draft only.",
+      "type": "boolean",
+      "required": true,
+      "group": "confirm_gates",
+      "section": "confirm_gates",
+      "bank_varies": false
+    },
+    {
+      "id": "no_live_submit_ack",
+      "label_en": "I understand nothing is submitted to a bank.",
+      "type": "boolean",
+      "required": true,
+      "group": "confirm_gates",
+      "section": "confirm_gates",
+      "bank_varies": false
+    }
+  ],
+  "incomplete_routing": {
+    "fallback_priority": [
+      "account_holder_name",
+      "account_number",
+      "customer_id",
+      "nominee_name",
+      "nominee_relationship",
+      "nominee_dob",
+      "nominee_address",
+      "nominee_is_minor",
+      "guardian_name",
+      "guardian_address"
+    ]
+  },
+  "example_filled_state": {
+    "persona": {
+      "id": "meera_nomination",
+      "label": "Meera Iyer — add a minor nominee (synthetic)",
+      "note": "Account number, customer ID, and mobile are synthetic. Not a bank record."
+    },
+    "values": {
+      "account_holder_name": "Meera Iyer",
+      "account_number": "123456789012",
+      "customer_id": "CIF88421",
+      "mobile": "9845012345",
+      "nominee_name": "Arjun Iyer",
+      "nominee_relationship": "son",
+      "nominee_dob": "2012-06-14",
+      "nominee_address": "18 Residency Road, Bengaluru",
+      "nominee_is_minor": true,
+      "guardian_name": "Meera Iyer",
+      "guardian_address": "18 Residency Road, Bengaluru",
+      "readback_confirmed": false,
+      "draft_only_ack": false,
+      "no_live_submit_ack": false
+    }
+  }
+}

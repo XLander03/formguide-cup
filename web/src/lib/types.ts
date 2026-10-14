@@ -32,7 +32,7 @@ export interface ExtractResponse {
   completeness: 'empty' | 'partial_core' | 'demo_ready' | 'full_bank_packet';
   refuse_live_submit: boolean;
   refuse_message?: string;
-  source: 'gemini' | 'heuristic' | 'heuristic-dev' | 'priya_demo' | 'out_of_scope';
+  source: 'gemini' | 'heuristic' | 'heuristic-dev' | 'priya_demo' | 'out_of_scope' | 'transcript';
   assistant_message?: string;
   /** Language of this utterance. English path omits nothing required — default en. */
   reply_lang?: 'en' | 'hi' | 'mixed';
