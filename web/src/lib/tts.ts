@@ -9,8 +9,9 @@ export interface SpeakHooks {
 
 export function speak(
   text: string,
-  lang: 'en-IN' | 'hi-IN' = 'en-IN',
+  lang: string = 'en-IN',
   hooks?: SpeakHooks,
+  voice?: SpeechSynthesisVoice | null,
 ): Promise<void> {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window) || !text.trim()) {
@@ -19,7 +20,8 @@ export function speak(
     }
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = lang;
+    u.lang = voice?.lang || lang;
+    if (voice) u.voice = voice;
     u.rate = 0.95;
     u.onstart = () => hooks?.onStart?.();
     u.onend = () => {

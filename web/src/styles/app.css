@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Work Sans", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati", "Noto Sans Kannada", Arial, sans-serif;
+  --font-sans: "Work Sans", "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati", "Noto Sans Kannada", "Noto Sans Malayalam", "Noto Sans Oriya", "Noto Sans Gurmukhi", "Noto Sans Arabic", Arial, sans-serif;
   --font-display: "Instrument Serif", "Noto Serif Devanagari", Georgia, serif;
   --color-background: oklch(96% 0.016 91);
   --color-foreground: oklch(25% 0.05 257);

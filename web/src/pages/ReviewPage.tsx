@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { buildReadbackScript } from '../lib/heuristicExtract';
+import { languageLabel } from '../lib/languages';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
@@ -12,7 +13,7 @@ export function ReviewPage() {
   const session = useFormSession();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(String(session.values.applicant_full_name || ''));
-  const languageLabel = session.language === 'hi' ? 'हिन्दी' : 'English';
+  const spokenLanguage = languageLabel(session.language);
   const script = buildReadbackScript(session.values, session.readbackLang);
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
@@ -32,7 +33,7 @@ export function ReviewPage() {
         <p className="text-[10px] uppercase text-primary">04 · Review and correct</p>
         <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">Hear every detail back.</h1>
         <p className="mt-4 max-w-md text-sm text-muted-foreground">
-          The draft is read in {languageLabel}. Stop it at any time and say or type a correction.
+          The draft is read in {spokenLanguage}. Stop it at any time and say or type a correction.
         </p>
         <div className="mt-7 bg-foreground p-5 text-background">
           <p className="text-[10px] uppercase text-background/50">Spoken readback</p>
@@ -47,8 +48,11 @@ export function ReviewPage() {
             }}
           >
             {session.speaking ? <PauseIcon /> : <VolumeIcon />}
-            {session.speaking ? 'Pause readback' : `Read in ${languageLabel}`}
+            {session.speaking ? 'Pause readback' : `Read in ${spokenLanguage}`}
           </button>
+          {session.speaking && session.readbackInEnglish ? (
+            <p className="mt-2 text-[11px] text-background/60">Read-back in English on this device</p>
+          ) : null}
         </div>
         <div className="mt-6 border-2 border-saffron bg-saffron/10 p-4">
           <p className="text-[10px] uppercase text-saffron">One correction</p>

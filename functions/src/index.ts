@@ -3,6 +3,13 @@ import { defineSecret } from 'firebase-functions/params';
 import { readSpeakRequest } from './wav';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
+import {
+  enforceLatinFieldValues,
+  fieldScriptNote,
+  hasNonLatinLetter,
+  isBetaSpeakLanguage,
+  type SpeakLanguage,
+} from './languages';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 
@@ -410,7 +417,7 @@ async function deleteUploaded(apiKey: string, name: string): Promise<void> {
   await fetch(`${API}/v1beta/${name}`, { method: 'DELETE', headers: authHeaders(apiKey) });
 }
 
-async function transcribe(apiKey: string, uri: string, language: 'en-IN' | 'hi-IN'): Promise<string> {
+async function transcribe(apiKey: string, uri: string, language: SpeakLanguage): Promise<string> {
   const res = await fetch(`${API}/v1beta/interactions`, {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
@@ -436,13 +443,14 @@ async function transcribe(apiKey: string, uri: string, language: 'en-IN' | 'hi-I
 
 function fieldPrompt(
   transcript: string,
-  language: 'en-IN' | 'hi-IN',
+  language: SpeakLanguage,
   current: FormValues,
   missing: string[],
 ): string {
   const filled = Object.fromEntries(
     Object.entries(current).filter(([, value]) => isFilled(value)),
   );
+  const scriptNote = fieldScriptNote(language);
   return `You are FormGuide extract for India BFSI account-opening and KYC demo schema aof_kyc_demo_v1.
 Page language: ${language}. Transcript may be English or Hindi (or mixed).
 
@@ -480,7 +488,7 @@ next_ask:
 
 OTHER:
 - refuse_live_submit true only if user asks to submit/send to a bank.
-- assistant_message must include the exact English sentence "Fields vary by bank."
+- assistant_message must include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}
 
 Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
@@ -492,7 +500,7 @@ Return JSON: field_updates (id → {value, confidence, reason?}), next_ask, repl
 async function fieldJson(
   apiKey: string,
   transcript: string,
-  language: 'en-IN' | 'hi-IN',
+  language: SpeakLanguage,
   current: FormValues,
 ): Promise<{
   field_updates: FormValues;
@@ -548,8 +556,9 @@ async function fieldJson(
     console.error('fields_bad_json', text.length);
     throw speakFail('fields_bad_json', 502);
   }
-  const hindi = parsed.reply_lang === 'hi' || /[\u0900-\u097F]/.test(transcript);
-  const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
+  const devanagari = /[\u0900-\u097F]/.test(transcript);
+  let replyLang: 'hi' | 'en' = parsed.reply_lang === 'hi' || devanagari ? 'hi' : 'en';
+  if (isBetaSpeakLanguage(language) && !devanagari) replyLang = 'en';
   const rawUpdates =
     parsed.field_updates && typeof parsed.field_updates === 'object' && !Array.isArray(parsed.field_updates)
       ? (parsed.field_updates as Record<string, unknown>)
@@ -559,7 +568,10 @@ async function fieldJson(
       ? (parsed.field_confidence as Record<string, unknown>)
       : {};
   const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
-  const updates = sanitizeUpdates(mergedIncoming);
+  const updates = enforceLatinFieldValues(sanitizeUpdates(mergedIncoming), language);
+  for (const key of Object.keys(meta)) {
+    if (!(key in updates)) delete meta[key];
+  }
   const merged: FormValues = { ...current, ...updates };
   // Aadhaar must never leave this function unmasked (schema requires last-4 only).
   // Resolve type from `merged` — it may have been set in an earlier turn.
@@ -572,8 +584,12 @@ async function fieldJson(
     );
   const askTable = replyLang === 'hi' ? HI_ASK : EN_ASK;
   const modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
-  const nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
+  let nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
+  if (isBetaSpeakLanguage(language) && nextAsk && hasNonLatinLetter(nextAsk)) {
+    nextAsk = buildNextAsk(missing, 'en', EN_ASK, null);
+  }
   let message = typeof parsed.assistant_message === 'string' ? parsed.assistant_message.trim() : '';
+  if (isBetaSpeakLanguage(language) && hasNonLatinLetter(message)) message = '';
   if (!message) message = nextAsk || 'Draft updated.';
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
   return {

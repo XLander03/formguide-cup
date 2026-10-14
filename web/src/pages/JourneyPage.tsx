@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { JourneyId } from '../lib/journeys';
+import { LANGUAGES } from '../lib/languages';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
@@ -143,7 +144,6 @@ export function JourneyPage() {
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
   const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
-  const lang = language === 'hi' ? 'hi' : 'en';
 
   return (
     <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
@@ -172,28 +172,38 @@ export function JourneyPage() {
             {listening ? 'Listening · local only · not a transcript' : 'Tap · say your need'}
           </p>
           <GreenDots />
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px]">
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px]" role="group" aria-label="Language">
             <span className="flex items-center gap-1.5 text-background/80">
               <WaveMark /> Language:
             </span>
-            {(['en', 'hi'] as const).map((id) => {
-              const label = id === 'hi' ? 'हिन्दी' : 'English';
+            {LANGUAGES.map((option) => {
+              const selectedLang = language === null ? option.id === 'en' : language === option.id;
               return (
                 <button
-                  key={id}
+                  key={option.id}
                   type="button"
-                  onClick={() => selectLanguage(id)}
-                  className={`border px-3 py-1 font-semibold ${
-                    (language === null ? id === 'en' : language === id)
+                  aria-pressed={selectedLang}
+                  aria-label={option.beta ? `${option.englishName}, Beta` : option.englishName}
+                  onClick={() => selectLanguage(option.id)}
+                  className={`whitespace-nowrap border px-3 py-1 font-semibold ${
+                    selectedLang
                       ? 'border-primary bg-primary text-primary-foreground'
                       : 'border-background/40 bg-transparent text-background/80'
                   }`}
                 >
-                  {label}
+                  {option.pickerLabel}
+                  {option.beta ? (
+                    <span className="ml-1.5 inline-block rounded-full border border-current px-1 py-px text-[9px] font-semibold uppercase leading-none">
+                      Beta
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
           </div>
+          <p className="mt-3 text-center text-[11px] text-background/70">
+            Tested in English and Hindi, more languages in Beta
+          </p>
         </div>
 
         <div className="mt-8 border-t border-background/20 pt-4">
@@ -296,7 +306,7 @@ export function JourneyPage() {
             type="button"
             className={`${BTN_PRIMARY} ${BTN_LG}`}
             onClick={() => {
-              if (language === null) selectLanguage(lang);
+              if (language === null) selectLanguage('en');
               if (selected.product) selectDraft(selected.journey, selected.product);
               selectJourney(selected.journey);
               go('/speak');
