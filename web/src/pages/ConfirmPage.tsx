@@ -3,6 +3,7 @@ import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
 import { buildFilledKycPdf } from '../lib/pdfFill';
 import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
+import { Button } from '../ui/Button';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { displayValue } from '../ui/fields';
 import { CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
@@ -117,9 +118,9 @@ export function ConfirmPage() {
               It was not submitted to a bank. Take this receipt when checking the bank’s own form.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+              <Button
+                variant="primary"
+                size="md"
                 onClick={() => {
                   const blob = new Blob([JSON.stringify(draftPayload(session), null, 2)], {
                     type: 'application/json',
@@ -132,8 +133,8 @@ export function ConfirmPage() {
                   URL.revokeObjectURL(url);
                 }}
               >
-                <DownloadIcon /> Download JSON
-              </button>
+                <DownloadIcon /> Download draft
+              </Button>
               <button
                 type="button"
                 className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
