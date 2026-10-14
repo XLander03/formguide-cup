@@ -10,7 +10,6 @@ interface Props {
   onPriya: () => void;
   onClear: () => void;
   onReadback: () => void;
-  onTryLiveSubmit: () => void;
   last: ExtractResponse | null;
   missing: string[];
   completeness: string;
@@ -23,7 +22,7 @@ interface Props {
   initialText?: string;
   /** `utterance` keeps mic + extract only, for the confirm step. */
   density?: 'full' | 'utterance';
-  /** TTS and live-submit stay available on Review and Confirm. */
+  /** TTS read-back stays available on Review and Confirm. */
   showFinalizeActions?: boolean;
 }
 
@@ -34,7 +33,6 @@ export function DemoBar({
   onPriya,
   onClear,
   onReadback,
-  onTryLiveSubmit,
   last,
   missing,
   completeness,
@@ -173,9 +171,6 @@ export function DemoBar({
         <div className="row" style={{ marginTop: '0.5rem' }}>
           <button className="btn" disabled={!canReadback || busy || speaking} onClick={onReadback}>
             TTS read-back
-          </button>
-          <button className="btn danger" disabled={busy} onClick={onTryLiveSubmit}>
-            Try live bank submit
           </button>
         </div>
       )}

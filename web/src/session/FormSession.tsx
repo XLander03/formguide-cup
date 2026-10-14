@@ -20,7 +20,7 @@ import {
 } from '../lib/schema';
 import { speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
-import { readbackFollowup, tryLiveMessage, type UtteranceLang } from '../lib/utteranceLang';
+import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
 
 export type ShellLanguage = 'en' | 'hi';
 export type MicLang = 'en-IN' | 'hi-IN';
@@ -129,7 +129,6 @@ export interface FormSessionValue {
   onClear: () => void;
   onReadback: () => Promise<void>;
   onStopReadback: () => void;
-  onTryLiveSubmit: () => void;
   emitDraft: () => void;
   said: Record<string, string>;
   selectDraft: (id: JourneyId, product: string | null) => void;
@@ -552,31 +551,6 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setReadingBack(false);
   }, []);
 
-  const onTryLiveSubmit = useCallback(() => {
-    setRefuseMsg(tryLiveMessage(readbackLang));
-    setDraftReady(false);
-    setLast((prev) => ({
-      field_updates: {},
-      missing_required: missing,
-      next_ask: 'Acknowledge draft-only and no-live-submit, then emit draft JSON locally.',
-      gates: {
-        answers: {
-          ...(prev?.gates.answers ?? {}),
-          noul_requests_live_bank_submit: { type: 'noul', noul: 0.97 },
-        },
-      },
-      completeness,
-      refuse_live_submit: true,
-      refuse_message: 'Live bank submit refused.',
-      source: prev?.source ?? 'heuristic',
-      reply_lang: readbackLang,
-      assistant_message:
-        readbackLang === 'en'
-          ? 'Guardrail fired: noul_requests_live_bank_submit high → refuse. Draft only.'
-          : 'गार्डरेल: लाइव बैंक जमा मना। केवल ड्राफ्ट। Fields vary by bank.',
-    }));
-  }, [missing, completeness, readbackLang]);
-
   const emitDraft = useCallback(() => {
     if (!canReadback || !confirmGatesOk) return;
     setDraftReady(true);
@@ -615,7 +589,6 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     onClear,
     onReadback,
     onStopReadback,
-    onTryLiveSubmit,
     emitDraft,
     said,
     selectDraft,
