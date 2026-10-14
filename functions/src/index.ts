@@ -5,6 +5,9 @@ import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './me
 import { maskSensitiveFields } from './pii';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
+// Optional. If unset, transcription has no fallback and a Gemini outage
+// fails the request as before — see SETUP.md for how to configure this.
+const groqApiKey = defineSecret('GROQ_API_KEY');
 
 const FIELD_IDS = [
   'journey_mode',
@@ -434,6 +437,41 @@ async function transcribe(apiKey: string, uri: string, language: 'en-IN' | 'hi-I
   return interactionText(data);
 }
 
+const GROQ_API = 'https://api.groq.com/openai/v1/audio/transcriptions';
+
+/**
+ * Fallback transcription path when Gemini's upload/transcribe fails.
+ * Groq's Whisper endpoint takes the raw WAV directly — no upload step,
+ * unlike Gemini's file-then-transcribe flow.
+ */
+async function transcribeWithGroq(apiKey: string, wav: Buffer, language: 'en-IN' | 'hi-IN'): Promise<string> {
+  const form = new FormData();
+  // Buffer's ArrayBufferLike vs BlobPart's stricter ArrayBuffer typing
+  // mismatch (SharedArrayBuffer edge case) — Blob accepts a Buffer fine
+  // at runtime, this is a typing-only cast.
+  form.append('file', new Blob([wav as unknown as BlobPart], { type: 'audio/wav' }), 'speak.wav');
+  form.append('model', 'whisper-large-v3');
+  form.append('language', language === 'hi-IN' ? 'hi' : 'en');
+  form.append('response_format', 'json');
+  const res = await fetch(GROQ_API, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = (await res.json()) as { error?: { message?: string } };
+      detail = String(body.error?.message || '').slice(0, 100);
+    } catch {
+      detail = '';
+    }
+    throw speakFail(`groq_transcribe_${res.status}${detail ? `_${detail}` : ''}`.slice(0, 64), res.status === 429 ? 429 : 502);
+  }
+  const data = (await res.json()) as { text?: unknown };
+  return typeof data.text === 'string' ? data.text.trim() : '';
+}
+
 function fieldPrompt(
   transcript: string,
   language: 'en-IN' | 'hi-IN',
@@ -615,7 +653,7 @@ export const speak = onRequest(
     concurrency: 1,
     invoker: 'public',
     cors: ['https://faceapp-5397b.web.app'],
-    secrets: [geminiApiKey],
+    secrets: [geminiApiKey, groqApiKey],
   },
   async (req, res) => {
     if (req.method === 'OPTIONS') {
@@ -636,13 +674,22 @@ export const speak = onRequest(
     }
 
     const apiKey = geminiApiKey.value();
+    const groqKey = groqApiKey.value();
     const current = asValues(read.parts.current);
     let uploadedName = '';
     let transcript = '';
     try {
-      const file = await uploadWav(apiKey, read.parts.audio);
-      uploadedName = file.name;
-      transcript = await transcribe(apiKey, file.uri, read.parts.language);
+      try {
+        const file = await uploadWav(apiKey, read.parts.audio);
+        uploadedName = file.name;
+        transcript = await transcribe(apiKey, file.uri, read.parts.language);
+      } catch (primaryErr) {
+        // No fallback configured — same failure behavior as before.
+        if (!groqKey) throw primaryErr;
+        const code = (primaryErr as SpeakFail)?.code || String(primaryErr).slice(0, 80);
+        console.warn('gemini_transcribe_failed_falling_back_to_groq', code);
+        transcript = await transcribeWithGroq(groqKey, read.parts.audio, read.parts.language);
+      }
 
       if (OUT_OF_SCOPE_RE.test(transcript)) {
         const hindi = read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript);
