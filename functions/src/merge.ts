@@ -49,6 +49,16 @@ const FIELD_IDS = [
   'readback_confirmed',
   'draft_only_ack',
   'no_live_submit_ack',
+  'card_customer_id',
+  'card_account_number',
+  'card_last4',
+  'card_reason',
+  'card_reason_other',
+  'card_reissue_new',
+  'card_charges_account',
+  'card_remarks',
+  'card_confirm_mobile',
+  'card_old_blocked_ack',
 ] as const;
 
 const FIELD_ID_SET = new Set<string>(FIELD_IDS);
@@ -66,6 +76,13 @@ const ALIASES: Record<string, string> = {
   husband_name: 'father_or_spouse_name',
   wife_name: 'father_or_spouse_name',
   parent_name: 'father_or_spouse_name',
+  customer_id: 'card_customer_id',
+  account_number: 'card_account_number',
+  card_number: 'card_last4',
+  debit_card_number: 'card_last4',
+  card_last_4: 'card_last4',
+  last4: 'card_last4',
+  reissue_reason: 'card_reason',
 };
 
 const FATHER_CUE =
@@ -156,6 +173,7 @@ export function mergeFieldUpdates(
 ): FormValues {
   const incoming: FormValues = {};
   for (const [rawKey, value] of Object.entries(rawUpdates || {})) {
+    if (/pin|cvv|otp/i.test(rawKey)) continue;
     const key = ALIASES[rawKey] || rawKey;
     if (!FIELD_ID_SET.has(key)) continue;
     if (value === undefined) continue;

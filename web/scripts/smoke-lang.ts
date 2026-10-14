@@ -287,6 +287,33 @@ assert(
   `eval completeness ${evalRun.completeness}`,
 );
 
+const DEBIT =
+  'I need a debit card reissue. My name is Priya Sharma, customer ID CIF102938, account number 501002223334, card number 6521 8844 2291 4417. It was stolen. Please reissue a new card. Confirmation mobile 9876543210. PIN 1234.';
+const debit = heuristicExtract(DEBIT, { journey_mode: 'debit_reissue', card_reissue_new: true });
+const debitValues = { journey_mode: 'debit_reissue', card_reissue_new: true, ...debit.field_updates };
+assert(debit.field_updates.journey_mode === 'debit_reissue', 'debit journey');
+assert(debit.field_updates.applicant_full_name === 'Priya Sharma', `debit name ${debit.field_updates.applicant_full_name}`);
+assert(debit.field_updates.card_customer_id === 'CIF102938', `debit id ${debit.field_updates.card_customer_id}`);
+assert(debit.field_updates.card_account_number === '501002223334', `debit account ${debit.field_updates.card_account_number}`);
+assert(debit.field_updates.card_last4 === '4417', `debit last4 ${debit.field_updates.card_last4}`);
+assert(debit.field_updates.card_reason === 'stolen', `debit reason ${debit.field_updates.card_reason}`);
+assert(debit.field_updates.card_reissue_new === true, 'debit reissue');
+assert(debit.field_updates.card_confirm_mobile === '9876543210', `debit mobile ${debit.field_updates.card_confirm_mobile}`);
+assert(!('card_pin' in debit.field_updates), 'no pin field');
+assert(!JSON.stringify(debit).includes('6521884422914417'), 'full card number stored');
+assert(!JSON.stringify(debit).includes('6521 8844'), 'spaced card number stored');
+assert(!debit.missing_required.includes('dob'), `debit asked for dob ${debit.missing_required.join(',')}`);
+assert(debit.missing_required.length === 0, `debit missing ${debit.missing_required.join(',')}`);
+const debitScript = buildReadbackScript(debitValues, 'en');
+assert(debitScript.includes('4417'), 'readback last4');
+assert(debitScript.includes('Card goes to your registered address'), 'readback address');
+assert(!debitScript.includes('6521884422914417'), 'readback hid full card');
+assert(getNextAsk([], debitValues) === null, 'debit ask done');
+
+const stillOpening = heuristicExtract(EN, { journey_mode: 'account_opening' });
+assert(stillOpening.field_updates.journey_mode === 'account_opening', 'opening stays opening');
+assert(!stillOpening.field_updates.card_last4, 'opening has no card');
+
 console.log('smoke-lang ok');
 console.log('en fields', Object.keys(en.field_updates).join(','));
 console.log('hi next', hi.next_ask);

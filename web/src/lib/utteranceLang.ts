@@ -66,6 +66,12 @@ export const HI_FIELD_ASK: Record<string, string> = {
   account_product_intent:
     'यह रेगुलर सेविंग्स, सैलरी, बेसिक सेविंग्स (BSBDA), या व्यक्तिगत करंट खाता है? उत्पाद के नाम बैंक के अनुसार बदलते हैं।',
   customer_id_cif: 'अगर पास हो तो ग्राहक आईडी या CIF बताएं।',
+  card_customer_id: 'ग्राहक आईडी बताएं।',
+  card_account_number: 'खाता संख्या बताएं।',
+  card_last4: 'कार्ड के आखिरी चार अंक बताएं। पूरा कार्ड नंबर नहीं।',
+  card_reason: 'कार्ड खोया, चोरी, खराब, या कोई और कारण?',
+  card_reason_other: 'अन्य कारण क्या लिखें?',
+  card_reissue_new: 'क्या नया कार्ड चाहिए?',
   addr_permanent_line1: 'स्थायी पते की पहली पंक्ति बताएं।',
   addr_permanent_city: 'स्थायी पते का शहर बताएं।',
   addr_permanent_state: 'स्थायी पते का राज्य बताएं।',
@@ -89,6 +95,12 @@ const HI_BY_EN: Record<string, string> = {
     'यह रेगुलर सेविंग्स, सैलरी, बेसिक सेविंग्स (BSBDA), या व्यक्तिगत करंट खाता है? उत्पाद के नाम बैंक के अनुसार बदलते हैं।',
   'What is your customer ID or CIF, if you have it handy?':
     'अगर पास हो तो ग्राहक आईडी या CIF बताएं।',
+  'What is your customer ID, account number, and the last 4 digits of the card?':
+    'ग्राहक आईडी, खाता संख्या, और कार्ड के आखिरी चार अंक बताएं।',
+  'Was the card lost or misplaced, stolen, damaged, or something else?':
+    'कार्ड खोया या गुम, चोरी, खराब, या कोई और कारण?',
+  'What should we write for the other reason?': 'अन्य कारण क्या लिखें?',
+  'Should we reissue a new card?': 'क्या नया कार्ड जारी करें?',
   'A few required KYC details are still missing. Shall we continue with identity, or jump to your address and documents?':
     'कुछ ज़रूरी केवाईसी विवरण अभी बाकी हैं। पहचान से आगे बढ़ें, या पते और दस्तावेज़ों पर जाएँ?',
   'This demo covers account opening and KYC only. Nomination, NEFT, loans, SCSS, and Form 15G are stretch items for later.':

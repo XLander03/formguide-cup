@@ -1,4 +1,10 @@
 import { useEffect, useState } from 'react';
+import {
+  HELPLINE_COPY,
+  OLD_CARD_BLOCKED_ACK,
+  REGISTERED_ADDRESS_COPY,
+  cardLast4,
+} from '../lib/debitReissue';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
@@ -20,6 +26,7 @@ type PreviewField = {
   required: boolean;
   section: string;
   enumRef?: string;
+  input?: 'text' | 'boolean' | 'static';
 };
 
 /** Visual sections from the speak screen. Null ids are shown only — they are not schema fields. */
@@ -47,6 +54,25 @@ const FIELDS: PreviewField[] = [
 
 const SECTIONS = ['Identity', 'Contact', 'Address', 'Proof of identity', 'Occupation'];
 
+const DEBIT_FIELDS: PreviewField[] = [
+  { id: 'applicant_full_name', label: 'Customer full name', hint: 'As in the bank', required: true, section: 'Card' },
+  { id: 'card_customer_id', label: 'Customer ID', hint: 'Customer ID or CIF', required: true, section: 'Card' },
+  { id: 'card_account_number', label: 'Account number', hint: 'Account number', required: true, section: 'Card' },
+  { id: 'card_last4', label: 'Card last 4 digits', hint: 'Last 4 only', required: true, section: 'Card' },
+  { id: 'card_reason', label: 'Reason', hint: 'Lost, stolen, damaged, other', required: true, section: 'Card', enumRef: 'card_reason' },
+  { id: 'card_reason_other', label: 'Other reason', hint: 'Short note', required: true, section: 'Card' },
+  { id: 'card_reissue_new', label: 'Reissue a new card', hint: 'Yes or no', required: true, section: 'Card', input: 'boolean' },
+  { id: 'card_charges_account', label: 'Charges debit account', hint: 'Defaults to same account', required: false, section: 'Card' },
+  { id: 'card_remarks', label: 'Remarks', hint: 'Optional', required: false, section: 'Card' },
+  { id: 'card_confirm_mobile', label: 'Mobile for confirmation', hint: 'Optional, 10 digits', required: false, section: 'Card' },
+  { id: null, label: 'Delivery', hint: REGISTERED_ADDRESS_COPY, required: false, section: 'Delivery', input: 'static' },
+];
+
+const DEBIT_SECTIONS = ['Card', 'Delivery'];
+
+const DEBIT_SAMPLE =
+  'I need a debit card reissue. My name is Priya Sharma, customer ID CIF102938, account number 501002223334, card number 6521 8844 2291 4417. It was stolen. Please reissue a new card. Confirmation mobile 9876543210.';
+
 const ENUM_LABEL: Record<string, string> = {
   female: 'Female',
   male: 'Male',
@@ -58,6 +84,11 @@ const ENUM_LABEL: Record<string, string> = {
   voter_id: 'Voter ID',
   nrega_job_card: 'NREGA job card',
   npr_letter: 'NPR letter',
+  lost_or_misplaced: 'Lost or misplaced',
+  stolen: 'Stolen',
+  damaged: 'Damaged',
+  yes: 'Yes',
+  no: 'No',
   salaried: 'Salaried',
   self_employed: 'Self-employed',
   professional: 'Professional',
@@ -78,9 +109,12 @@ function shownValue(field: PreviewField, raw: string): string {
 }
 
 function fieldRaw(field: PreviewField, values: Record<string, string | boolean | null | undefined>): string {
-  if (!field.id) return '';
+  if (!field.id) return field.input === 'static' ? field.hint : '';
   const raw = values[field.id];
-  return typeof raw === 'string' ? raw : '';
+  if (typeof raw === 'boolean') return raw ? 'yes' : 'no';
+  if (typeof raw !== 'string') return '';
+  if (field.id === 'card_last4') return cardLast4(raw);
+  return raw.replace(/\b(?:pin|cvv|otp)\b[:\s-]*\d{3,8}/gi, '').trim();
 }
 
 function GreenDots() {
@@ -127,7 +161,13 @@ export function SpeakPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [preview]);
 
-  const requiredFields = FIELDS.filter((field) => field.required && field.id);
+  const debit = session.journey === 'debit_reissue';
+  const sheetFields = debit
+    ? DEBIT_FIELDS.filter((field) => field.id !== 'card_reason_other' || session.values.card_reason === 'other')
+    : FIELDS;
+  const sheetSections = debit ? DEBIT_SECTIONS : SECTIONS;
+  const sampleLines = debit ? [DEBIT_SAMPLE] : SAMPLE_LINES;
+  const requiredFields = sheetFields.filter((field) => field.required && field.id);
   const requiredFilled = requiredFields.filter((field) => field.id && isFilled(session.values[field.id])).length;
   // Derive ask-next from live session.missing / values — never fall back to FIELDS[0] when done.
   const askComplete =
@@ -135,7 +175,7 @@ export function SpeakPage() {
     session.completeness === 'demo_ready' ||
     session.completeness === 'full_bank_packet';
   const asked =
-    (!askComplete && FIELDS.find((field) => field.id && field.id === session.missing[0])) ||
+    (!askComplete && sheetFields.find((field) => field.id && field.id === session.missing[0])) ||
     (!askComplete &&
       requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
     null;
@@ -151,7 +191,7 @@ export function SpeakPage() {
     : asked?.hint || '';
   const flagged = session.flaggedIds;
   const flagCount = flagged.length;
-  const panelIds = new Set(FIELDS.map((field) => field.id).filter(Boolean) as string[]);
+  const panelIds = new Set(sheetFields.map((field) => field.id).filter(Boolean) as string[]);
   const offPanelFlagged = flagged.filter((id) => !panelIds.has(id));
   const flagLine =
     flagCount > 0
@@ -159,11 +199,11 @@ export function SpeakPage() {
         ? `जाँचने के लिए ${flagCount} फ़ील्ड · रीड-बैक उसके बाद`
         : `${flagCount} field${flagCount === 1 ? '' : 's'} to check · read-back after`
       : null;
-  const active = pinned ?? asked?.section ?? 'Identity';
+  const active = pinned ?? asked?.section ?? sheetSections[0];
   const started =
     turns > 0 ||
     Boolean(session.last) ||
-    FIELDS.some((field) => field.id && isFilled(session.values[field.id]));
+    sheetFields.some((field) => field.id && isFilled(session.values[field.id]));
   const companion = !started
     ? session.language === 'hi'
       ? 'नमस्ते! अपना पूरा नाम बताइए।'
@@ -176,8 +216,8 @@ export function SpeakPage() {
   const label = draftChoiceLabel(session.journey, session.values.account_product_intent);
   const lightBtn = `${BTN_OUTLINE} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
 
-  const sectionStats = SECTIONS.map((name) => {
-    const rows = FIELDS.filter((field) => field.section === name);
+  const sectionStats = sheetSections.map((name) => {
+    const rows = sheetFields.filter((field) => field.section === name);
     const done = rows.filter((field) => field.id && isFilled(session.values[field.id])).length;
     return { name, total: rows.length, done };
   });
@@ -260,7 +300,7 @@ export function SpeakPage() {
                   {flagLine}
                   <span className="font-normal text-background/60">
                     {' '}
-                    · {flagged.map((id) => FIELDS.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
+                    · {flagged.map((id) => sheetFields.find((f) => f.id === id)?.label ?? fieldLabel(id)).join(', ')}
                   </span>
                 </p>
               ) : (
@@ -297,7 +337,7 @@ export function SpeakPage() {
               className={lightBtn}
               disabled={session.busy}
               onClick={() => {
-                const text = SAMPLE_LINES[sampleStep % SAMPLE_LINES.length];
+                const text = sampleLines[sampleStep % sampleLines.length];
                 setSampleStep((step) => step + 1);
                 if (listening) mic.cancel();
                 setSaid(text);
@@ -307,7 +347,7 @@ export function SpeakPage() {
                 void session.onSubmitUtterance(text);
               }}
             >
-              Try a sample phrase ({(sampleStep % SAMPLE_LINES.length) + 1}/3)
+              Try a sample phrase ({(sampleStep % sampleLines.length) + 1}/{sampleLines.length})
             </button>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -339,6 +379,11 @@ export function SpeakPage() {
             <p className="text-center text-[10px] font-semibold text-saffron">
               FAKE PREFILL DEMO · not CKYC or DigiLocker data
             </p>
+            {debit && session.missing.length === 0 && session.values.card_old_blocked_ack !== true ? (
+              <p className="text-center text-[10px]">
+                Tick that the old card is permanently blocked before read-back.
+              </p>
+            ) : null}
           </div>
         </div>
       </section>
@@ -404,9 +449,12 @@ export function SpeakPage() {
           </button>
         </div>
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5" style={{ maxHeight: 'calc(100vh - 230px)' }}>
-          {SECTIONS.map((name, index) => {
+          {debit ? (
+            <p className="border-2 border-foreground px-3 py-2 text-xs">{HELPLINE_COPY}</p>
+          ) : null}
+          {sheetSections.map((name, index) => {
             const stat = sectionStats[index];
-            const rows = FIELDS.filter((field) => field.section === name);
+            const rows = sheetFields.filter((field) => field.section === name);
             const activeSection = active === name;
             return (
               <section
@@ -484,7 +532,9 @@ export function SpeakPage() {
                             </span>
                           )}
                         </div>
-                        {field.id && options ? (
+                        {field.input === 'static' ? (
+                          <p className="mt-1 min-h-6 font-semibold">{field.hint}</p>
+                        ) : field.id && options ? (
                           <select
                             id={inputId}
                             onFocus={() => {
@@ -501,6 +551,17 @@ export function SpeakPage() {
                                 {pretty(option)}
                               </option>
                             ))}
+                          </select>
+                        ) : field.input === 'boolean' && field.id ? (
+                          <select
+                            id={inputId}
+                            aria-label={field.label}
+                            value={raw === 'no' ? 'no' : 'yes'}
+                            onChange={(event) => session.onChange(field.id as string, event.target.value === 'yes')}
+                            className="mt-1 min-h-6 w-full bg-transparent font-semibold outline-none"
+                          >
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
                           </select>
                         ) : field.id ? (
                           <input
@@ -547,6 +608,20 @@ export function SpeakPage() {
               </section>
             );
           })}
+          {debit ? (
+            <label className="flex cursor-pointer gap-3 border-2 border-foreground p-4">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-primary"
+                checked={session.values.card_old_blocked_ack === true}
+                onChange={(event) => session.onChange('card_old_blocked_ack', event.target.checked)}
+              />
+              <span>
+                <span className="block text-[10px] uppercase text-muted-foreground">Before read-back</span>
+                <span className="mt-1 block text-sm font-semibold">{OLD_CARD_BLOCKED_ACK}</span>
+              </span>
+            </label>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-foreground pt-4">
             <button
               type="button"
@@ -580,6 +655,10 @@ export function SpeakPage() {
         <FormPreview
           version={turns}
           title={label}
+          subtitle={debit ? 'Debit card reissue request' : 'Customer information sheet — individual'}
+          footnote={debit ? HELPLINE_COPY : null}
+          fields={sheetFields}
+          sections={sheetSections}
           values={session.values}
           flashIds={session.flashIds}
           onClose={() => setPreview(false)}
@@ -614,12 +693,20 @@ function downloadSheetPdf() {
 function FormPreview({
   version,
   title,
+  subtitle,
+  footnote,
+  fields,
+  sections,
   values,
   flashIds,
   onClose,
 }: {
   version: number;
   title: string;
+  subtitle: string;
+  footnote: string | null;
+  fields: PreviewField[];
+  sections: string[];
   values: Record<string, string | boolean | null | undefined>;
   flashIds: Set<string>;
   onClose: () => void;
@@ -662,7 +749,7 @@ function FormPreview({
             <div>
               <p className="text-[9px] uppercase">Generic bank-style form · illustrative layout</p>
               <p className="mt-1 font-display text-2xl not-italic">{title}</p>
-              <p className="text-[9px]">Customer information sheet — individual</p>
+              <p className="text-[9px]">{subtitle}</p>
             </div>
             <div
               aria-hidden="true"
@@ -676,8 +763,8 @@ function FormPreview({
           <p className="mt-2 bg-saffron/25 px-2 py-1 text-[9px] font-bold">
             DRAFT · NOT SUBMITTED · Fields vary by bank
           </p>
-          {SECTIONS.map((name, index) => {
-            const rows = FIELDS.filter((field) => field.section === name);
+          {sections.map((name, index) => {
+            const rows = fields.filter((field) => field.section === name);
             return (
               <div key={name} className="mt-4">
                 <p className="bg-foreground px-2 py-0.5 text-[10px] font-bold uppercase text-background">
@@ -708,6 +795,7 @@ function FormPreview({
               </div>
             );
           })}
+          {footnote ? <p className="mt-4 text-[10px]">{footnote}</p> : null}
           <div aria-hidden="true" className="fg-print-watermark">
             DRAFT · NOT SUBMITTED
           </div>

@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { cardLast4, debitDefaults, isDebitJourney, redactFullCardNumbers } from '../lib/debitReissue';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
@@ -19,6 +20,7 @@ import {
   getMissingRequired,
   getNextAsk,
   priyaDemoValues,
+  updateApplies,
 } from '../lib/schema';
 import { speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
@@ -27,7 +29,8 @@ import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
 export type ShellLanguage = 'en' | 'hi';
 export type MicLang = 'en-IN' | 'hi-IN';
 
-const STORAGE_KEY = 'formguide.cup.session.v2';
+const STORAGE_KEY = 'formguide.cup.session.v3';
+const STORAGE_KEY_V2 = 'formguide.cup.session.v2';
 
 /** Fields below this model confidence get a 'Check this' flag until confirmed. */
 export const CONFIDENCE_FLAG_THRESHOLD = 0.75;
@@ -63,11 +66,41 @@ export interface FieldConfidence {
   confirmed: boolean;
 }
 
+interface DraftSlot {
+  values: FormValues;
+  confidence: Record<string, FieldConfidence>;
+}
+
+type DraftBag = Partial<Record<JourneyId, DraftSlot>>;
+
 interface Persisted {
   language: ShellLanguage | null;
   journey: JourneyId | null;
-  values: FormValues;
-  confidence?: Record<string, FieldConfidence>;
+  drafts: DraftBag;
+}
+
+function blankDraft(id: JourneyId, language: ShellLanguage | null): FormValues {
+  const base = emptyValues();
+  base.journey_mode = id;
+  base.preferred_language = language === 'hi' ? 'Hindi' : 'English';
+  if (id === 'account_opening') base.account_product_intent = 'regular_savings';
+  if (id === 'debit_reissue') Object.assign(base, debitDefaults());
+  return base;
+}
+
+function overlaySlot(id: JourneyId, language: ShellLanguage | null, slot?: DraftSlot): DraftSlot {
+  const values = blankDraft(id, language);
+  if (slot?.values) {
+    for (const [key, value] of Object.entries(slot.values)) {
+      if (key in values && value !== undefined) values[key] = value;
+    }
+  }
+  values.journey_mode = id;
+  if (id === 'debit_reissue') {
+    if (values.card_reissue_new == null || values.card_reissue_new === '') values.card_reissue_new = true;
+    if (!values.card_charges_account) values.card_charges_account = 'same account';
+  }
+  return { values: redactFullCardNumbers(values), confidence: slot?.confidence ?? {} };
 }
 
 function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
@@ -88,34 +121,29 @@ function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
 
 function loadPersisted(): Persisted | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY_V2);
     if (!raw) return null;
-    const data = JSON.parse(raw) as Partial<Persisted>;
+    const data = JSON.parse(raw) as Partial<Persisted> & {
+      values?: FormValues;
+      confidence?: unknown;
+    };
     const language = data.language === 'hi' || data.language === 'en' ? data.language : null;
     const journey = isJourneyId(data.journey) ? data.journey : null;
-    const values =
-      data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
-    return { language, journey, values, confidence: parseConfidence(data.confidence) };
+    const drafts: DraftBag = {};
+    if (data.drafts && typeof data.drafts === 'object') {
+      for (const [id, slot] of Object.entries(data.drafts)) {
+        if (!isJourneyId(id) || !slot || typeof slot !== 'object') continue;
+        const values =
+          slot.values && typeof slot.values === 'object' ? (slot.values as FormValues) : {};
+        drafts[id] = { values, confidence: parseConfidence(slot.confidence) };
+      }
+    } else if (data.values && typeof data.values === 'object' && journey) {
+      drafts[journey] = { values: data.values, confidence: parseConfidence(data.confidence) };
+    }
+    return { language, journey, drafts };
   } catch {
     return null;
   }
-}
-
-function seedValues(saved: Persisted | null): FormValues {
-  const base = emptyValues();
-  if (saved?.values) {
-    for (const [key, value] of Object.entries(saved.values)) {
-      if (key in base && value !== undefined) base[key] = value;
-    }
-  }
-  if (saved?.journey) base.journey_mode = saved.journey;
-  else if (!base.journey_mode) base.journey_mode = 'account_opening';
-  if (saved?.language) base.preferred_language = saved.language === 'hi' ? 'Hindi' : 'English';
-  else if (!base.preferred_language) base.preferred_language = 'English';
-  if (base.journey_mode === 'account_opening' && !base.account_product_intent) {
-    base.account_product_intent = 'regular_savings';
-  }
-  return base;
 }
 
 export interface FormSessionValue {
@@ -164,18 +192,23 @@ const FormSessionContext = createContext<FormSessionValue | null>(null);
 
 export function FormSessionProvider({ children }: { children: ReactNode }) {
   const saved = useMemo(() => loadPersisted(), []);
-  // Captured once: a saved complete draft must not keep Read back enabled on /speak?flags=1.
   const bootFlags = useRef(flagsDemoRequested());
+  const personaBoot = priyaDemoValues();
+  maskSensitiveFields(personaBoot);
+  const savedJourney: JourneyId = saved?.journey ?? 'account_opening';
+  const initialJourney: JourneyId = bootFlags.current
+    ? isJourneyId(personaBoot.journey_mode)
+      ? personaBoot.journey_mode
+      : savedJourney
+    : savedJourney;
+  const initialSlot = bootFlags.current
+    ? { values: personaBoot, confidence: demoFlagConfidence() }
+    : overlaySlot(initialJourney, saved?.language ?? 'en', saved?.drafts[initialJourney]);
   const [language, setLanguage] = useState<ShellLanguage | null>(saved?.language ?? 'en');
-  const [journey, setJourney] = useState<JourneyId | null>(() => {
-    if (!bootFlags.current) return saved?.journey ?? 'account_opening';
-    const persona = priyaDemoValues();
-    return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
-  });
+  const [journey, setJourney] = useState<JourneyId | null>(initialJourney);
+  const [drafts, setDrafts] = useState<DraftBag>(saved?.drafts ?? {});
   const [micLang, setMicLangState] = useState<MicLang>(saved?.language === 'hi' ? 'hi-IN' : 'en-IN');
-  const [values, setValues] = useState<FormValues>(() =>
-    bootFlags.current ? priyaDemoValues() : seedValues(saved),
-  );
+  const [values, setValues] = useState<FormValues>(initialSlot.values);
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [readingBack, setReadingBack] = useState(false);
@@ -184,15 +217,19 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const [said, setSaid] = useState<Record<string, string>>({});
-  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(() =>
-    bootFlags.current ? demoFlagConfidence() : (saved?.confidence ?? {}),
-  );
-  /** Per-field provenance ('gemini' | 'heuristic' | 'manual' | 'priya_demo' |
-   * 'heuristic-dev') — drives the confidence badge in the bank-handoff
-   * preview and rides along in the exported JSON. Distinct from
-   * `confidence` above: that's a numeric model-sourced score that gates
-   * the readback flow; this is a categorical label for display/export. */
+  const [confidence, setConfidence] = useState<Record<string, FieldConfidence>>(initialSlot.confidence);
+  /** Per-field provenance for the bank-handoff preview. */
   const [fieldSource, setFieldSource] = useState<Record<string, string>>({});
+  const draftsRef = useRef(drafts);
+  const valuesRef = useRef(values);
+  const confidenceRef = useRef(confidence);
+  const journeyRef = useRef(journey);
+  const languageRef = useRef(language);
+  draftsRef.current = drafts;
+  valuesRef.current = values;
+  confidenceRef.current = confidence;
+  journeyRef.current = journey;
+  languageRef.current = language;
 
   const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
@@ -213,17 +250,24 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         .map(([id]) => id),
     [confidence, values],
   );
+  const oldCardBlockedOk = !isDebitJourney(journey) || values.card_old_blocked_ack === true;
   const canReadback =
-    (completeness === 'demo_ready' || completeness === 'full_bank_packet') && flaggedIds.length === 0;
+    (completeness === 'demo_ready' || completeness === 'full_bank_packet') &&
+    flaggedIds.length === 0 &&
+    oldCardBlockedOk;
   const confirmGatesOk =
     flaggedIds.length === 0 &&
+    oldCardBlockedOk &&
     values.readback_confirmed === true &&
     values.draft_only_ack === true &&
     values.no_live_submit_ack === true;
   const readyForFill = language !== null && journey !== null;
 
   useEffect(() => {
-    const payload: Persisted = { language, journey, values, confidence };
+    const bag: DraftBag = { ...draftsRef.current };
+    if (journey) bag[journey] = { values, confidence };
+    draftsRef.current = bag;
+    const payload: Persisted = { language, journey, drafts: bag };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [language, journey, values, confidence]);
 
@@ -248,21 +292,50 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [applyShellLanguage],
   );
 
-  const selectJourney = useCallback((id: JourneyId) => {
+  const switchTo = useCallback((id: JourneyId, patch?: FormValues) => {
+    const bag: DraftBag = { ...draftsRef.current };
+    const currentId = journeyRef.current;
+    if (currentId) bag[currentId] = { values: valuesRef.current, confidence: confidenceRef.current };
+    if (currentId === id) {
+      if (patch) {
+        const next = redactFullCardNumbers({ ...valuesRef.current, ...patch, journey_mode: id });
+        valuesRef.current = next;
+        setValues(next);
+      }
+      draftsRef.current = bag;
+      setDrafts(bag);
+      setDraftReady(false);
+      return;
+    }
+    const loaded = overlaySlot(id, languageRef.current, bag[id]);
+    if (patch) Object.assign(loaded.values, patch);
+    loaded.values.journey_mode = id;
+    const safe = redactFullCardNumbers(loaded.values);
+    bag[id] = { values: safe, confidence: loaded.confidence };
+    draftsRef.current = bag;
+    valuesRef.current = safe;
+    confidenceRef.current = loaded.confidence;
+    journeyRef.current = id;
+    setDrafts(bag);
     setJourney(id);
-    setValues((prev) => ({ ...prev, journey_mode: id }));
+    setValues(safe);
+    setConfidence(loaded.confidence);
     setDraftReady(false);
   }, []);
 
-  const selectDraft = useCallback((id: JourneyId, product: string | null) => {
-    setJourney(id);
-    setValues((prev) => ({
-      ...prev,
-      journey_mode: id,
-      account_product_intent: product ?? '',
-    }));
-    setDraftReady(false);
-  }, []);
+  const selectJourney = useCallback(
+    (id: JourneyId) => {
+      switchTo(id);
+    },
+    [switchTo],
+  );
+
+  const selectDraft = useCallback(
+    (id: JourneyId, product: string | null) => {
+      switchTo(id, product ? { account_product_intent: product } : undefined);
+    },
+    [switchTo],
+  );
 
   const setMicLang = useCallback(
     (lang: MicLang) => {
@@ -278,52 +351,69 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const applyUpdates = useCallback(
     (updates: FormValues, response: ExtractResponse, utterance?: string) => {
-      setValues((prev) => {
-        const next = { ...prev };
-        for (const [key, value] of Object.entries(updates)) {
-          if (value === undefined) continue;
-          // Merge only provided keys; do not clear an already-filled value with empty/null.
-          if ((value === null || value === '') && prev[key] !== undefined && prev[key] !== null && prev[key] !== '') {
-            continue;
-          }
-          next[key] = value;
+      const target = isJourneyId(updates.journey_mode) ? updates.journey_mode : journeyRef.current;
+      const switched = Boolean(target && target !== journeyRef.current);
+      let base = valuesRef.current;
+      let confBase = confidenceRef.current;
+      if (switched && target) {
+        const bag: DraftBag = { ...draftsRef.current };
+        if (journeyRef.current) {
+          bag[journeyRef.current] = { values: valuesRef.current, confidence: confidenceRef.current };
         }
-        // Aadhaar must never land in state (and therefore sessionStorage,
-        // the screen, or a downloaded draft) unmasked, regardless of
-        // whether it came from speak, extract, or the heuristic fallback.
-        maskSensitiveFields(next);
-        return next;
-      });
+        const loaded = overlaySlot(target, languageRef.current, bag[target]);
+        base = loaded.values;
+        confBase = loaded.confidence;
+        draftsRef.current = bag;
+        journeyRef.current = target;
+        setDrafts(bag);
+        setJourney(target);
+      }
+      const journeyNow = target ?? journeyRef.current;
+      const next = { ...base };
+      const probe = { ...next, journey_mode: journeyNow ?? next.journey_mode };
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === undefined) continue;
+        if (!updateApplies(key, probe)) continue;
+        // Merge only provided keys; do not clear an already-filled value with empty/null.
+        if ((value === null || value === '') && base[key] !== undefined && base[key] !== null && base[key] !== '') {
+          continue;
+        }
+        next[key] = key === 'card_last4' && typeof value === 'string' ? cardLast4(value) : value;
+      }
+      if (journeyNow) next.journey_mode = journeyNow;
+      const safe = redactFullCardNumbers(next);
+      maskSensitiveFields(safe);
+      valuesRef.current = safe;
+      setValues(safe);
       if (utterance?.trim()) {
         const clip = utterance.trim().replace(/\s+/g, ' ');
         setSaid((prev) => {
-          const next = { ...prev };
+          const saidNext = switched ? {} : { ...prev };
           for (const [key, value] of Object.entries(updates)) {
-            if (value !== undefined) next[key] = clip;
+            if (value !== undefined && updateApplies(key, probe)) saidNext[key] = clip;
           }
-          return next;
+          return saidNext;
         });
       }
-      setConfidence((prev) => {
-        const next = { ...prev };
-        const conf = response.field_confidence ?? {};
-        for (const [key, value] of Object.entries(updates)) {
-          if (value === undefined || value === null || value === '') continue;
-          const c = conf[key];
-          const score = c && typeof c.confidence === 'number' ? c.confidence : 1;
-          next[key] = { confidence: score, reason: c?.reason, confirmed: false };
-        }
-        return next;
-      });
+      const confNext = { ...confBase };
+      const conf = response.field_confidence ?? {};
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === undefined || value === null || value === '') continue;
+        if (!updateApplies(key, probe)) continue;
+        const c = conf[key];
+        const score = c && typeof c.confidence === 'number' ? c.confidence : 1;
+        confNext[key] = { confidence: score, reason: c?.reason, confirmed: false };
+      }
+      confidenceRef.current = confNext;
+      setConfidence(confNext);
       setFieldSource((prev) => {
-        const next = { ...prev };
+        const sourceNext = switched ? {} : { ...prev };
         for (const [key, value] of Object.entries(updates)) {
-          if (value !== undefined) next[key] = response.source;
+          if (value !== undefined && updateApplies(key, probe)) sourceNext[key] = response.source;
         }
-        return next;
+        return sourceNext;
       });
-      if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
-      flash(Object.keys(updates));
+      flash(Object.keys(updates).filter((key) => updateApplies(key, probe)));
       setLast(response);
       if (response.refuse_live_submit) {
         setRefuseMsg(
@@ -336,16 +426,22 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
-    setValues((prev) => {
-      const next = { ...prev, [id]: value };
-      // Mask once a full Aadhaar-length number has been typed, so manual
-      // edits on the Review page can't leave a full number sitting in
-      // state. Only triggers at 12 digits so it doesn't fight live typing
-      // of shorter document numbers.
-      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof value === 'string') {
+    let nextValue = value;
+    if (typeof value === 'string') {
+      if (id === 'card_last4') nextValue = cardLast4(value);
+      if (id === 'card_account_number') nextValue = value.replace(/\D/g, '').slice(0, 18);
+      if (id === 'card_confirm_mobile') {
         const digits = value.replace(/\D/g, '');
+        nextValue = digits.length > 10 ? digits.slice(-10) : digits;
+      }
+    }
+    setValues((prev) => {
+      const next = redactFullCardNumbers({ ...prev, [id]: nextValue });
+      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof nextValue === 'string') {
+        const digits = nextValue.replace(/\D/g, '');
         if (digits.length >= 12) maskSensitiveFields(next);
       }
+      valuesRef.current = next;
       return next;
     });
     // Typed / edited by the user → confirmed.
@@ -427,6 +523,41 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setReadingBack(false);
     setRefuseMsg(null);
     setDraftReady(false);
+    if (isDebitJourney(journeyRef.current)) {
+      const persona = redactFullCardNumbers({
+        ...blankDraft('debit_reissue', languageRef.current),
+        applicant_full_name: 'Priya Sharma',
+        card_customer_id: 'CIF102938',
+        card_account_number: '501002223334',
+        card_last4: '4417',
+        card_reason: 'stolen',
+        card_reissue_new: true,
+        card_charges_account: 'same account',
+        card_confirm_mobile: '9876543210',
+      });
+      setValues(persona);
+      setConfidence(
+        withFlags === true
+          ? { card_last4: { confidence: 0.6, reason: 'Digits unclear in audio', confirmed: false } }
+          : {},
+      );
+      flash(['applicant_full_name', 'card_customer_id', 'card_account_number', 'card_last4', 'card_reason']);
+      const miss = getMissingRequired(persona);
+      setLast({
+        field_updates: persona,
+        missing_required: miss,
+        next_ask:
+          getNextAsk(miss, persona, languageRef.current === 'hi' ? 'hi' : 'en') ||
+          'Demo debit-card reissue loaded. Tick that the old card is blocked, then read it back. Fields vary by bank.',
+        gates: { answers: {} },
+        completeness: completenessLevel(persona, miss),
+        refuse_live_submit: false,
+        source: 'priya_demo',
+        assistant_message:
+          'Filled a synthetic debit card reissue. Last 4 only. No PIN. Fields vary by bank.',
+      });
+      return;
+    }
     const persona = priyaDemoValues();
     maskSensitiveFields(persona);
     setValues(persona);
@@ -498,9 +629,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     stopSpeaking();
     setSpeaking(false);
     setReadingBack(false);
-    const next = emptyValues();
-    if (journey) next.journey_mode = journey;
-    if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
+    const next = journey ? blankDraft(journey, language) : emptyValues();
     setValues(next);
     setConfidence({});
     setLast(null);

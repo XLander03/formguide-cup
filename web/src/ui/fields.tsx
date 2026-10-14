@@ -1,4 +1,4 @@
-import { FIELD_GROUPS, SCHEMA, isEffectivelyRequired, isFieldApplicable, isFilled } from '../lib/schema';
+import { FIELD_GROUPS, SCHEMA, fieldApplies, isEffectivelyRequired, isFieldApplicable, isFilled } from '../lib/schema';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
 
@@ -18,6 +18,7 @@ const MONTHS = [
 ];
 
 const GROUP_TITLE: Record<string, string> = {
+  card_reissue: 'Debit card',
   identity: 'Identity',
   contact: 'Contact',
   address: 'Address',
@@ -42,6 +43,7 @@ export function displayValue(id: string, value: FormValues[string], hindi = fals
 }
 
 export function draftChoiceLabel(journey: string | null | undefined, product: unknown): string {
+  if (journey === 'debit_reissue') return 'Debit card reissue';
   if (journey === 'kyc_update') return 'KYC update';
   if (journey === 'rekyc') return 'Re-KYC';
   if (product === 'salary_savings') return 'Salary account';
@@ -158,8 +160,9 @@ export function FieldGroups({
     <div className="space-y-5">
       {groups.map((group, index) => {
         const fields = SCHEMA.fields.filter(
-          (field) => field.group === group.id && isFieldApplicable(field, values),
+          (field) => field.group === group.id && fieldApplies(field, values) && isFieldApplicable(field, values),
         );
+        if (fields.length === 0) return null;
         const confirmed = fields.filter(
           (field) => isFilled(values[field.id]) && !flashIds.has(field.id),
         ).length;

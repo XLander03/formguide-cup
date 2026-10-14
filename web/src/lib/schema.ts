@@ -27,6 +27,7 @@ export const COMPACT = compact;
 
 export const FIELD_GROUPS = [
   { id: 'identity', title: 'Identity', blurb: 'Name, DOB, PAN / Form 60, residential status' },
+  { id: 'card_reissue', title: 'Debit card', blurb: 'Customer ID, account, last 4 digits, reason' },
   { id: 'contact', title: 'Contact', blurb: 'Registered mobile and email' },
   { id: 'address', title: 'Address', blurb: 'Current (and permanent if different)' },
   { id: 'kyc_ovd', title: 'KYC / OVD', blurb: 'Proof of identity & address — fields vary by bank' },
@@ -34,6 +35,26 @@ export const FIELD_GROUPS = [
   { id: 'profile_light', title: 'Profile', blurb: 'Occupation, PEP, tax residency' },
   { id: 'confirm_gates', title: 'Confirm gates', blurb: 'Read-back + draft-only acknowledgements' },
 ] as const;
+
+const AOF_JOURNEYS = ['account_opening', 'kyc_update', 'rekyc'];
+
+export function fieldJourneyModes(field: SchemaField): string[] {
+  if (field.journey_modes?.length) return field.journey_modes;
+  if (field.group === 'confirm_gates') return [...AOF_JOURNEYS, 'debit_reissue'];
+  return AOF_JOURNEYS;
+}
+
+export function fieldApplies(field: SchemaField, values: FormValues): boolean {
+  const journey = String(values.journey_mode || 'account_opening');
+  return fieldJourneyModes(field).includes(journey);
+}
+
+export function updateApplies(id: string, values: FormValues): boolean {
+  if (id === 'journey_mode') return true;
+  const field = SCHEMA.fields.find((item) => item.id === id);
+  if (!field) return false;
+  return fieldApplies(field, values);
+}
 
 export const BANK_VARIES_COPY = 'Fields vary by bank.';
 
@@ -73,6 +94,7 @@ export function isFieldApplicable(field: SchemaField, values: FormValues): boole
 }
 
 export function isEffectivelyRequired(field: SchemaField, values: FormValues): boolean {
+  if (!fieldApplies(field, values)) return false;
   if (field.required) return true;
   if (!field.required_if) return false;
   return isFieldApplicable(field, values);
@@ -134,17 +156,33 @@ export function completenessLevel(
   if (filled === 0) return 'empty';
   if (missing.length === 0) {
     const optionalLeft = SCHEMA.fields.filter(
-      (f) => f.group !== 'confirm_gates' && !isFilled(values[f.id]) && !isEffectivelyRequired(f, values),
+      (f) =>
+        f.group !== 'confirm_gates' &&
+        fieldApplies(f, values) &&
+        isFieldApplicable(f, values) &&
+        !isFilled(values[f.id]) &&
+        !isEffectivelyRequired(f, values),
     ).length;
     return optionalLeft <= 2 ? 'full_bank_packet' : 'demo_ready';
   }
-  const coreIds = [
-    'journey_mode',
-    'applicant_full_name',
-    'dob',
-    'mobile_registered',
-    'pan_available',
-  ];
+  const debit = values.journey_mode === 'debit_reissue';
+  const coreIds = debit
+    ? [
+        'journey_mode',
+        'applicant_full_name',
+        'card_customer_id',
+        'card_account_number',
+        'card_last4',
+        'card_reason',
+        'card_reissue_new',
+      ]
+    : [
+        'journey_mode',
+        'applicant_full_name',
+        'dob',
+        'mobile_registered',
+        'pan_available',
+      ];
   const coreOk = coreIds.every((id) => isFilled(values[id]));
   return coreOk ? 'partial_core' : 'empty';
 }

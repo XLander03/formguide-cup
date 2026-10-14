@@ -5,7 +5,7 @@ import { SCHEMA } from './schema';
  * Corpus lines are titled samples from `corpus/bank-forms/INDEX.md`.
  * They are citations, not bank form IDs.
  */
-export const JOURNEY_IDS = ['account_opening', 'kyc_update', 'rekyc'] as const;
+export const JOURNEY_IDS = ['account_opening', 'kyc_update', 'rekyc', 'debit_reissue'] as const;
 
 export type JourneyId = (typeof JOURNEY_IDS)[number];
 
@@ -59,6 +59,17 @@ export const JOURNEYS: readonly JourneyOption[] = [
     corpus: [
       { bank: 'HDFC', title: 'Re-KYC Form — Individuals' },
       { bank: 'Axis', title: 'Re-KYC Form' },
+    ],
+  },
+  {
+    id: 'debit_reissue',
+    title: 'Debit card reissue',
+    titleHi: 'डेबिट कार्ड फिर से जारी',
+    summary: 'Replace a lost, stolen, or damaged debit card. The card goes to the registered address.',
+    voiceHint: 'debit card reissue',
+    corpus: [
+      { bank: 'HDFC', title: 'Blocking ATM and Debit Card form' },
+      { bank: 'HDFC', title: 'Debit card hotlisting and re-issuance' },
     ],
   },
 ];

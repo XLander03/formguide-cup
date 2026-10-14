@@ -129,7 +129,14 @@
     "journey_mode": [
       "account_opening",
       "kyc_update",
-      "rekyc"
+      "rekyc",
+      "debit_reissue"
+    ],
+    "card_reason": [
+      "lost_or_misplaced",
+      "stolen",
+      "damaged",
+      "other"
     ],
     "gender": [
       "female",
@@ -182,10 +189,12 @@
         "open a savings account",
         "update KYC",
         "re-KYC",
-        "KYC updation"
+        "KYC updation",
+        "debit card reissue"
       ],
+      "journey_modes": ["account_opening", "kyc_update", "rekyc", "debit_reissue"],
       "bank_varies": true,
-      "notes": "Maps to AO-SB vs KYC-UPD/rekyc hubs; bank forms differ."
+      "notes": "Maps to AO-SB vs KYC-UPD/rekyc hubs, or a debit card reissue request. Bank forms differ."
     },
     {
       "id": "applicant_full_name",
@@ -193,6 +202,7 @@
       "type": "string",
       "required": true,
       "group": "identity",
+      "journey_modes": ["account_opening", "kyc_update", "rekyc", "debit_reissue"],
       "section": "sec_identity",
       "validation": {
         "minLength": 2,
@@ -918,6 +928,137 @@
       "notes": "UI copy must still say fields vary by bank; hint only affects sample labels."
     },
     {
+      "id": "card_customer_id",
+      "label_en": "Customer ID",
+      "type": "string",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue" },
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "minLength": 4, "maxLength": 20 },
+      "voice_hints": ["customer id", "CIF"],
+      "bank_varies": true,
+      "notes": "Researcher field list. Not a bank form number."
+    },
+    {
+      "id": "card_account_number",
+      "label_en": "Account number",
+      "type": "string",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue" },
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "minLength": 6, "maxLength": 18 },
+      "voice_hints": ["account number"],
+      "bank_varies": true,
+      "notes": "Account number for the card. Never a full card number."
+    },
+    {
+      "id": "card_last4",
+      "label_en": "Card last 4 digits",
+      "type": "string",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue" },
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "pattern": "^[0-9]{4}$" },
+      "voice_hints": ["last four digits", "card ending"],
+      "bank_varies": true,
+      "notes": "Store only the last 4 digits. Never the full card number. No PIN."
+    },
+    {
+      "id": "card_reason",
+      "label_en": "Reason",
+      "type": "enum",
+      "enum_ref": "card_reason",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue" },
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "enum": true },
+      "voice_hints": ["lost", "stolen", "damaged", "other"],
+      "bank_varies": true,
+      "notes": "lost or misplaced, stolen, damaged, or other."
+    },
+    {
+      "id": "card_reason_other",
+      "label_en": "Reason, if other",
+      "type": "string",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue", "card_reason": "other" },
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "minLength": 2, "maxLength": 80 },
+      "voice_hints": ["other reason"],
+      "bank_varies": true
+    },
+    {
+      "id": "card_reissue_new",
+      "label_en": "Reissue a new card",
+      "type": "boolean",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue" },
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "voice_hints": ["reissue", "new card", "block only"],
+      "bank_varies": true,
+      "notes": "Defaults to yes."
+    },
+    {
+      "id": "card_charges_account",
+      "label_en": "Charges debit account",
+      "type": "string",
+      "required": false,
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "voice_hints": ["same account"],
+      "bank_varies": true,
+      "notes": "Optional. Defaults to the same account."
+    },
+    {
+      "id": "card_remarks",
+      "label_en": "Remarks",
+      "type": "string",
+      "required": false,
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "maxLength": 120 },
+      "bank_varies": true
+    },
+    {
+      "id": "card_confirm_mobile",
+      "label_en": "Mobile number for confirmation",
+      "type": "string",
+      "required": false,
+      "group": "card_reissue",
+      "section": "sec_card",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "pattern": "^[6-9][0-9]{9}$" },
+      "voice_hints": ["confirmation mobile"],
+      "bank_varies": true
+    },
+    {
+      "id": "card_old_blocked_ack",
+      "label_en": "I understand the old card is permanently blocked and can't be used again, even if found",
+      "type": "boolean",
+      "required": false,
+      "required_if": { "journey_mode": "debit_reissue" },
+      "group": "confirm_gates",
+      "section": "sec_confirm",
+      "journey_modes": ["debit_reissue"],
+      "validation": { "must_be_true_before_readback": true },
+      "bank_varies": false,
+      "notes": "Required before read-back confirm. Not a PIN and not an address."
+    },
+    {
       "id": "readback_confirmed",
       "label_en": "I confirm the read-back of key details is correct",
       "type": "boolean",
@@ -1086,6 +1227,12 @@
       "fallback_priority": [
         "journey_mode",
         "applicant_full_name",
+        "card_customer_id",
+        "card_account_number",
+        "card_last4",
+        "card_reason",
+        "card_reason_other",
+        "card_reissue_new",
         "dob",
         "mobile_registered",
         "pan_available",
@@ -1113,6 +1260,26 @@
       ]
     },
     "hints": [
+      {
+        "when_missing": ["card_customer_id", "card_account_number", "card_last4"],
+        "if": { "journey_mode": "debit_reissue" },
+        "ask_en": "What is your customer ID, account number, and the last 4 digits of the card?"
+      },
+      {
+        "when_missing": ["card_reason"],
+        "if": { "journey_mode": "debit_reissue" },
+        "ask_en": "Was the card lost or misplaced, stolen, damaged, or something else?"
+      },
+      {
+        "when_missing": ["card_reason_other"],
+        "if": { "journey_mode": "debit_reissue" },
+        "ask_en": "What should we write for the other reason?"
+      },
+      {
+        "when_missing": ["card_reissue_new"],
+        "if": { "journey_mode": "debit_reissue" },
+        "ask_en": "Should we reissue a new card?"
+      },
       {
         "when_missing": [
           "pan_number",

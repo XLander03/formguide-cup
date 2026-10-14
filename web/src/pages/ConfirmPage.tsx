@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
+import { OLD_CARD_BLOCKED_ACK } from '../lib/debitReissue';
 import { buildFilledKycPdf } from '../lib/pdfFill';
+import { BANK_VARIES_COPY, SCHEMA, fieldApplies, isFilled } from '../lib/schema';
 import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
@@ -102,8 +103,15 @@ export function ConfirmPage() {
     }
   };
   const rows = SCHEMA.fields.filter(
-    (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
+    (field) =>
+      field.group !== 'confirm_gates' &&
+      fieldApplies(field, session.values) &&
+      isFilled(session.values[field.id]),
   );
+  const gates =
+    session.journey === 'debit_reissue'
+      ? ([['card_old_blocked_ack', OLD_CARD_BLOCKED_ACK], ...GATES] as const)
+      : GATES;
 
   if (session.draftReady) {
     return (
@@ -168,12 +176,14 @@ export function ConfirmPage() {
     <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
       <section className="border-b-2 border-foreground px-5 py-8 lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
         <p className="text-[10px] uppercase text-primary">05 · Confirm draft</p>
-        <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">Three gates. No bank submit.</h1>
+        <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">
+          {session.journey === 'debit_reissue' ? 'Block the old card. Then three gates.' : 'Three gates. No bank submit.'}
+        </h1>
         <p className="mt-4 max-w-md text-sm text-muted-foreground">
           Each gate must be clear before FormGuide saves anything. This action stores a draft in this demo only.
         </p>
         <div className="mt-7 space-y-3">
-          {GATES.map(([id, label], index) => {
+          {gates.map(([id, label], index) => {
             const on = session.values[id] === true;
             return (
               <label
