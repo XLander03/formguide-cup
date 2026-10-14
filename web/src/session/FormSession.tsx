@@ -278,6 +278,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const applyUpdates = useCallback(
     (updates: FormValues, response: ExtractResponse, utterance?: string) => {
+      // `applyUpdates` is memoized once (deps: [flash], which never
+      // changes) — a `values` closure read here would be permanently
+      // stale. Capture the resolved type from inside the setValues
+      // updater instead, which always runs against the current `prev`.
+      let resolvedPoiType: FormValues['ovd_poi_type'];
+      let resolvedPoaType: FormValues['ovd_poa_type'];
       setValues((prev) => {
         const next = { ...prev };
         for (const [key, value] of Object.entries(updates)) {
@@ -292,6 +298,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         // the screen, or a downloaded draft) unmasked, regardless of
         // whether it came from speak, extract, or the heuristic fallback.
         maskSensitiveFields(next);
+        resolvedPoiType = next.ovd_poi_type;
+        resolvedPoaType = next.ovd_poa_type;
         return next;
       });
       if (utterance?.trim()) {
@@ -299,7 +307,18 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         setSaid((prev) => {
           const next = { ...prev };
           for (const [key, value] of Object.entries(updates)) {
-            if (value !== undefined) next[key] = clip;
+            if (value === undefined) continue;
+            // The masked *value* is useless if the full Aadhaar number is
+            // still sitting unmasked in the quoted "said" transcript right
+            // next to it — redact the quote itself for this field too.
+            if (
+              (key === 'ovd_poi_number' && resolvedPoiType === 'proof_of_possession_of_aadhaar') ||
+              (key === 'ovd_poa_number' && resolvedPoaType === 'proof_of_possession_of_aadhaar')
+            ) {
+              next[key] = 'Aadhaar number redacted from transcript.';
+              continue;
+            }
+            next[key] = clip;
           }
           return next;
         });
