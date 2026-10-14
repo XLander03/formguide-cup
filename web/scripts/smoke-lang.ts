@@ -204,7 +204,9 @@ assert(priyaHi.startsWith('कृपया इस रीड-बैक की प
 assert(priyaHi.includes('Name: Priya Sharma') === false && priyaHi.includes('Priya Sharma'), 'priya name kept');
 assert(!priyaHi.includes('Please confirm this read-back.'), 'priya hindi mic is not English');
 assert(priyaHi.includes('Fields vary by bank.'), 'priya hindi bank copy');
-assert(priyaHi.includes('3210'), 'priya hindi last4');
+assert(priyaHi.includes('तीन दो एक शून्य'), `priya hindi last4 digit by digit: ${priyaHi}`);
+assert(priyaHi.includes('बारह मार्च उन्नीस सौ चौरानवे'), `priya hindi dob spoken: ${priyaHi}`);
+assert(!/\d/.test(priyaHi), `priya hindi readback has raw digits: ${priyaHi}`);
 
 const incompleteName = heuristicExtract(
   'I want to open a savings account. I am a tax resident of India.',

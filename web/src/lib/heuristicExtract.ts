@@ -6,6 +6,7 @@ import {
   hindiWantsLiveSubmit,
   parseFlexibleDob,
 } from './hiSlots';
+import { hindiDate, hindiDigits } from './hiSpeech';
 import {
   completenessLevel,
   getMissingRequired,
@@ -645,10 +646,12 @@ export function buildReadbackScript(values: FormValues, lang: UtteranceLang = 'e
     `Product or journey: ${String(product).replace(/_/g, ' ')}. ` +
     `This is a draft only. Fields vary by bank. No live bank submit.`;
   if (lang === 'en') return en;
+  const hiDob = values.dob ? (hindiDate(String(values.dob)) ?? String(values.dob)) : 'नहीं दी गई';
+  const hiLast4 = mobile.length >= 4 ? hindiDigits(last4) : 'नहीं दिए गए';
   const hi =
-    `कृपया इस रीड-बैक की पुष्टि करें। नाम: ${name}. जन्म तिथि: ${dob}. ` +
-    `मोबाइल के आखिरी चार अंक ${last4}. पहचान पत्र: ${hindiEnumLabel(String(ovd))}. ` +
-    `उत्पाद या यात्रा: ${hindiEnumLabel(String(product))}. ` +
+    `कृपया इस रीड-बैक की पुष्टि करें। नाम: ${name}। जन्म तिथि: ${hiDob}। ` +
+    `मोबाइल के आखिरी चार अंक: ${hiLast4}। पहचान पत्र: ${hindiEnumLabel(String(ovd))}। ` +
+    `उत्पाद या यात्रा: ${hindiEnumLabel(String(product))}। ` +
     `यह केवल ड्राफ्ट है। Fields vary by bank. बैंक में लाइव जमा नहीं होगा।`;
   if (lang === 'mixed') return `${hi} ${en}`;
   return hi;
