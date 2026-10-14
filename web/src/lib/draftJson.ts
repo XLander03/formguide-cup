@@ -106,7 +106,14 @@ function isAadhaarOvd(value: FormValues[string]): boolean {
 
 /** 12-digit Aadhaar, with or without spaces. */
 export function isAadhaarNumber(value: FormValues[string]): boolean {
-  return /^\d{12}$/.test(digitsOnly(textOf(value)));
+  const text = textOf(value);
+  const digits = digitsOnly(text);
+  if (/•/.test(text) && digits.length > 0 && digits.length <= 4) return true;
+  return /^\d{12}$/.test(digits);
+}
+
+export function isAadhaarPayloadField(key: string, values: FormValues): boolean {
+  return isAadhaarField(key) || isAadhaarDocumentNumber(key, values);
 }
 
 function isAadhaarDocumentNumber(key: string, values: FormValues): boolean {

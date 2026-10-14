@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { isAadhaarPayloadField } from '../lib/draftJson';
 import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
 import { buildFilledKycPdf } from '../lib/pdfFill';
 import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
+import { Button } from '../ui/Button';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { displayValue } from '../ui/fields';
 import { CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
@@ -60,18 +62,20 @@ function handoffFields(session: ReturnType<typeof useFormSession>) {
 }
 
 function draftPayload(session: ReturnType<typeof useFormSession>) {
+  const values = Object.fromEntries(
+    Object.entries(session.values).filter(([key]) => !isAadhaarPayloadField(key, session.values)),
+  );
   return {
     schema_id: 'aof_kyc_demo_v1',
     demo_outcome: 'draft_ready_no_bank_submit',
     journey: session.journey,
     language: session.language,
     mic_lang: session.micLang,
-    values: session.values,
+    values,
     // Structured handoff shape: per-field value + provenance + confidence.
-    // This is the part a bank's onboarding/core-banking system would
-    // actually import — the flat `values` above is kept for simple
-    // consumers that just want the data.
-    fields: handoffFields(session),
+    // Aadhaar numbers, uploads, and Aadhaar keys are omitted. The downloadable
+    // JSON for a bank is the speak-page handoff, not this receipt.
+    fields: handoffFields(session).filter((field) => !isAadhaarPayloadField(field.id, session.values)),
   };
 }
 
@@ -117,31 +121,9 @@ export function ConfirmPage() {
               It was not submitted to a bank. Take this receipt when checking the bank’s own form.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                type="button"
-                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
-                onClick={() => {
-                  const blob = new Blob([JSON.stringify(draftPayload(session), null, 2)], {
-                    type: 'application/json',
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = 'formguide-draft.json';
-                  link.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <DownloadIcon /> Download JSON
-              </button>
-              <button
-                type="button"
-                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
-                disabled={pdfBusy}
-                onClick={() => void downloadPdf()}
-              >
-                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : 'Download PDF (HDFC KYC)'}
-              </button>
+              <Button variant="primary" size="md" disabled={pdfBusy} onClick={() => void downloadPdf()}>
+                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : 'Download draft'}
+              </Button>
               <button
                 type="button"
                 className={`${BTN_OUTLINE} ${BTN_MD} border-background text-background hover:bg-background hover:text-foreground`}

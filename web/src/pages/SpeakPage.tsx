@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { buildDraftExport, downloadDraftJson, DRAFT_STATUS, type DraftExport } from '../lib/draftJson';
+import { buildDraftExport, downloadDraftJson, DRAFT_STATUS, isAadhaarPayloadField, type DraftExport } from '../lib/draftJson';
+import { downloadSheetPdf } from '../lib/printSheet';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, flagsDemoRequested, useFormSession } from '../session/FormSession';
+import { Button } from '../ui/Button';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
 import { ArrowRightIcon, DownloadIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
@@ -80,6 +82,7 @@ function shownValue(field: PreviewField, raw: string): string {
 
 function fieldRaw(field: PreviewField, values: Record<string, string | boolean | null | undefined>): string {
   if (!field.id) return '';
+  if (isAadhaarPayloadField(field.id, values)) return '';
   const raw = values[field.id];
   return typeof raw === 'string' ? raw : '';
 }
@@ -591,28 +594,6 @@ export function SpeakPage() {
   );
 }
 
-/** Export the existing paper sheet via the browser's print → Save as PDF (print CSS in app.css). */
-function downloadSheetPdf() {
-  const root = document.documentElement;
-  const prevTitle = document.title;
-  const stamp = new Date().toISOString().slice(0, 10);
-  document.title = `FormGuide-draft-NOT-SUBMITTED-${stamp}`;
-  root.classList.add('fg-printing');
-  const done = () => {
-    root.classList.remove('fg-printing');
-    document.title = prevTitle;
-    window.removeEventListener('afterprint', done);
-    window.removeEventListener('pointerdown', done);
-    window.removeEventListener('keydown', done);
-  };
-  window.addEventListener('afterprint', done);
-  window.print();
-  // Firefox/Safari return from print() while the dialog is still open, so no timer here.
-  // iOS may never fire afterprint; the next interaction with the page means the dialog is gone.
-  window.addEventListener('pointerdown', done);
-  window.addEventListener('keydown', done);
-}
-
 function FormPreview({
   version,
   title,
@@ -624,7 +605,7 @@ function FormPreview({
   version: number;
   title: string;
   values: Record<string, string | boolean | null | undefined>;
-  confidence: Record<string, { confidence: number; confirmed: boolean }>;
+  confidence: Record<string, { confidence: number; confirmed?: boolean }>;
   flashIds: Set<string>;
   onClose: () => void;
 }) {
@@ -645,11 +626,11 @@ function FormPreview({
         aria-labelledby="form-preview-title"
         className="absolute inset-y-0 right-0 h-full w-full overflow-y-auto border-l border-foreground bg-background shadow-lg sm:max-w-xl"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">
+        <div className="flex items-center justify-between gap-3 p-6 pb-4">
           <h2 id="form-preview-title" className="flex items-center gap-2 text-lg font-semibold">
             <FileTextIcon className="size-4" /> Form preview · version {version}
           </h2>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex items-center gap-2">
           <button
             type="button"
             className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
@@ -657,13 +638,9 @@ function FormPreview({
           >
             <FileTextIcon /> Download PDF
           </button>
-          <button
-            type="button"
-            className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
-            onClick={() => setHandoff(true)}
-          >
+          <Button variant="secondary" size="md" onClick={() => setHandoff(true)}>
             <FileTextIcon /> Bank handoff (JSON)
-          </button>
+          </Button>
           <button
             type="button"
             aria-label="Close"
@@ -757,25 +734,17 @@ function HandoffPanel({ payload, onClose }: { payload: DraftExport; onClose: () 
         aria-labelledby="bank-handoff-title"
         className="absolute inset-y-0 right-0 h-full w-full overflow-y-auto border-l border-foreground bg-background shadow-lg sm:max-w-xl"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">
+        <div className="flex items-center justify-between gap-3 p-6 pb-4">
           <h2 id="bank-handoff-title" className="flex items-center gap-2 text-lg font-semibold">
             <FileTextIcon className="size-4" /> Bank handoff
           </h2>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
-              onClick={() => downloadDraftJson(payload)}
-            >
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="md" onClick={() => downloadDraftJson(payload)}>
               <DownloadIcon /> Download JSON
-            </button>
-            <button
-              type="button"
-              className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
-              onClick={onClose}
-            >
+            </Button>
+            <Button variant="secondary" size="md" onClick={onClose}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
         <div className="mx-4 mb-6 border border-foreground bg-card p-5 text-card-foreground shadow-[4px_4px_0_var(--foreground)]">

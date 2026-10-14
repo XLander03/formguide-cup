@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
+import { Button } from '../ui/Button';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { FieldGroups } from '../ui/fields';
 import { ArrowRightIcon, MicIcon, PauseIcon, PencilIcon, StopIcon, VolumeIcon } from '../ui/icons';
@@ -37,9 +38,10 @@ export function ReviewPage() {
         <div className="mt-7 bg-foreground p-5 text-background">
           <p className="text-[10px] uppercase text-background/50">Spoken readback</p>
           <p className="mt-3 font-display text-2xl leading-snug">“{script}”</p>
-          <button
-            type="button"
-            className={`${BTN_MD} mt-5 border-2 border-background bg-background text-foreground hover:border-primary hover:bg-primary hover:text-primary-foreground`}
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-5"
             disabled={!session.canReadback || session.busy}
             onClick={() => {
               if (session.speaking) session.onStopReadback();
@@ -48,7 +50,7 @@ export function ReviewPage() {
           >
             {session.speaking ? <PauseIcon /> : <VolumeIcon />}
             {session.speaking ? 'Pause readback' : `Read in ${languageLabel}`}
-          </button>
+          </Button>
         </div>
         <div className="mt-6 border-2 border-saffron bg-saffron/10 p-4">
           <p className="text-[10px] uppercase text-saffron">One correction</p>
