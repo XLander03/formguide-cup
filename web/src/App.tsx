@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
+import { parseAdminLocation } from './admin/routes';
 import { AppShell, pageTitle } from './layout/AppShell';
 import { ConfirmPage } from './pages/ConfirmPage';
 import { JourneyPage } from './pages/JourneyPage';
@@ -26,7 +27,17 @@ function AppRoutes() {
   );
 }
 
+const AdminApp = lazy(() => import('./admin/AdminApp').then((mod) => ({ default: mod.AdminApp })));
+
 export default function App() {
+  const admin = parseAdminLocation(window.location.pathname);
+  if (admin) {
+    return (
+      <Suspense fallback={<p className="bg-background p-6 text-sm text-foreground">Loading…</p>}>
+        <AdminApp initial={admin} />
+      </Suspense>
+    );
+  }
   return (
     <RouteProvider>
       <FormSessionProvider>

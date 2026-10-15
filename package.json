@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "npm run dev --prefix web",
     "check:shared": "node scripts/check-shared-files.mjs",
+    "test": "npm test --prefix web",
     "build": "npm run check:shared && npm run build --prefix web",
     "build:functions": "npm run check:shared && npm run build --prefix functions",
     "test:functions": "npm test --prefix functions",
