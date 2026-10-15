@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { FormVersion } from '../../../shared/forms/types';
-import { BANK_VARIES_COPY } from '../lib/schema';
+import { BANK_VARIES_COPY, NOT_SELECTABLE_COPY } from '../lib/schema';
 import {
   hdfcFallbackRows,
+  journeyRows,
   listPublishedForms,
-  rowsFromPublished,
   visiblePublishedForms,
   type PublishedFormRow,
 } from '../lib/publishedForms';
@@ -23,12 +23,7 @@ export function PublishedFormRows({
     setRows(hdfcFallbackRows(journey));
     void load(journey).then((forms) => {
       if (cancelled) return;
-      const published = visiblePublishedForms(forms, journey);
-      if (!published || published.length === 0) {
-        setRows(hdfcFallbackRows(journey));
-        return;
-      }
-      setRows(rowsFromPublished(published));
+      setRows(journeyRows(visiblePublishedForms(forms, journey), journey));
     });
     return () => {
       cancelled = true;
@@ -40,13 +35,18 @@ export function PublishedFormRows({
       {rows.map((row) => (
         <li
           key={row.key}
-          className="flex flex-col gap-1 border border-foreground/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+          aria-disabled={row.selectable ? undefined : true}
+          className={`flex flex-col gap-1 border border-foreground/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between${
+            row.selectable ? '' : ' opacity-60'
+          }`}
         >
           <span>
             <span className="block text-sm font-semibold">{row.bankName}</span>
             <span className="block text-xs text-muted-foreground">{row.detail}</span>
           </span>
-          <span className="text-xs text-muted-foreground">{BANK_VARIES_COPY}</span>
+          <span className="text-xs text-muted-foreground">
+            {row.selectable ? BANK_VARIES_COPY : NOT_SELECTABLE_COPY}
+          </span>
         </li>
       ))}
     </ul>

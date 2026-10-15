@@ -46,6 +46,9 @@ export const FIELD_GROUPS = [
 
 export const BANK_VARIES_COPY = 'Fields vary by bank.';
 
+/** Published banks other than the bundled HDFC form are listed but not filled yet. */
+export const NOT_SELECTABLE_COPY = 'Not selectable yet. This demo fills the HDFC form.';
+
 export const ALWAYS_REQUIRED = SCHEMA.fields.filter((f) => f.required).map((f) => f.id);
 
 export function emptyValues(): FormValues {
