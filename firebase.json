@@ -15,6 +15,20 @@
         }
       },
       {
+        "source": "/api/ingestForm",
+        "function": {
+          "functionId": "ingestForm",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/publishForm",
+        "function": {
+          "functionId": "publishForm",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
