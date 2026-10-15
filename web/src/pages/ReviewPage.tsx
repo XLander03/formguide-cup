@@ -106,7 +106,9 @@ export function ReviewPage() {
         </div>
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
           <p className="text-xs text-muted-foreground">
-            Missing fields can stay blank in the draft. Fields vary by bank.
+            {session.invalidIds.length > 0
+              ? 'Fix the format errors above before the gates. Fields vary by bank.'
+              : 'Missing fields can stay blank in the draft. Fields vary by bank.'}
           </p>
           <button
             type="button"

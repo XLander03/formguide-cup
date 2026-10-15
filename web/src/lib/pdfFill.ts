@@ -83,7 +83,11 @@ function fillIdentity(form: PDFForm, v: FormValues): void {
   );
   if (typeof v.dob === 'string' && v.dob) safeSetText(form, 'txt_Self_DOB', isoToDmy(v.dob));
   if (typeof v.gender === 'string' && v.gender) safeSetText(form, 'txt_Self_Gender', GENDER_LABEL[v.gender] ?? v.gender);
-  safeSetText(form, 'txt_Pan_No', typeof v.pan_number === 'string' ? v.pan_number : null);
+  safeSetText(
+    form,
+    'txt_Pan_No',
+    typeof v.pan_number === 'string' ? v.pan_number.toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
+  );
   safeSetText(form, 'txt_Mobile_No', typeof v.mobile_registered === 'string' ? v.mobile_registered : null);
   safeSetText(form, 'txt_Email_Id', typeof v.email === 'string' ? v.email : null);
 }

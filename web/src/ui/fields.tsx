@@ -1,4 +1,5 @@
 import { FIELD_GROUPS, SCHEMA, isEffectivelyRequired, isFieldApplicable, isFilled } from '../lib/schema';
+import { fieldIssue } from '../lib/validate';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
 
@@ -34,6 +35,7 @@ export function displayValue(id: string, value: FormValues[string], hindi = fals
     const [year, month, day] = value.split('-').map(Number);
     return `${day} ${MONTHS[(month || 1) - 1]} ${year}`;
   }
+  if (id === 'pan_number') return value.toUpperCase();
   if (id === 'mobile_registered' && /^\d{10}$/.test(value)) {
     return `${value.slice(0, 5)} ${value.slice(5)}`;
   }
@@ -176,8 +178,9 @@ export function FieldGroups({
             <div className={`border-l-2 pl-3 ${index === 0 ? 'border-primary' : 'border-foreground/25'}`}>
               {fields.map((field) => {
                 const filled = isFilled(values[field.id]);
+                const issue = fieldIssue(field.id, values[field.id]);
                 const filling = flashIds.has(field.id) && filled;
-                const state = filling ? 'filling' : filled ? 'confirmed' : 'missing';
+                const state = issue ? 'invalid' : filling ? 'filling' : filled ? 'confirmed' : 'missing';
                 return (
                   <div
                     key={field.id}
@@ -188,17 +191,26 @@ export function FieldGroups({
                       <p className={state === 'missing' ? 'text-muted-foreground' : 'text-foreground/70'}>
                         {displayValue(field.id, values[field.id], hindi)}
                       </p>
+                      {issue ? <p className="text-[11px] font-semibold text-destructive">{issue}</p> : null}
                     </div>
                     <span
                       className={`self-start text-[11px] ${
                         state === 'confirmed'
                           ? 'text-primary'
-                          : state === 'filling'
-                            ? 'text-saffron'
-                            : 'text-muted-foreground'
+                          : state === 'invalid'
+                            ? 'font-semibold text-destructive'
+                            : state === 'filling'
+                              ? 'text-saffron'
+                              : 'text-muted-foreground'
                       }`}
                     >
-                      {state === 'confirmed' ? '✓ confirmed' : state === 'filling' ? '✎ filling' : '— awaiting'}
+                      {state === 'confirmed'
+                        ? '✓ confirmed'
+                        : state === 'invalid'
+                          ? 'fix format'
+                          : state === 'filling'
+                            ? '✎ filling'
+                            : '— awaiting'}
                     </span>
                   </div>
                 );

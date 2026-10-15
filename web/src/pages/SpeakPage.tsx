@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
+import { fieldIssue } from '../lib/validate';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
 import { flagsDemoRequested, useFormSession } from '../session/FormSession';
@@ -139,18 +140,10 @@ export function SpeakPage() {
     (!askComplete &&
       requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
     null;
-  const askNextLabel = askComplete
-    ? session.language === 'hi'
-      ? 'ज़रूरी जानकारी पूरी'
-      : 'Required details complete'
-    : asked?.label || (session.language === 'hi' ? 'अगला ज़रूरी फ़ील्ड' : 'Next required field');
-  const askNextHint = askComplete
-    ? session.language === 'hi'
-      ? 'रीड-बैक के लिए तैयार · Fields vary by bank.'
-      : 'Ready for read-back · Fields vary by bank.'
-    : asked?.hint || '';
   const flagged = session.flaggedIds;
   const flagCount = flagged.length;
+  const invalid = session.invalidIds;
+  const formatCount = invalid.length;
   const panelIds = new Set(FIELDS.map((field) => field.id).filter(Boolean) as string[]);
   const offPanelFlagged = flagged.filter((id) => !panelIds.has(id));
   const flagLine =
@@ -159,6 +152,24 @@ export function SpeakPage() {
         ? `जाँचने के लिए ${flagCount} फ़ील्ड · रीड-बैक उसके बाद`
         : `${flagCount} field${flagCount === 1 ? '' : 's'} to check · read-back after`
       : null;
+  const formatLine =
+    formatCount > 0
+      ? formatCount === 1
+        ? '1 field needs a valid format · read-back after'
+        : `${formatCount} fields need a valid format · read-back after`
+      : null;
+  const askNextLabel = askComplete
+    ? session.language === 'hi'
+      ? 'ज़रूरी जानकारी पूरी'
+      : 'Required details complete'
+    : asked?.label || (session.language === 'hi' ? 'अगला ज़रूरी फ़ील्ड' : 'Next required field');
+  const askNextHint = askComplete
+    ? formatLine
+      ? 'Fix the format first · Fields vary by bank.'
+      : session.language === 'hi'
+        ? 'रीड-बैक के लिए तैयार · Fields vary by bank.'
+        : 'Ready for read-back · Fields vary by bank.'
+    : asked?.hint || '';
   const active = pinned ?? asked?.section ?? 'Identity';
   const started =
     turns > 0 ||
@@ -178,7 +189,9 @@ export function SpeakPage() {
 
   const sectionStats = SECTIONS.map((name) => {
     const rows = FIELDS.filter((field) => field.section === name);
-    const done = rows.filter((field) => field.id && isFilled(session.values[field.id])).length;
+    const done = rows.filter(
+      (field) => field.id && isFilled(session.values[field.id]) && !invalid.includes(field.id),
+    ).length;
     return { name, total: rows.length, done };
   });
 
@@ -231,12 +244,14 @@ export function SpeakPage() {
               </p>
               <p className="mt-1 text-sm">{companion}</p>
             </div>
-            <div className={`border p-3 ${askComplete && !flagLine ? 'border-primary' : 'border-saffron'}`}>
-              <p className={`text-[10px] uppercase ${askComplete && !flagLine ? 'text-primary' : 'text-saffron'}`}>
+            <div className={`border p-3 ${askComplete && !flagLine && !formatLine ? 'border-primary' : 'border-saffron'}`}>
+              <p className={`text-[10px] uppercase ${askComplete && !flagLine && !formatLine ? 'text-primary' : 'text-saffron'}`}>
                 {askComplete
-                  ? flagLine
-                    ? 'Asks next · check flagged'
-                    : 'Asks next · none missing'
+                  ? formatLine
+                    ? 'Asks next · fix format'
+                    : flagLine
+                      ? 'Asks next · check flagged'
+                      : 'Asks next · none missing'
                   : 'Asks next · missing required (one dump can fill many)'}
               </p>
               {session.readingBack ? (
@@ -273,6 +288,15 @@ export function SpeakPage() {
               )}
               {!askComplete && flagLine ? (
                 <p className="mt-1 text-xs font-semibold text-saffron">{flagLine}</p>
+              ) : null}
+              {formatLine ? (
+                <p className="mt-1 text-xs font-semibold text-saffron">
+                  {formatLine}
+                  <span className="font-normal text-background/60">
+                    {' '}
+                    · {invalid.map((id) => FIELDS.find((field) => field.id === id)?.label ?? fieldLabel(id)).join(', ')}
+                  </span>
+                </p>
               ) : null}
               {offPanelFlagged.map((id) => (
                 <div key={id} className="mt-2 flex items-center justify-between gap-2 text-xs">
@@ -431,10 +455,19 @@ export function SpeakPage() {
                     const heard = field.id ? session.said[field.id] : '';
                     const options = field.enumRef ? SCHEMA.enums[field.enumRef] ?? [] : null;
                     const isFlagged = Boolean(field.id && flagged.includes(field.id));
+                    const issue = field.id ? fieldIssue(field.id, session.values[field.id]) : null;
                     const conf = field.id ? session.confidence[field.id] : undefined;
                     const open = isFlagged && checking === field.id;
                     const inputId = field.id ? `speak-field-${field.id}` : undefined;
-                    const status = filling ? '● filling' : filled ? '✓ heard' : asking ? 'asking' : 'missing';
+                    const status = issue
+                      ? 'fix format'
+                      : filling
+                        ? '● filling'
+                        : filled
+                          ? '✓ heard'
+                          : asking
+                            ? 'asking'
+                            : 'missing';
                     return (
                       <div
                         key={field.label}
@@ -479,7 +512,17 @@ export function SpeakPage() {
                               Check this
                             </button>
                           ) : (
-                            <span className={filled ? 'text-primary' : asking ? 'font-bold text-saffron' : 'text-muted-foreground'}>
+                            <span
+                              className={
+                                issue
+                                  ? 'font-bold text-destructive'
+                                  : filled
+                                    ? 'text-primary'
+                                    : asking
+                                      ? 'font-bold text-saffron'
+                                      : 'text-muted-foreground'
+                              }
+                            >
                               {status}
                             </span>
                           )}
@@ -491,6 +534,7 @@ export function SpeakPage() {
                               if (isFlagged) setChecking(field.id);
                             }}
                             aria-label={field.label}
+                            aria-invalid={issue ? true : undefined}
                             value={raw}
                             onChange={(event) => session.onChange(field.id as string, event.target.value)}
                             className={`mt-1 min-h-6 w-full bg-transparent font-semibold outline-none ${raw ? '' : 'text-muted-foreground/60'}`}
@@ -509,12 +553,18 @@ export function SpeakPage() {
                               if (isFlagged) setChecking(field.id);
                             }}
                             aria-label={field.label}
+                            aria-invalid={issue ? true : undefined}
+                            autoCapitalize={field.id === 'pan_number' ? 'characters' : undefined}
+                            inputMode={
+                              field.id === 'mobile_registered' || field.id === 'addr_current_pin' ? 'numeric' : undefined
+                            }
+                            spellCheck={false}
                             value={raw}
                             placeholder={field.hint}
                             onChange={(event) => session.onChange(field.id as string, event.target.value)}
                             className={`mt-1 min-h-6 w-full bg-transparent font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground/60 ${
-                              filling ? 'fg-rise' : ''
-                            }`}
+                              field.id === 'pan_number' ? 'uppercase ' : ''
+                            }${filling ? 'fg-rise' : ''}`}
                           />
                         ) : (
                           <p className="mt-1 min-h-6 text-muted-foreground/60">{field.hint}</p>
@@ -537,6 +587,7 @@ export function SpeakPage() {
                             </button>
                           </div>
                         ) : null}
+                        {issue ? <p className="mt-1 text-[10px] font-semibold text-destructive">{issue}</p> : null}
                         {heard ? (
                           <p className="mt-0.5 truncate text-[10px] italic text-muted-foreground">“{heard}”</p>
                         ) : null}
@@ -565,14 +616,19 @@ export function SpeakPage() {
             >
               <RotateIcon /> Clear draft
             </button>
-            <button
-              type="button"
-              className={`${BTN_PRIMARY} ${BTN_LG}`}
-              disabled={!session.canReadback}
-              onClick={() => go('/review')}
-            >
-              Review draft <ArrowRightIcon />
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              {formatLine ? (
+                <p className="text-xs text-destructive">Fix the highlighted fields before review.</p>
+              ) : null}
+              <button
+                type="button"
+                className={`${BTN_PRIMARY} ${BTN_LG}`}
+                disabled={!session.canReadback}
+                onClick={() => go('/review')}
+              >
+                Review draft <ArrowRightIcon />
+              </button>
+            </div>
           </div>
         </div>
       </section>

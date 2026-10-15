@@ -23,6 +23,7 @@ import {
 } from '../lib/schema';
 import { speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
+import { invalidFieldIds, normalizeInput } from '../lib/validate';
 import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
 
 export type ShellLanguage = 'en' | 'hi';
@@ -106,7 +107,12 @@ function seedValues(saved: Persisted | null): FormValues {
   const base = emptyValues();
   if (saved?.values) {
     for (const [key, value] of Object.entries(saved.values)) {
-      if (key in base && value !== undefined) base[key] = value;
+      if (key in base && value !== undefined) {
+        base[key] =
+          typeof value === 'string' || typeof value === 'boolean' || value === null
+            ? normalizeInput(key, value)
+            : value;
+      }
     }
   }
   if (saved?.journey) base.journey_mode = saved.journey;
@@ -139,6 +145,8 @@ export interface FormSessionValue {
   completeness: ExtractResponse['completeness'];
   canReadback: boolean;
   confirmGatesOk: boolean;
+  /** Filled fields whose value does not match the schema format. PAN must be capitals. */
+  invalidIds: string[];
   confidence: Record<string, FieldConfidence>;
   /** Filled fields with confidence below threshold that the user has not confirmed. */
   flaggedIds: string[];
@@ -214,10 +222,14 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         .map(([id]) => id),
     [confidence, values],
   );
+  const invalidIds = useMemo(() => invalidFieldIds(values), [values]);
   const canReadback =
-    (completeness === 'demo_ready' || completeness === 'full_bank_packet') && flaggedIds.length === 0;
+    (completeness === 'demo_ready' || completeness === 'full_bank_packet') &&
+    flaggedIds.length === 0 &&
+    invalidIds.length === 0;
   const confirmGatesOk =
     flaggedIds.length === 0 &&
+    invalidIds.length === 0 &&
     values.readback_confirmed === true &&
     values.draft_only_ack === true &&
     values.no_live_submit_ack === true;
@@ -329,7 +341,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           if ((value === null || value === '') && prev[key] !== undefined && prev[key] !== null && prev[key] !== '') {
             continue;
           }
-          next[key] = value;
+          next[key] =
+            typeof value === 'string' || typeof value === 'boolean' || value === null
+              ? normalizeInput(key, value)
+              : value;
         }
         // Aadhaar must never land in state (and therefore sessionStorage,
         // the screen, or a downloaded draft) unmasked, regardless of
@@ -392,14 +407,15 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
+    const stored = normalizeInput(id, value);
     setValues((prev) => {
-      const next = { ...prev, [id]: value };
+      const next = { ...prev, [id]: stored };
       // Mask once a full Aadhaar-length number has been typed, so manual
       // edits on the Review page can't leave a full number sitting in
       // state. Only triggers at 12 digits so it doesn't fight live typing
       // of shorter document numbers.
-      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof value === 'string') {
-        const digits = value.replace(/\D/g, '');
+      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof stored === 'string') {
+        const digits = stored.replace(/\D/g, '');
         if (digits.length >= 12) maskSensitiveFields(next);
       }
       return next;
@@ -706,6 +722,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     completeness,
     canReadback,
     confirmGatesOk,
+    invalidIds,
     confidence,
     flaggedIds,
     confirmField,

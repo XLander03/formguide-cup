@@ -290,7 +290,7 @@ function sanitizeUpdates(raw: unknown): FormValues {
       continue;
     }
     if (key === 'dob' || key === 'ovd_poi_expiry') text = toIsoDate(text);
-    if (key === 'pan_number') text = text.toUpperCase().replace(/\s+/g, '');
+    if (key === 'pan_number') text = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
     if (key === 'mobile_registered') {
       const digits = text.replace(/\D/g, '');
       text = digits.length > 10 ? digits.slice(-10) : digits;
