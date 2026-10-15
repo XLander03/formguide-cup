@@ -9,7 +9,14 @@ export async function adminPost(path: string, body: unknown, unavailable: string
   const app = getApps().length ? getApps()[0] : initializeApp(config);
   const user = getAuth(app).currentUser;
   if (!user) throw new Error('Sign in as the Cup admin first.');
-  const token = await user.getIdToken();
+  let token: string;
+  try {
+    // force-refresh: a stale cached token is a common cause of a server-side
+    // "unauthenticated" even though the client still thinks it's signed in.
+    token = await user.getIdToken(true);
+  } catch {
+    throw new Error('Could not refresh your sign-in — sign out and back in.');
+  }
   const response = await fetch(path, {
     method: 'POST',
     headers: {
@@ -21,11 +28,14 @@ export async function adminPost(path: string, body: unknown, unavailable: string
   const payload = (await response.json().catch(() => ({}))) as { error?: string };
   if (!response.ok) {
     if (payload.error === 'admin_required') throw new Error('This account cannot publish forms.');
+    if (payload.error === 'unauthenticated') throw new Error('Your sign-in expired — sign out and back in.');
     if (payload.error === 'unchecked_low_confidence') {
       throw new Error('Check every low-confidence field before publishing.');
     }
     if (payload.error === 'pdf_too_large') throw new Error('That PDF is too large.');
-    throw new Error(unavailable);
+    // Never swallow an unrecognized server error behind the generic
+    // message again — show what the server actually said.
+    throw new Error(payload.error ? `${unavailable} (${payload.error})` : `${unavailable} (HTTP ${response.status})`);
   }
   return payload;
 }

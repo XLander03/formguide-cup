@@ -1,7 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { INGEST_UNAVAILABLE, ingestForm } from './ingestClient';
 import { PUBLISH_UNAVAILABLE, publishForm } from './publishClient';
 import { PLACEHOLDER_FORM_ID, placeholderFormVersion } from './placeholderForm';
+
+// "not configured" must hold regardless of whatever VITE_FIREBASE_* happens
+// to be set in a dev's local .env (needed for real admin testing) — Vitest
+// shares Vite's env loading, so without this the "not configured" case
+// below is only accidentally true on a machine with no Firebase config set.
+vi.mock('./firebaseConfig', () => ({ firebaseWebConfig: () => null }));
 
 const file = new File(['%PDF'], 'sample.pdf', { type: 'application/pdf' });
 const input = {
