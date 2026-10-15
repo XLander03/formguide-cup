@@ -14,6 +14,15 @@ export interface IngestFormInput {
 export const INGEST_UNAVAILABLE = 'Ingest is not available yet.';
 
 /**
+ * Called directly, not via the `/api/ingestForm` Hosting rewrite: Hosting
+ * cuts proxied function requests off at 60s, and OCR of a 4-page flat PDF
+ * takes 1.5-2 minutes. The function's own CORS list allows the web.app
+ * origin and localhost:5173.
+ */
+const INGEST_URL =
+  import.meta.env.VITE_INGEST_URL?.trim() || 'https://us-central1-faceapp-5397b.cloudfunctions.net/ingestForm';
+
+/**
  * Posts the PDF to the `ingestForm` HTTP function.
  * `?mock=1` returns placeholder fields and does not call the network.
  */
@@ -27,7 +36,7 @@ export async function ingestForm(input: IngestFormInput): Promise<FormVersion> {
   }
 
   const payload = (await adminPost(
-    '/api/ingestForm',
+    INGEST_URL,
     {
       bankId: input.bankId,
       journey: input.journey,
