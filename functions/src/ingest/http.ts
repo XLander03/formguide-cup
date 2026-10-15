@@ -21,7 +21,10 @@ export const ingestForm = onRequest(
     memory: '512MiB',
     maxInstances: 2,
     minInstances: 0,
-    timeoutSeconds: 120,
+    // 120s was measured hitting ECONNRESET mid-request: up to 4 pages are
+    // OCR'd sequentially, and the larger token budget needed to avoid
+    // truncation (see geminiOcr.ts) makes each page's call slower too.
+    timeoutSeconds: 300,
     concurrency: 1,
     invoker: 'public',
     cors: HOSTS,

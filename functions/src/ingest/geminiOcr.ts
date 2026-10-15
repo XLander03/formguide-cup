@@ -103,7 +103,32 @@ function asPartial(value: unknown): OcrField['partial'] | undefined {
   return undefined;
 }
 
-export function parseOcrFields(text: string): OcrField[] {
+/**
+ * The prompt instructs box x/y/w/h in [0,1] (unit square on the page
+ * image), but the model sometimes ignores that and returns raw pixel
+ * coordinates instead (observed directly: {"x":203,"y":782,...} on a real
+ * rendered page). Downstream, normalisedTopLeftToPdfBox clamps anything >1
+ * straight to 1 — so every such field collapsed onto the exact same
+ * full-page box. When a value is clearly out of range and the page's pixel
+ * dimensions are known, treat it as a pixel coordinate and normalize it
+ * here, before it can be silently clamped into a degenerate box.
+ */
+function normalizeBoxToUnitSquare(
+  box: { x: number; y: number; w: number; h: number },
+  pixelDims: { width: number; height: number } | undefined,
+): { x: number; y: number; w: number; h: number } {
+  if (!pixelDims || pixelDims.width <= 0 || pixelDims.height <= 0) return box;
+  const looksLikePixels = [box.x, box.y, box.w, box.h].some((n) => n > 1);
+  if (!looksLikePixels) return box;
+  return {
+    x: box.x / pixelDims.width,
+    y: box.y / pixelDims.height,
+    w: box.w / pixelDims.width,
+    h: box.h / pixelDims.height,
+  };
+}
+
+export function parseOcrFields(text: string, pixelDims?: { width: number; height: number }): OcrField[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripFence(text));
@@ -125,13 +150,14 @@ export function parseOcrFields(text: string): OcrField[] {
     const boxRaw = record.box;
     if (!boxRaw || typeof boxRaw !== 'object' || Array.isArray(boxRaw)) continue;
     const boxRec = boxRaw as Record<string, unknown>;
-    const box = {
+    const rawBox = {
       x: typeof boxRec.x === 'number' ? boxRec.x : Number.NaN,
       y: typeof boxRec.y === 'number' ? boxRec.y : Number.NaN,
       w: typeof boxRec.w === 'number' ? boxRec.w : Number.NaN,
       h: typeof boxRec.h === 'number' ? boxRec.h : Number.NaN,
     };
-    if (![box.x, box.y, box.w, box.h].every((n) => Number.isFinite(n))) continue;
+    if (![rawBox.x, rawBox.y, rawBox.w, rawBox.h].every((n) => Number.isFinite(n))) continue;
+    const box = normalizeBoxToUnitSquare(rawBox, pixelDims);
     const type = typeof record.type === 'string' && FIELD_TYPES.has(record.type)
       ? (record.type as OcrField['type'])
       : 'text';
@@ -157,11 +183,7 @@ export function parseOcrFields(text: string): OcrField[] {
   return fields;
 }
 
-/**
- * Exactly one Interactions API call for this page image.
- * `fetchImpl` is injectable so tests never reach Gemini.
- */
-export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; fetchImpl?: FetchLike }): Promise<OcrField[]> {
+async function ocrPageWithGeminiOnce(input: OcrPageInput & { apiKey: string; fetchImpl?: FetchLike }): Promise<OcrField[]> {
   const apiKey = input.apiKey;
   if (!apiKey) throw new IngestError('gemini_key_missing', 500);
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -183,9 +205,13 @@ export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; 
         generation_config: {
           thinking_level: 'low',
           // A dense bank form page can have far more fields than the speak
-          // function's short voice-dump extracts — 4096 was observed being
-          // truncated mid-JSON (ocr_bad_json on a 10k+ char response).
-          max_output_tokens: 8192,
+          // function's short voice-dump extracts. 4096, then 8192, both
+          // measurably truncated mid-JSON (status: "incomplete" from the
+          // API itself) on a real Axis form — structured JSON with many
+          // short repeated keys runs denser in tokens than its character
+          // count suggests. gemini-3.5-flash-lite's real ceiling is 65536;
+          // this leaves generous headroom without maxing it out.
+          max_output_tokens: 32768,
         },
         response_format: {
           type: 'text',
@@ -193,10 +219,20 @@ export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; 
         },
       }),
     });
-  } catch {
+  } catch (err) {
+    console.error('ocr_failed_fetch', err instanceof Error ? err.message : String(err));
     throw new IngestError('ocr_failed', 502);
   }
-  if (!res.ok) throw new IngestError('ocr_failed', 502);
+  if (!res.ok) {
+    let bodySnippet = '';
+    try {
+      bodySnippet = JSON.stringify(await res.json()).slice(0, 300);
+    } catch {
+      bodySnippet = '';
+    }
+    console.error('ocr_failed_http', res.status, bodySnippet);
+    throw new IngestError('ocr_failed', 502);
+  }
   let data: unknown;
   try {
     data = await res.json();
@@ -204,18 +240,45 @@ export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; 
     throw new IngestError('ocr_bad_json', 502);
   }
   const text = interactionText((data ?? {}) as Parameters<typeof interactionText>[0]);
+  // The Interactions API's own top-level `status` is the real truncation
+  // signal here — "incomplete" means max_output_tokens was hit mid-response.
+  // There's no per-step finish_reason on this API shape to cross-check.
+  const apiStatus = (data as { status?: unknown })?.status;
   if (!text) throw new IngestError('ocr_bad_json', 502);
   try {
-    return parseOcrFields(text);
+    return parseOcrFields(text, { width: input.width, height: input.height });
   } catch (err) {
     if (err instanceof IngestError) {
       // Safe to log: the prompt instructs the model to return only labels
       // and blank-field metadata, never values written into the form. The
       // tail end is what matters most — it shows whether this was a clean
       // parse failure or output truncated mid-object by the token limit.
-      console.error('ocr_bad_json', text.length, text.slice(-200));
+      console.error('ocr_bad_json', `status=${apiStatus}`, text.length, text.slice(-200));
       throw err;
     }
     throw new IngestError('ocr_bad_json', 502);
+  }
+}
+
+/**
+ * One retry on a bad-JSON parse or an HTTP/network failure. Both observed
+ * directly on the same real Axis form: (1) a dense page's response can run
+ * to tens of thousands of characters (one page produced 281 fields) — at
+ * that size an occasional malformed fragment (a dropped quote, e.g.
+ * `,y":0.048` instead of `,"y":0.048`) is expected LLM variance, not a
+ * deterministic bug, and a second attempt on the identical input succeeded;
+ * (2) a separate page's call failed with a 503 "service_unavailable" from
+ * Gemini itself — a transient upstream condition, not a config/auth problem.
+ * Not retried for a missing key — that won't change on a second attempt.
+ * `fetchImpl` is injectable so tests never reach Gemini.
+ */
+export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; fetchImpl?: FetchLike }): Promise<OcrField[]> {
+  try {
+    return await ocrPageWithGeminiOnce(input);
+  } catch (err) {
+    if (err instanceof IngestError && (err.code === 'ocr_bad_json' || err.code === 'ocr_failed')) {
+      return ocrPageWithGeminiOnce(input);
+    }
+    throw err;
   }
 }

@@ -42,7 +42,7 @@ describe('gemini ocr client', () => {
           assert.equal(body.model, FIELD_MODEL);
           assert.equal(body.model, 'gemini-3.5-flash-lite');
           assert.equal(body.generation_config.thinking_level, 'low');
-          assert.equal(body.generation_config.max_output_tokens, 8192);
+          assert.equal(body.generation_config.max_output_tokens, 32768);
           assert.deepEqual(body.response_format, { type: 'text', mime_type: 'application/json' });
           assert.equal(body.input[0].text, buildOcrPrompt(2, 2));
           assert.equal(body.input[1].mime_type, 'image/png');
@@ -70,5 +70,35 @@ describe('gemini ocr client', () => {
     assert.equal(fields.length, 1);
     assert.equal(fields[0].label, 'City');
     assert.equal(fields[0].confidence, 0.4);
+  });
+
+  it('normalizes pixel-coordinate boxes instead of letting every field collapse onto the same box', () => {
+    // Reproduces a real failure: the model ignored the [0,1] instruction and
+    // returned raw pixel coords (e.g. {"x":203,"y":782,...}) on a rendered
+    // 1600x1200 page. Without normalization, normalisedTopLeftToPdfBox's
+    // clamp01 would clamp every such value straight to 1, so every field
+    // ended up with the identical full-page box.
+    const pixelJson = JSON.stringify({
+      fields: [
+        { label: 'City', type: 'text', required: false, box: { x: 203, y: 782, w: 150, h: 20 }, confidence: 0.9 },
+        { label: 'State', type: 'text', required: false, box: { x: 203, y: 850, w: 150, h: 20 }, confidence: 0.9 },
+      ],
+    });
+    const fields = parseOcrFields(pixelJson, { width: 1600, height: 1200 });
+    assert.equal(fields.length, 2);
+    // Different source y pixels must stay distinguishable after normalizing.
+    assert.notEqual(fields[0].box.y, fields[1].box.y);
+    for (const field of fields) {
+      for (const key of ['x', 'y', 'w', 'h'] as const) {
+        assert.ok(field.box[key] >= 0 && field.box[key] <= 1, `${field.label}.${key} should be in [0,1], got ${field.box[key]}`);
+      }
+    }
+  });
+
+  it('leaves already-normalized boxes untouched when pixel dims are not given', () => {
+    const fields = parseOcrFields(
+      JSON.stringify({ fields: [{ label: 'City', type: 'text', required: false, box: { x: 0.1, y: 0.2, w: 0.3, h: 0.1 }, confidence: 0.9 }] }),
+    );
+    assert.deepEqual(fields[0].box, { x: 0.1, y: 0.2, w: 0.3, h: 0.1 });
   });
 });
