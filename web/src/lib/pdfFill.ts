@@ -1,4 +1,5 @@
 import { PDFDocument, PDFForm, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { planPdfOps } from './pdfPlan';
 import type { FormValues } from './types';
 
 /**
@@ -11,39 +12,6 @@ import type { FormValues } from './types';
  * bank's layout, used as a concrete demo artifact, not a universal form.
  */
 const TEMPLATE_URL = '/forms/HDFC_KYC_Resident_Individual.pdf';
-
-const GENDER_LABEL: Record<string, string> = {
-  female: 'Female',
-  male: 'Male',
-  other: 'Other',
-  prefer_not_to_say: 'Other',
-};
-
-const OCCUPATION_CHECKBOX: Record<string, string> = {
-  salaried: 'chk_Salaried',
-  self_employed: 'chk_Self_employed',
-  professional: 'chk_Self_employed_prof',
-  student: 'chk_Student',
-  homemaker: 'chk_Housewife',
-  retired: 'chk_Retired',
-  other: 'chk_Occ_Others',
-};
-
-const OVD_CHECKBOX: Record<string, string> = {
-  passport: 'chk_Passport',
-  driving_licence: 'chk_Driving_Licence_No',
-  voter_id: 'chk_Voter_Id_Card_No',
-  // proof_of_possession_of_aadhaar handled separately (own checkbox + the
-  // four last-digit boxes). nrega_job_card / npr_letter have no matching
-  // checkbox on this particular bank's form — left unticked rather than
-  // guessing, consistent with never inventing bank form fields.
-};
-
-const OVD_POA_CHECKBOX: Record<string, string> = {
-  passport: 'chk_POA_Passport',
-  driving_licence: 'chk_POA_drivingLicense',
-  voter_id: 'chk_POA_VoterID',
-};
 
 function safeSetText(form: PDFForm, name: string, value: string | undefined | null): void {
   if (!value) return;
@@ -64,111 +32,11 @@ function safeCheck(form: PDFForm, name: string | undefined): void {
   }
 }
 
-function isoToDmy(iso: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  return match ? `${match[3]}/${match[2]}/${match[1]}` : iso;
-}
-
-function lastFourDigits(value: string): string | null {
-  const match = /(\d{4})\D*$/.exec(value);
-  return match ? match[1] : null;
-}
-
-function fillIdentity(form: PDFForm, v: FormValues): void {
-  safeSetText(form, 'txt_Self_Name', typeof v.applicant_full_name === 'string' ? v.applicant_full_name : null);
-  safeSetText(
-    form,
-    'txt_Father_or_Spouse_name',
-    typeof v.father_or_spouse_name === 'string' ? v.father_or_spouse_name : null,
-  );
-  if (typeof v.dob === 'string' && v.dob) safeSetText(form, 'txt_Self_DOB', isoToDmy(v.dob));
-  if (typeof v.gender === 'string' && v.gender) safeSetText(form, 'txt_Self_Gender', GENDER_LABEL[v.gender] ?? v.gender);
-  safeSetText(
-    form,
-    'txt_Pan_No',
-    typeof v.pan_number === 'string' ? v.pan_number.toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
-  );
-  safeSetText(form, 'txt_Mobile_No', typeof v.mobile_registered === 'string' ? v.mobile_registered : null);
-  safeSetText(form, 'txt_Email_Id', typeof v.email === 'string' ? v.email : null);
-}
-
-function fillAddress(form: PDFForm, v: FormValues): void {
-  safeSetText(form, 'txt_Address_Line1', typeof v.addr_current_line1 === 'string' ? v.addr_current_line1 : null);
-  safeSetText(form, 'txt_Address_Line2', typeof v.addr_current_line2 === 'string' ? v.addr_current_line2 : null);
-  safeSetText(form, 'txt_City', typeof v.addr_current_city === 'string' ? v.addr_current_city : null);
-  safeSetText(form, 'txt_State', typeof v.addr_current_state === 'string' ? v.addr_current_state : null);
-  safeSetText(form, 'txt_Pin', typeof v.addr_current_pin === 'string' ? v.addr_current_pin : null);
-
-  if (v.addr_permanent_same_as_current === false) {
-    safeSetText(
-      form,
-      'txtcor_Address_Line_1',
-      typeof v.addr_permanent_line1 === 'string' ? v.addr_permanent_line1 : null,
-    );
-    safeSetText(form, 'txtcor_City', typeof v.addr_permanent_city === 'string' ? v.addr_permanent_city : null);
-    safeSetText(form, 'txtcor_state', typeof v.addr_permanent_state === 'string' ? v.addr_permanent_state : null);
-    safeSetText(form, 'txtcor_pin', typeof v.addr_permanent_pin === 'string' ? v.addr_permanent_pin : null);
+function applyFieldMappings(form: PDFForm, values: FormValues, today = new Date()): void {
+  for (const op of planPdfOps(values, today)) {
+    if (op.op === 'check') safeCheck(form, op.name);
+    else safeSetText(form, op.name, op.value);
   }
-}
-
-function fillOvd(form: PDFForm, v: FormValues): void {
-  const poiType = typeof v.ovd_poi_type === 'string' ? v.ovd_poi_type : null;
-  if (poiType === 'proof_of_possession_of_aadhaar') {
-    safeCheck(form, 'Chk_Adhaar');
-    // ovd_poi_number is already masked to "•••• •••• 1234" upstream — this
-    // form only ever wants the last 4 digits anyway, so the masking and
-    // this real form's own design happen to line up exactly.
-    const last4 = typeof v.ovd_poi_number === 'string' ? lastFourDigits(v.ovd_poi_number) : null;
-    if (last4) {
-      safeSetText(form, 'txt_9th_digit_of_adhaar', last4[0]);
-      safeSetText(form, 'txt_10th_digit_of_adhaar', last4[1]);
-      safeSetText(form, 'txt_11th_digit_of_adhaar', last4[2]);
-      safeSetText(form, 'txt_12th_digit_of_adhaar', last4[3]);
-    }
-  } else if (poiType && OVD_CHECKBOX[poiType]) {
-    safeCheck(form, OVD_CHECKBOX[poiType]);
-    const number = typeof v.ovd_poi_number === 'string' ? v.ovd_poi_number : null;
-    if (poiType === 'passport') {
-      safeSetText(form, 'txt_Passport_No', number);
-      if (typeof v.ovd_poi_expiry === 'string') safeSetText(form, 'txt_Passport_Expiry_Date', isoToDmy(v.ovd_poi_expiry));
-    } else if (poiType === 'driving_licence') {
-      safeSetText(form, 'txt_Driving_Licence_No', number);
-      if (typeof v.ovd_poi_expiry === 'string') {
-        safeSetText(form, 'txt_Driving_Licence_Expiry_Date', isoToDmy(v.ovd_poi_expiry));
-      }
-    } else if (poiType === 'voter_id') {
-      safeSetText(form, 'txt_Voter_Id_Card_No', number);
-    }
-  }
-
-  if (v.ovd_poa_same_as_poi === false && typeof v.ovd_poa_type === 'string') {
-    if (v.ovd_poa_type === 'proof_of_possession_of_aadhaar') safeCheck(form, 'chk_POA_aadhaar');
-    else safeCheck(form, OVD_POA_CHECKBOX[v.ovd_poa_type]);
-  }
-}
-
-function fillProfile(form: PDFForm, v: FormValues): void {
-  if (typeof v.occupation_bucket === 'string' && OCCUPATION_CHECKBOX[v.occupation_bucket]) {
-    safeCheck(form, OCCUPATION_CHECKBOX[v.occupation_bucket]);
-  }
-  if (v.pep_declaration === true) safeCheck(form, 'Chk_PEP');
-  if (v.journey_mode === 'account_opening') safeCheck(form, 'chk_Application_Type_New');
-  else if (v.journey_mode === 'kyc_update' || v.journey_mode === 'rekyc') {
-    safeCheck(form, 'chk_Application_Type_Update');
-  }
-}
-
-function applyFieldMappings(form: PDFForm, values: FormValues): void {
-  fillIdentity(form, values);
-  fillAddress(form, values);
-  fillOvd(form, values);
-  fillProfile(form, values);
-  const today = new Date();
-  safeSetText(
-    form,
-    'txt_Date',
-    `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`,
-  );
 }
 
 async function drawDraftWatermark(pdfDoc: PDFDocument): Promise<void> {

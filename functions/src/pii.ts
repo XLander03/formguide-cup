@@ -21,6 +21,19 @@ function isAadhaarNumber(fieldId: string, values: Record<string, unknown>): bool
   return false;
 }
 
+const DEFAULT_AADHAAR_PARTIAL_IDS = ['ovd_poi_number', 'ovd_poa_number'] as const;
+
+/** Quoted "said" text for an Aadhaar document number is redacted, not just the stored value. */
+export function shouldRedactAadhaarQuote(
+  fieldId: string,
+  poiType: unknown,
+  poaType: unknown,
+  partialIds: readonly string[] = DEFAULT_AADHAAR_PARTIAL_IDS,
+): boolean {
+  if (!partialIds.includes(fieldId)) return false;
+  return isAadhaarNumber(fieldId, { ovd_poi_type: poiType, ovd_poa_type: poaType });
+}
+
 /**
  * Mask in place. `updates` is the (possibly sparse) object being mutated;
  * `resolved` is the fully-merged values to resolve OVD type from — the type
@@ -31,8 +44,9 @@ function isAadhaarNumber(fieldId: string, values: Record<string, unknown>): bool
 export function maskSensitiveFields(
   updates: Record<string, unknown>,
   resolved: Record<string, unknown> = updates,
+  partialIds: readonly string[] = DEFAULT_AADHAAR_PARTIAL_IDS,
 ): void {
-  for (const fieldId of ['ovd_poi_number', 'ovd_poa_number']) {
+  for (const fieldId of partialIds) {
     const value = updates[fieldId];
     if (typeof value === 'string' && value && isAadhaarNumber(fieldId, resolved)) {
       updates[fieldId] = maskAadhaarLike(value);

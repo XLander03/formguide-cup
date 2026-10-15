@@ -1,3 +1,5 @@
+import { HDFC_V1 } from '../forms/hdfcV1';
+import type { FormVersion } from '../forms/types';
 import type { ExtractResponse, FormValues, GateAnswer } from './types';
 import {
   extractHindiSlots,
@@ -632,13 +634,26 @@ function buildGates(
   };
 }
 
-export function buildReadbackScript(values: FormValues, lang: UtteranceLang = 'en'): string {
-  const name = values.applicant_full_name || (lang === 'en' ? 'applicant' : 'आवेदक');
-  const dob = values.dob || (lang === 'en' ? 'date of birth not set' : 'जन्म तिथि नहीं');
-  const mobile = String(values.mobile_registered || '');
+function formValue(form: FormVersion, values: FormValues, id: string): FormValues[string] {
+  const field = form.fields.find((item) => item.id === id);
+  if (!field) return undefined;
+  return values[field.id];
+}
+
+export function buildReadbackScript(
+  values: FormValues,
+  lang: UtteranceLang = 'en',
+  form: FormVersion = HDFC_V1,
+): string {
+  const name = formValue(form, values, 'applicant_full_name') || (lang === 'en' ? 'applicant' : 'आवेदक');
+  const dob = formValue(form, values, 'dob') || (lang === 'en' ? 'date of birth not set' : 'जन्म तिथि नहीं');
+  const mobile = String(formValue(form, values, 'mobile_registered') || '');
   const last4 = mobile.length >= 4 ? mobile.slice(-4) : 'xxxx';
-  const ovd = values.ovd_poi_type || (lang === 'en' ? 'document not set' : 'दस्तावेज़ नहीं');
-  const product = values.account_product_intent || values.journey_mode || (lang === 'en' ? 'not set' : 'सेट नहीं');
+  const ovd = formValue(form, values, 'ovd_poi_type') || (lang === 'en' ? 'document not set' : 'दस्तावेज़ नहीं');
+  const product =
+    formValue(form, values, 'account_product_intent') ||
+    formValue(form, values, 'journey_mode') ||
+    (lang === 'en' ? 'not set' : 'सेट नहीं');
   const en =
     `Please confirm this read-back. Name: ${name}. Date of birth: ${dob}. ` +
     `Mobile ending ${last4}. Proof of identity: ${String(ovd).replace(/_/g, ' ')}. ` +

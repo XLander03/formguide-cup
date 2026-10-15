@@ -9,10 +9,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { aadhaarPartialFieldIds } from '../forms/hdfcV1';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
-import { maskSensitiveFields } from '../lib/pii';
+import { maskSensitiveFields, shouldRedactAadhaarQuote } from '../lib/pii';
 import {
   completenessLevel,
   emptyValues,
@@ -25,6 +26,8 @@ import { speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
 import { invalidFieldIds, normalizeInput } from '../lib/validate';
 import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
+
+const AADHAAR_PARTIAL_IDS = aadhaarPartialFieldIds();
 
 export type ShellLanguage = 'en' | 'hi';
 export type MicLang = 'en-IN' | 'hi-IN';
@@ -349,7 +352,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         // Aadhaar must never land in state (and therefore sessionStorage,
         // the screen, or a downloaded draft) unmasked, regardless of
         // whether it came from speak, extract, or the heuristic fallback.
-        maskSensitiveFields(next);
+        maskSensitiveFields(next, next, AADHAAR_PARTIAL_IDS);
         resolvedPoiType = next.ovd_poi_type;
         resolvedPoaType = next.ovd_poa_type;
         return next;
@@ -363,10 +366,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
             // The masked *value* is useless if the full Aadhaar number is
             // still sitting unmasked in the quoted "said" transcript right
             // next to it — redact the quote itself for this field too.
-            if (
-              (key === 'ovd_poi_number' && resolvedPoiType === 'proof_of_possession_of_aadhaar') ||
-              (key === 'ovd_poa_number' && resolvedPoaType === 'proof_of_possession_of_aadhaar')
-            ) {
+            if (shouldRedactAadhaarQuote(key, resolvedPoiType, resolvedPoaType, AADHAAR_PARTIAL_IDS)) {
               next[key] = 'Aadhaar number redacted from transcript.';
               continue;
             }
@@ -414,9 +414,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       // edits on the Review page can't leave a full number sitting in
       // state. Only triggers at 12 digits so it doesn't fight live typing
       // of shorter document numbers.
-      if ((id === 'ovd_poi_number' || id === 'ovd_poa_number') && typeof stored === 'string') {
+      if (AADHAAR_PARTIAL_IDS.includes(id) && typeof stored === 'string') {
         const digits = stored.replace(/\D/g, '');
-        if (digits.length >= 12) maskSensitiveFields(next);
+        if (digits.length >= 12) maskSensitiveFields(next, next, AADHAAR_PARTIAL_IDS);
       }
       return next;
     });
@@ -500,7 +500,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
-    maskSensitiveFields(persona);
+    maskSensitiveFields(persona, persona, AADHAAR_PARTIAL_IDS);
     setValues(persona);
     // Demo-only: strict === true so a click event passed as arg never triggers flags.
     setConfidence(withFlags === true ? demoFlagConfidence() : {});
