@@ -182,7 +182,10 @@ export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; 
         ],
         generation_config: {
           thinking_level: 'low',
-          max_output_tokens: 4096,
+          // A dense bank form page can have far more fields than the speak
+          // function's short voice-dump extracts — 4096 was observed being
+          // truncated mid-JSON (ocr_bad_json on a 10k+ char response).
+          max_output_tokens: 8192,
         },
         response_format: {
           type: 'text',
@@ -206,7 +209,11 @@ export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; 
     return parseOcrFields(text);
   } catch (err) {
     if (err instanceof IngestError) {
-      console.error('ocr_bad_json', text.length);
+      // Safe to log: the prompt instructs the model to return only labels
+      // and blank-field metadata, never values written into the form. The
+      // tail end is what matters most — it shows whether this was a clean
+      // parse failure or output truncated mid-object by the token limit.
+      console.error('ocr_bad_json', text.length, text.slice(-200));
       throw err;
     }
     throw new IngestError('ocr_bad_json', 502);

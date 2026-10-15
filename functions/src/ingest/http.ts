@@ -15,7 +15,10 @@ const HOSTS = [
 export const ingestForm = onRequest(
   {
     region: 'us-central1',
-    memory: '256MiB',
+    // 256MiB was observed to exceed its limit (265MiB used) while rendering
+    // PDF pages to PNG for OCR — unlike the other ingest functions, this one
+    // does real image work, not just Firestore reads/writes.
+    memory: '512MiB',
     maxInstances: 2,
     minInstances: 0,
     timeoutSeconds: 120,

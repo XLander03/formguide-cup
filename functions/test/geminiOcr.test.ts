@@ -42,7 +42,7 @@ describe('gemini ocr client', () => {
           assert.equal(body.model, FIELD_MODEL);
           assert.equal(body.model, 'gemini-3.5-flash-lite');
           assert.equal(body.generation_config.thinking_level, 'low');
-          assert.equal(body.generation_config.max_output_tokens, 4096);
+          assert.equal(body.generation_config.max_output_tokens, 8192);
           assert.deepEqual(body.response_format, { type: 'text', mime_type: 'application/json' });
           assert.equal(body.input[0].text, buildOcrPrompt(2, 2));
           assert.equal(body.input[1].mime_type, 'image/png');
