@@ -44,11 +44,23 @@ export function rowsFromPublished(forms: FormVersion[]): PublishedFormRow[] {
 }
 
 /**
- * Published versions from the FormVersion loader (`forms/{id}/versions/{v}`).
- * With no Firebase web config, or if the read fails, the loader returns bundled HDFC v1.
+ * Published versions written by ingest and publish.
+ * With no Firebase web config, or if the catalog request fails, the bundled HDFC v1 is used.
+ * Firestore rules are not required: the list comes from the Admin SDK function.
  */
 export async function listPublishedForms(journey: string): Promise<FormVersion[] | null> {
   const config = firebaseWebConfig();
-  const forms = await loadPublishedFormVersions(config?.projectId ? { projectId: config.projectId } : {});
+  if (config?.projectId) {
+    try {
+      const response = await fetch('/api/publishedForms');
+      if (response.ok) {
+        const body = (await response.json()) as { forms?: FormVersion[] };
+        if (Array.isArray(body.forms)) return visiblePublishedForms(body.forms, journey);
+      }
+    } catch {
+      // The journey page keeps the bundled HDFC row when the catalog is down.
+    }
+  }
+  const forms = await loadPublishedFormVersions({});
   return visiblePublishedForms(forms, journey);
 }

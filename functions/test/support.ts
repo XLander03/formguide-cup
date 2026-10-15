@@ -39,10 +39,10 @@ export function memoryPublish(seed: FormVersion[] = []): PublishDeps & { docs: M
     async loadFormVersion(formId, version) {
       return docs.get(`${formId}/${version}`) ?? null;
     },
-    async markPublished(formId, version) {
+    async markPublished(formId, version, next) {
       const current = docs.get(`${formId}/${version}`);
       if (!current) throw new IngestError('not_found', 404);
-      current.status = 'published';
+      docs.set(`${formId}/${version}`, { ...next, formId, version, status: 'published' });
     },
   };
 }

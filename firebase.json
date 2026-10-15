@@ -32,6 +32,13 @@
         }
       },
       {
+        "source": "/api/publishedForms",
+        "function": {
+          "functionId": "publishedForms",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

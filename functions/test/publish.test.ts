@@ -82,6 +82,23 @@ describe('publishForm', () => {
     assert.equal(retired.statusCode, 409);
   });
 
+  it('saves the reviewed fields, including checks made on the review screen', async () => {
+    const stored = version([field({ id: 'pan_number', label: 'pan', confidence: 0.41, checked: false })]);
+    const reviewed = version([field({ id: 'pan_number', label: 'PAN number', confidence: 0.41, checked: true })]);
+    const deps = memoryPublish([stored]);
+    const res = mockRes();
+    await handlePublish(
+      { method: 'POST', body: { formId: 'hdfc_aof', version: 'v1', form: reviewed }, headers: { authorization: 'Bearer admin' } },
+      res,
+      deps,
+    );
+    assert.equal(res.statusCode, 200);
+    const saved = deps.docs.get('hdfc_aof/v1');
+    assert.equal(saved?.status, 'published');
+    assert.equal(saved?.fields[0]?.checked, true);
+    assert.equal(saved?.fields[0]?.label, 'PAN number');
+  });
+
   it('treats confidence 0.8 as high enough to publish unchecked', async () => {
     const deps = memoryPublish([version([field({ id: 'email', confidence: 0.8, checked: false })])]);
     const res = mockRes();

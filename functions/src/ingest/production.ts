@@ -2,6 +2,7 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { isCupAdmin } from '../../../shared/forms/cupAdmin';
 import type { FormVersion } from '../../../shared/forms/types';
 import { IngestError, MAX_PDF_BYTES } from './errors';
 import { ocrPageWithGemini } from './geminiOcr';
@@ -17,7 +18,7 @@ async function verifyAdmin(authorization: string | undefined): Promise<{ uid: st
   ensureAdmin();
   try {
     const decoded = await getAuth().verifyIdToken(match[1]);
-    if (decoded.admin !== true) throw new IngestError('admin_required', 403);
+    if (decoded.admin !== true && !isCupAdmin(decoded.email)) throw new IngestError('admin_required', 403);
     return { uid: decoded.uid };
   } catch (err) {
     if (err instanceof IngestError) throw err;
@@ -36,7 +37,26 @@ function versions(formId: string) {
 }
 
 function strip(value: FormVersion): FormVersion {
-  return JSON.parse(JSON.stringify(value)) as FormVersion;
+  const clean = JSON.parse(JSON.stringify(value)) as FormVersion & { payload?: string };
+  delete clean.payload;
+  return clean;
+}
+
+function withPayload(version: FormVersion): FormVersion & { payload: string } {
+  const clean = strip(version);
+  return { ...clean, payload: JSON.stringify(clean) };
+}
+
+/** Parent `forms/{id}` is what the public catalog reads. A new draft must not hide an already published form. */
+async function writeParent(version: FormVersion, status: FormVersion['status']): Promise<void> {
+  const ref = getFirestore().collection('forms').doc(version.formId);
+  const snap = await ref.get();
+  const current = snap.exists ? String((snap.data() as { status?: string } | undefined)?.status || '') : '';
+  const nextStatus = status === 'draft' && current === 'published' ? 'published' : status;
+  await ref.set(
+    { formId: version.formId, bankId: version.bankId, journey: version.journey, status: nextStatus },
+    { merge: true },
+  );
 }
 
 export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void> {
@@ -75,7 +95,8 @@ export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void
     },
     async createFormVersion(version: FormVersion) {
       try {
-        await versions(version.formId).doc(version.version).create(strip(version));
+        await versions(version.formId).doc(version.version).create(withPayload(version));
+        await writeParent(version, 'draft');
       } catch (err) {
         if (isAlreadyExists(err)) throw new IngestError('version_exists', 409);
         throw err;
@@ -89,6 +110,30 @@ export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void
   });
 }
 
+export async function listPublishedFormVersions(): Promise<FormVersion[]> {
+  ensureAdmin();
+  const parents = await getFirestore().collection('forms').where('status', '==', 'published').get();
+  const forms: FormVersion[] = [];
+  for (const parent of parents.docs) {
+    const versionsSnap = await parent.ref.collection('versions').where('status', '==', 'published').get();
+    for (const doc of versionsSnap.docs) {
+      const data = doc.data() as FormVersion & { payload?: string };
+      let parsed: FormVersion | null = null;
+      if (typeof data.payload === 'string') {
+        try {
+          parsed = JSON.parse(data.payload) as FormVersion;
+        } catch {
+          parsed = null;
+        }
+      }
+      const form = parsed?.status === 'published' && Array.isArray(parsed.fields) ? parsed : data;
+      if (form.status !== 'published' || !Array.isArray(form.fields)) continue;
+      forms.push(strip(form));
+    }
+  }
+  return forms;
+}
+
 export async function productionPublish(req: HttpReq, res: HttpRes): Promise<void> {
   ensureAdmin();
   await handlePublish(req, res, {
@@ -98,8 +143,10 @@ export async function productionPublish(req: HttpReq, res: HttpRes): Promise<voi
       if (!snap.exists) return null;
       return snap.data() as FormVersion;
     },
-    async markPublished(formId: string, version: string) {
-      await versions(formId).doc(version).update({ status: 'published' });
+    async markPublished(formId: string, version: string, next: FormVersion) {
+      const published = withPayload({ ...next, formId, version, status: 'published' });
+      await versions(formId).doc(version).set(published);
+      await writeParent(published, 'published');
     },
   });
 }

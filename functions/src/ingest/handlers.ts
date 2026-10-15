@@ -36,7 +36,8 @@ export type IngestDeps = {
 export type PublishDeps = {
   verifyAdmin: (authorization: string | undefined) => Promise<{ uid: string }>;
   loadFormVersion: (formId: string, version: string) => Promise<FormVersion | null>;
-  markPublished: (formId: string, version: string) => Promise<void>;
+  /** Writes the reviewed form. Checks made on the review screen are in `next.fields`. */
+  markPublished: (formId: string, version: string, next: FormVersion) => Promise<void>;
 };
 
 function header(req: HttpReq, name: string): string | undefined {
@@ -222,20 +223,34 @@ export async function handlePublish(req: HttpReq, res: HttpRes, deps: PublishDep
       throw new IngestError('invalid_input', 400);
     }
     const body = req.body as Record<string, unknown>;
-    const formId = safeId(body.formId);
-    const version = safeId(body.version);
+    const reviewed = body.form === undefined ? null : body.form;
+    if (reviewed !== null && !isFormVersion(reviewed)) throw new IngestError('invalid_input', 400);
+    const formId = safeId(body.formId ?? reviewed?.formId);
+    const version = safeId(body.version ?? reviewed?.version);
     const stored = await deps.loadFormVersion(formId, version);
     if (!stored) throw new IngestError('not_found', 404);
     if (!isFormVersion(stored)) throw new IngestError('invalid_stored_form', 400);
     if (stored.status === 'retired') throw new IngestError('retired_form', 409);
-    const blocking = lowConfidenceUnchecked(stored.fields as FieldRecord[]);
+    if (reviewed && (reviewed.formId !== stored.formId || reviewed.version !== stored.version)) {
+      throw new IngestError('invalid_input', 400);
+    }
+    const next: FormVersion = {
+      ...stored,
+      formId: stored.formId,
+      version: stored.version,
+      bankId: stored.bankId,
+      journey: stored.journey,
+      source: stored.source,
+      pdfPath: stored.pdfPath,
+      status: 'published',
+      fields: reviewed ? reviewed.fields : stored.fields,
+    };
+    const blocking = lowConfidenceUnchecked(next.fields);
     if (blocking.length > 0) {
       throw new IngestError('unchecked_low_confidence', 400, { fields: blocking });
     }
-    if (stored.status !== 'published') await deps.markPublished(formId, version);
-    res.status(200).json({
-      formVersion: { ...stored, status: 'published' as const },
-    });
+    await deps.markPublished(formId, version, next);
+    res.status(200).json({ formVersion: next });
   } catch (err) {
     sendError(res, err);
   }

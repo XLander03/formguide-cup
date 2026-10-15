@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isCupAdmin } from './cupAdmin';
 import { firebaseWebConfig, type FirebaseWebConfig } from './firebaseConfig';
+import { mockIngestRequested } from './mockQuery';
 import type { SignInResult } from './AdminLogin';
 
 export type AdminStatus = 'loading' | 'in' | 'out';
@@ -16,6 +17,10 @@ export function useAdminSession() {
   const [status, setStatus] = useState<AdminStatus>('loading');
 
   useEffect(() => {
+    if (mockIngestRequested()) {
+      setStatus('in');
+      return;
+    }
     const config = firebaseWebConfig();
     if (!config) {
       setStatus('out');

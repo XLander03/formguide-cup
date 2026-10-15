@@ -590,4 +590,4 @@ export const speak = onRequest(
   },
 );
 
-export { ingestForm, publishForm } from './ingest/http';
+export { ingestForm, publishForm, publishedForms } from './ingest/http';

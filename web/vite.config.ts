@@ -20,6 +20,9 @@ export default defineConfig({
     // sends it to the deployed function.
     proxy: {
       '/api/speak': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
+      '/api/ingestForm': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
+      '/api/publishForm': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
+      '/api/publishedForms': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
     },
   },
   test: {

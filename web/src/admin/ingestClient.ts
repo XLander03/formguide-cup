@@ -1,5 +1,5 @@
 import type { FormVersion } from '../../../shared/forms/types';
-import { firebaseWebConfig } from './firebaseConfig';
+import { adminPost } from './adminFetch';
 import { mockIngestRequested } from './mockQuery';
 import { placeholderFormVersion } from './placeholderForm';
 
@@ -14,7 +14,7 @@ export interface IngestFormInput {
 export const INGEST_UNAVAILABLE = 'Ingest is not available yet.';
 
 /**
- * Client wrapper around the `ingestForm` function that is being built elsewhere.
+ * Posts the PDF to the `ingestForm` HTTP function.
  * `?mock=1` returns placeholder fields and does not call the network.
  */
 export async function ingestForm(input: IngestFormInput): Promise<FormVersion> {
@@ -26,27 +26,17 @@ export async function ingestForm(input: IngestFormInput): Promise<FormVersion> {
     });
   }
 
-  const config = firebaseWebConfig();
-  if (!config) throw new Error(INGEST_UNAVAILABLE);
-
-  try {
-    const { initializeApp, getApps } = await import('firebase/app');
-    const { getFunctions, httpsCallable } = await import('firebase/functions');
-    const app = getApps().length ? getApps()[0] : initializeApp(config);
-    const call = httpsCallable(getFunctions(app, 'us-central1'), 'ingestForm');
-    const result = await call({
+  const payload = (await adminPost(
+    '/api/ingestForm',
+    {
       bankId: input.bankId,
       journey: input.journey,
-      fileName: input.file.name,
-      source: input.fillable ? 'acroform' : 'ocr',
       pdfBase64: toBase64(input.bytes),
-    });
-    if (!isFormVersion(result.data)) throw new Error('Ingest did not return a form.');
-    return result.data;
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Ingest did not return a form.') throw error;
-    throw new Error(INGEST_UNAVAILABLE);
-  }
+    },
+    INGEST_UNAVAILABLE,
+  )) as { formVersion?: unknown };
+  if (!isFormVersion(payload.formVersion)) throw new Error('Ingest did not return a form.');
+  return payload.formVersion;
 }
 
 function isFormVersion(value: unknown): value is FormVersion {
