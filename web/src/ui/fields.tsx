@@ -1,4 +1,4 @@
-import { FIELD_GROUPS, SCHEMA, isEffectivelyRequired, isFieldApplicable, isFilled } from '../lib/schema';
+import { SCHEMA, isEffectivelyRequired, isFilled, reviewSections } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
 import type { FormValues } from '../lib/types';
 import { hindiEnumLabel } from '../lib/utteranceLang';
@@ -155,13 +155,11 @@ export function FieldGroups({
   flashIds: Set<string>;
   hindi?: boolean;
 }) {
-  const groups = FIELD_GROUPS.filter((group) => group.id !== 'confirm_gates');
+  const groups = reviewSections(values);
   return (
     <div className="space-y-5">
       {groups.map((group, index) => {
-        const fields = SCHEMA.fields.filter(
-          (field) => field.group === group.id && isFieldApplicable(field, values),
-        );
+        const fields = group.fields;
         const confirmed = fields.filter(
           (field) => isFilled(values[field.id]) && !flashIds.has(field.id),
         ).length;

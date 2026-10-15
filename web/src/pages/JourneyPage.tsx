@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PublishedFormRows } from '../components/PublishedFormRows';
 import type { JourneyId } from '../lib/journeys';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
@@ -235,6 +236,8 @@ export function JourneyPage() {
           </div>
           <span className="hidden text-xs text-muted-foreground sm:block">Fields vary by bank.</span>
         </div>
+
+        <PublishedFormRows journey={selected.journey} />
 
         <div className="mt-6 grid gap-px border-2 border-foreground bg-foreground sm:grid-cols-2">
           {OPEN_CARDS.map((card) => {

@@ -9,7 +9,13 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const PAIRS = [['web/src/lib/pii.ts', 'functions/src/pii.ts']];
+const PAIRS = [
+  ['web/src/lib/pii.ts', 'functions/src/pii.ts'],
+  ['web/src/forms/types.ts', 'functions/src/forms/types.ts'],
+  ['web/src/forms/hdfcV1.ts', 'functions/src/forms/hdfcV1.ts'],
+  ['web/src/forms/hdfcV1Data.ts', 'functions/src/forms/hdfcV1Data.ts'],
+  ['web/src/forms/loadPublished.ts', 'functions/src/forms/loadPublished.ts'],
+];
 
 let failed = false;
 for (const [a, b] of PAIRS) {

@@ -1,5 +1,14 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
+import {
+  HDFC_V1,
+  aadhaarPartialFieldIds,
+  booleanFieldIds,
+  enumMap,
+  enumPromptClause,
+  extractFieldIds,
+  missingRequiredIds,
+} from './forms/hdfcV1';
 import { readSpeakRequest } from './wav';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
@@ -9,164 +18,10 @@ const geminiApiKey = defineSecret('GEMINI_API_KEY');
 // fails the request as before — see SETUP.md for how to configure this.
 const groqApiKey = defineSecret('GROQ_API_KEY');
 
-const FIELD_IDS = [
-  'journey_mode',
-  'applicant_full_name',
-  'father_or_spouse_name',
-  'dob',
-  'gender',
-  'nationality',
-  'residential_status',
-  'pan_available',
-  'pan_number',
-  'form60_declared',
-  'ckyc_number',
-  'mobile_registered',
-  'email',
-  'preferred_language',
-  'addr_current_line1',
-  'addr_current_line2',
-  'addr_current_city',
-  'addr_current_state',
-  'addr_current_pin',
-  'addr_permanent_same_as_current',
-  'addr_permanent_line1',
-  'addr_permanent_city',
-  'addr_permanent_state',
-  'addr_permanent_pin',
-  'ovd_poi_type',
-  'ovd_poi_number',
-  'ovd_poi_expiry',
-  'ovd_poa_same_as_poi',
-  'ovd_poa_type',
-  'ovd_poa_number',
-  'aadhaar_voluntary_consent',
-  'photo_consent',
-  'ovd_originals_ack',
-  'existing_bank_customer',
-  'customer_id_cif',
-  'linked_account_last4',
-  'account_product_intent',
-  'branch_hint',
-  'occupation_bucket',
-  'pep_declaration',
-  'tax_resident_india_only',
-  'bank_hint',
-  'readback_confirmed',
-  'draft_only_ack',
-  'no_live_submit_ack',
-] as const;
-
-const OVD = [
-  'passport',
-  'driving_licence',
-  'proof_of_possession_of_aadhaar',
-  'voter_id',
-  'nrega_job_card',
-  'npr_letter',
-];
-
-const ENUMS: Record<string, readonly string[]> = {
-  journey_mode: ['account_opening', 'kyc_update', 'rekyc'],
-  gender: ['female', 'male', 'other', 'prefer_not_to_say'],
-  residential_status: ['resident_individual'],
-  ovd_poi_type: OVD,
-  ovd_poa_type: OVD,
-  account_product_intent: [
-    'regular_savings',
-    'salary_savings',
-    'bsbda',
-    'individual_current',
-    'unspecified_varies_by_bank',
-  ],
-  occupation_bucket: [
-    'salaried',
-    'self_employed',
-    'professional',
-    'student',
-    'homemaker',
-    'retired',
-    'other',
-  ],
-};
-
-const BOOLS = new Set([
-  'pan_available',
-  'form60_declared',
-  'addr_permanent_same_as_current',
-  'ovd_poa_same_as_poi',
-  'aadhaar_voluntary_consent',
-  'photo_consent',
-  'ovd_originals_ack',
-  'existing_bank_customer',
-  'pep_declaration',
-  'tax_resident_india_only',
-  'readback_confirmed',
-  'draft_only_ack',
-  'no_live_submit_ack',
-]);
-
-const ALWAYS_REQUIRED = [
-  'journey_mode',
-  'applicant_full_name',
-  'dob',
-  'residential_status',
-  'pan_available',
-  'mobile_registered',
-  'addr_current_line1',
-  'addr_current_city',
-  'addr_current_state',
-  'addr_current_pin',
-  'addr_permanent_same_as_current',
-  'ovd_poi_type',
-  'ovd_poi_number',
-  'ovd_poa_same_as_poi',
-  'photo_consent',
-  'ovd_originals_ack',
-  'existing_bank_customer',
-  'pep_declaration',
-  'tax_resident_india_only',
-];
-
-const CONDITIONAL: Array<{ id: string; when: Record<string, unknown> }> = [
-  { id: 'pan_number', when: { pan_available: true } },
-  { id: 'form60_declared', when: { pan_available: false } },
-  { id: 'addr_permanent_line1', when: { addr_permanent_same_as_current: false } },
-  { id: 'addr_permanent_city', when: { addr_permanent_same_as_current: false } },
-  { id: 'addr_permanent_state', when: { addr_permanent_same_as_current: false } },
-  { id: 'addr_permanent_pin', when: { addr_permanent_same_as_current: false } },
-  { id: 'ovd_poa_type', when: { ovd_poa_same_as_poi: false } },
-  { id: 'ovd_poa_number', when: { ovd_poa_same_as_poi: false } },
-  { id: 'aadhaar_voluntary_consent', when: { ovd_poi_type: 'proof_of_possession_of_aadhaar' } },
-  { id: 'customer_id_cif', when: { existing_bank_customer: true } },
-  { id: 'account_product_intent', when: { journey_mode: 'account_opening' } },
-];
-
-const PRIORITY = [
-  'journey_mode',
-  'applicant_full_name',
-  'dob',
-  'mobile_registered',
-  'pan_available',
-  'pan_number',
-  'form60_declared',
-  'addr_current_line1',
-  'addr_current_city',
-  'addr_current_state',
-  'addr_current_pin',
-  'addr_permanent_same_as_current',
-  'ovd_poi_type',
-  'ovd_poi_number',
-  'ovd_poa_same_as_poi',
-  'photo_consent',
-  'ovd_originals_ack',
-  'existing_bank_customer',
-  'customer_id_cif',
-  'account_product_intent',
-  'pep_declaration',
-  'tax_resident_india_only',
-  'residential_status',
-];
+const FIELD_IDS = extractFieldIds(HDFC_V1);
+const ENUMS: Record<string, readonly string[]> = enumMap(HDFC_V1);
+const BOOLS = new Set(booleanFieldIds(HDFC_V1));
+const AADHAAR_PARTIAL_IDS = aadhaarPartialFieldIds(HDFC_V1);
 
 const EN_ASK: Record<string, string> = {
   journey_mode: 'Are you opening an account, updating KYC, or doing re-KYC?',
@@ -235,20 +90,7 @@ function isFilled(value: unknown): boolean {
 }
 
 function getMissingRequired(values: FormValues): string[] {
-  const missing: string[] = [];
-  for (const id of ALWAYS_REQUIRED) {
-    if (!isFilled(values[id])) missing.push(id);
-  }
-  for (const cond of CONDITIONAL) {
-    const match = Object.entries(cond.when).every(([key, expect]) => values[key] === expect);
-    if (match && !isFilled(values[cond.id])) missing.push(cond.id);
-  }
-  missing.sort((a, b) => {
-    const ia = PRIORITY.indexOf(a);
-    const ib = PRIORITY.indexOf(b);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  });
-  return missing;
+  return missingRequiredIds(values, HDFC_V1);
 }
 
 function completeness(values: FormValues, missing: string[]): 'empty' | 'partial_core' | 'demo_ready' {
@@ -271,7 +113,7 @@ function sanitizeUpdates(raw: unknown): FormValues {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out: FormValues = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!FIELD_IDS.includes(key as (typeof FIELD_IDS)[number])) continue;
+    if (!FIELD_IDS.includes(key)) continue;
     if (value === null) {
       out[key] = null;
       continue;
@@ -502,7 +344,7 @@ MULTI-FIELD EXTRACTION:
 - Do not invent values. Do not clear unrelated filled fields. Only include keys you are setting.
 
 NORMALIZATION:
-- Enums: journey_mode=account_opening|kyc_update|rekyc; gender=female|male|other|prefer_not_to_say; residential_status=resident_individual; ovd_poi_type/ovd_poa_type=passport|driving_licence|proof_of_possession_of_aadhaar|voter_id|nrega_job_card|npr_letter; account_product_intent=regular_savings|salary_savings|bsbda|individual_current|unspecified_varies_by_bank; occupation_bucket=salaried|self_employed|professional|student|homemaker|retired|other.
+- Enums: ${enumPromptClause(HDFC_V1)}.
 - DOB → YYYY-MM-DD (English or Hindi spoken dates).
 - City/state as place names (बेंगलुरु→Bengaluru, मुंबई→Mumbai).
 - Spoken numbers → digits (mobile 10 digits, PIN 6 digits).
@@ -601,7 +443,7 @@ async function fieldJson(
   const merged: FormValues = { ...current, ...updates };
   // Aadhaar must never leave this function unmasked (schema requires last-4 only).
   // Resolve type from `merged` — it may have been set in an earlier turn.
-  maskSensitiveFields(updates, merged);
+  maskSensitiveFields(updates, merged, AADHAAR_PARTIAL_IDS);
   const missing = getMissingRequired(merged);
   const refuse =
     parsed.refuse_live_submit === true ||
@@ -747,3 +589,5 @@ export const speak = onRequest(
     }
   },
 );
+
+export { ingestForm, publishForm, publishedForms } from './ingest/http';

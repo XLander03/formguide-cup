@@ -1,57 +1,11 @@
 /** Field-update merge helpers (no Gemini). */
 
+import { schemaFieldIdSet } from './forms/hdfcV1';
+
 export type FieldValue = string | boolean | null;
 export type FormValues = Record<string, FieldValue>;
 
-const FIELD_IDS = [
-  'journey_mode',
-  'applicant_full_name',
-  'father_or_spouse_name',
-  'dob',
-  'gender',
-  'nationality',
-  'residential_status',
-  'pan_available',
-  'pan_number',
-  'form60_declared',
-  'ckyc_number',
-  'mobile_registered',
-  'email',
-  'preferred_language',
-  'addr_current_line1',
-  'addr_current_line2',
-  'addr_current_city',
-  'addr_current_state',
-  'addr_current_pin',
-  'addr_permanent_same_as_current',
-  'addr_permanent_line1',
-  'addr_permanent_city',
-  'addr_permanent_state',
-  'addr_permanent_pin',
-  'ovd_poi_type',
-  'ovd_poi_number',
-  'ovd_poi_expiry',
-  'ovd_poa_same_as_poi',
-  'ovd_poa_type',
-  'ovd_poa_number',
-  'aadhaar_voluntary_consent',
-  'photo_consent',
-  'ovd_originals_ack',
-  'existing_bank_customer',
-  'customer_id_cif',
-  'linked_account_last4',
-  'account_product_intent',
-  'branch_hint',
-  'occupation_bucket',
-  'pep_declaration',
-  'tax_resident_india_only',
-  'bank_hint',
-  'readback_confirmed',
-  'draft_only_ack',
-  'no_live_submit_ack',
-] as const;
-
-const FIELD_ID_SET = new Set<string>(FIELD_IDS);
+const FIELD_ID_SET = schemaFieldIdSet();
 
 /** Wrong / shorthand keys models sometimes invent → canonical schema ids. */
 const ALIASES: Record<string, string> = {

@@ -1,9 +1,13 @@
+import { HDFC_V1, missingRequiredIds, toSchemaFields } from '../forms/hdfcV1';
+import { loadPublishedFormVersions } from '../forms/loadPublished';
 import compact from '../schema/aof_kyc_demo_v1.compact.json';
 import fullSchema from '../schema/aof_kyc_demo_v1.schema.json';
 import type { FormValues, SchemaField } from './types';
 import { localizeAsk, type UtteranceLang } from './utteranceLang';
 
-export const SCHEMA = fullSchema as unknown as {
+export { HDFC_V1, loadPublishedFormVersions };
+
+const rawSchema = fullSchema as unknown as {
   fields: SchemaField[];
   enums: Record<string, string[]>;
   public_hubs: Array<{ bank: string; cite_as: string; url: string }>;
@@ -21,6 +25,11 @@ export const SCHEMA = fullSchema as unknown as {
       when_excluded_intent?: boolean;
     }>;
   };
+};
+
+export const SCHEMA: typeof rawSchema = {
+  ...rawSchema,
+  fields: toSchemaFields(HDFC_V1) as unknown as SchemaField[],
 };
 
 export const COMPACT = compact;
@@ -88,22 +97,21 @@ export function isFilled(value: FieldValueLike): boolean {
 type FieldValueLike = string | boolean | null | undefined;
 
 export function getMissingRequired(values: FormValues): string[] {
-  const missing: string[] = [];
-  for (const f of SCHEMA.fields) {
-    // Confirm gates are asked at the end, not during fill routing
-    if (f.group === 'confirm_gates') continue;
-    if (!isEffectivelyRequired(f, values)) continue;
-    if (!isFieldApplicable(f, values) && f.required_if) continue;
-    if (!isFilled(values[f.id])) missing.push(f.id);
-  }
-  // Sort by schema incomplete_routing priority
-  const prio = SCHEMA.incomplete_routing.choice_next_ask.fallback_priority;
-  missing.sort((a, b) => {
-    const ia = prio.indexOf(a);
-    const ib = prio.indexOf(b);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  });
-  return missing;
+  // Order comes from FormVersion.order (the published ask-missing rank).
+  return missingRequiredIds(values, HDFC_V1);
+}
+
+/** Fake-prefill / review rows: applicable fields, group order, confirm gates omitted. */
+export function reviewSections(values: FormValues): Array<{
+  id: string;
+  title: string;
+  fields: SchemaField[];
+}> {
+  return FIELD_GROUPS.filter((group) => group.id !== 'confirm_gates').map((group) => ({
+    id: group.id,
+    title: group.title,
+    fields: SCHEMA.fields.filter((field) => field.group === group.id && isFieldApplicable(field, values)),
+  }));
 }
 
 export function getNextAsk(
