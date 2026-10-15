@@ -35,7 +35,7 @@ function documentsRoot(options: LoadPublishedOptions): string | null {
     const origin = host.startsWith('http://') || host.startsWith('https://') ? host : `http://${host}`;
     return `${origin.replace(/\/$/, '')}/v1/projects/${options.projectId}/databases/(default)/documents`;
   }
-  return `https://firestore.googleapis.com/v1/projects/${options.projectId}/databases/(default)/documents`;
+  return `https://firestore.googleapis.com/v1/projects/${options.projectId}/databases/formguide/documents`;
 }
 
 function stringField(doc: RestDocument, key: string): string {

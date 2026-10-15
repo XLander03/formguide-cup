@@ -32,8 +32,16 @@ function isAlreadyExists(err: unknown): boolean {
   return code === 6 || code === 'already-exists' || code === 'ALREADY_EXISTS';
 }
 
+/** Native Firestore. The project's `(default)` database is Datastore mode and cannot store these documents. */
+const FORM_DATABASE_ID = 'formguide';
+
+function db() {
+  ensureAdmin();
+  return getFirestore(FORM_DATABASE_ID);
+}
+
 function versions(formId: string) {
-  return getFirestore().collection('forms').doc(formId).collection('versions');
+  return db().collection('forms').doc(formId).collection('versions');
 }
 
 function strip(value: FormVersion): FormVersion {
@@ -49,7 +57,7 @@ function withPayload(version: FormVersion): FormVersion & { payload: string } {
 
 /** Parent `forms/{id}` is what the public catalog reads. A new draft must not hide an already published form. */
 async function writeParent(version: FormVersion, status: FormVersion['status']): Promise<void> {
-  const ref = getFirestore().collection('forms').doc(version.formId);
+  const ref = db().collection('forms').doc(version.formId);
   const snap = await ref.get();
   const current = snap.exists ? String((snap.data() as { status?: string } | undefined)?.status || '') : '';
   const nextStatus = status === 'draft' && current === 'published' ? 'published' : status;
@@ -112,7 +120,7 @@ export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void
 
 export async function listPublishedFormVersions(): Promise<FormVersion[]> {
   ensureAdmin();
-  const parents = await getFirestore().collection('forms').where('status', '==', 'published').get();
+  const parents = await db().collection('forms').where('status', '==', 'published').get();
   const forms: FormVersion[] = [];
   for (const parent of parents.docs) {
     const versionsSnap = await parent.ref.collection('versions').where('status', '==', 'published').get();

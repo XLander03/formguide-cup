@@ -1,7 +1,10 @@
 {
-  "firestore": {
-    "rules": "firestore.rules"
-  },
+  "firestore": [
+    {
+      "database": "formguide",
+      "rules": "firestore.rules"
+    }
+  ],
   "hosting": {
     "public": "web/dist",
     "ignore": [
