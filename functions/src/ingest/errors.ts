@@ -1,5 +1,4 @@
-export const MAX_PDF_BYTES = 10 * 1024 * 1024;
-export const MAX_PDF_PAGES = 4;
+export { MAX_PDF_BYTES, MAX_PDF_PAGES } from '../../../shared/forms/limits';
 /** Fields below this must have checked=true before publish. */
 export const PUBLISH_CONFIDENCE = 0.8;
 /** Minimum label/name similarity that may claim a shared library id. */

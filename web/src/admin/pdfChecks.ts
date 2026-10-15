@@ -1,8 +1,9 @@
 import { PDFDocument } from 'pdf-lib';
+import { MAX_PDF_BYTES, MAX_PDF_PAGES } from '../../../shared/forms/limits';
 import type { PageSize } from './geometry';
 
-export const PDF_MAX_BYTES = 5 * 1024 * 1024;
-export const PDF_MAX_PAGES = 20;
+export const PDF_MAX_BYTES = MAX_PDF_BYTES;
+export const PDF_MAX_PAGES = MAX_PDF_PAGES;
 
 export const PDF_CHOOSE = 'Choose a PDF.';
 export const PDF_TOO_LARGE = 'This PDF is too large.';
