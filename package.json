@@ -8,6 +8,7 @@
     "check:shared": "node scripts/check-shared-files.mjs",
     "build": "npm run check:shared && npm run build --prefix web",
     "build:functions": "npm run check:shared && npm run build --prefix functions",
+    "test:functions": "npm test --prefix functions",
     "emulators": "firebase emulators:start --only hosting,functions",
     "deploy": "npm run build && npm run build:functions && firebase deploy --only hosting,functions"
   }
