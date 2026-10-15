@@ -52,7 +52,13 @@ export const publishedForms = onRequest(
       const forms = await listPublishedFormVersions();
       res.status(200).json({ forms });
     } catch (err) {
-      console.error('published_forms_failed', err instanceof Error ? err.name : 'error');
+      const message = err instanceof Error ? err.message : 'error';
+      console.error('published_forms_failed', message);
+      // Firestore is not turned on for this project yet. The journey page then keeps the bundled HDFC row.
+      if (/firestore api has not been used|5 NOT_FOUND/i.test(message)) {
+        res.status(200).json({ forms: [] });
+        return;
+      }
       res.status(500).json({ error: 'published_forms_failed' });
     }
   },
