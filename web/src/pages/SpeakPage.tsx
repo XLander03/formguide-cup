@@ -451,6 +451,7 @@ export function SpeakPage() {
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5" style={{ maxHeight: 'calc(100vh - 230px)' }}>
           <MissingFieldInputs
             missing={session.missing}
+            invalid={session.invalidIds}
             shownIds={SHOWN_IDS}
             values={session.values}
             onChange={session.onChange}

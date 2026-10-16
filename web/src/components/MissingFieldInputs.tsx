@@ -1,23 +1,28 @@
 import { SCHEMA, enumsFor } from '../lib/schema';
 import type { FormValues } from '../lib/types';
+import { fieldIssue } from '../lib/validate';
 
 /**
- * Required fields the speak panel does not show (yes/no declarations, residential status,
- * permanent address when it differs...). Without these the draft can be stuck on a
- * required field the user has no way to see or fill except by voice.
+ * Fields the speak panel does not show that block review: required ones still empty
+ * (yes/no declarations, residential status, permanent address when it differs...) and
+ * filled ones with a format error (a CIF heard as two digits). Without these the draft
+ * is stuck on a field the user has no way to see or fix except by voice.
  */
 export function MissingFieldInputs({
   missing,
+  invalid = [],
   shownIds,
   values,
   onChange,
 }: {
   missing: string[];
+  invalid?: string[];
   shownIds: Set<string>;
   values: FormValues;
   onChange: (id: string, value: string | boolean | null) => void;
 }) {
-  const fields = missing
+  const ids = [...invalid, ...missing.filter((id) => !invalid.includes(id))];
+  const fields = ids
     .filter((id) => !shownIds.has(id))
     .map((id) => SCHEMA.fields.find((field) => field.id === id))
     .filter((field): field is NonNullable<typeof field> => Boolean(field));
@@ -34,11 +39,12 @@ export function MissingFieldInputs({
           const inputId = `missing-field-${field.id}`;
           const value = values[field.id];
           const options = enumsFor(field);
+          const issue = fieldIssue(field.id, value);
           return (
             <div key={field.id} className="border-b border-r border-foreground/15 px-4 py-3">
               <label htmlFor={inputId} className="block text-[10px] uppercase text-muted-foreground">
                 {field.label_en}
-                <span className="text-destructive"> *</span>
+                {missing.includes(field.id) ? <span className="text-destructive"> *</span> : null}
               </label>
               {field.type === 'boolean' ? (
                 <div id={inputId} role="group" aria-label={field.label_en} className="mt-1 flex gap-2">
@@ -79,9 +85,16 @@ export function MissingFieldInputs({
                   value={typeof value === 'string' ? value : ''}
                   onChange={(event) => onChange(field.id, event.target.value)}
                   spellCheck={false}
+                  aria-invalid={issue ? true : undefined}
                   className="mt-1 min-h-6 w-full bg-transparent font-semibold outline-none"
                 />
               )}
+              {issue ? (
+                <p className="mt-1 text-[10px] font-semibold text-destructive">
+                  {issue}
+                  {field.required ? '' : ' Or clear it if it does not apply.'}
+                </p>
+              ) : null}
             </div>
           );
         })}

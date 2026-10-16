@@ -33,4 +33,23 @@ describe('MissingFieldInputs', () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
+
+  it('shows a filled field with a format error even though it is not missing', () => {
+    const onChange = vi.fn();
+    render(
+      <MissingFieldInputs
+        missing={[]}
+        invalid={['customer_id_cif']}
+        shownIds={new Set()}
+        values={{ customer_id_cif: '12' }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByLabelText(/Customer ID \/ CIF/) as HTMLInputElement;
+    expect(input.value).toBe('12');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/Enter at least 4 characters\. Or clear it if it does not apply\./)).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: '' } });
+    expect(onChange).toHaveBeenCalledWith('customer_id_cif', '');
+  });
 });
