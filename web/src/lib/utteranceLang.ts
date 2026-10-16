@@ -33,12 +33,6 @@ export function readbackLanguage(mic: MicLang, utterance: UtteranceLang): Uttera
   return utterance;
 }
 
-export function preferredLanguageLabel(lang: UtteranceLang): 'English' | 'Hindi' | 'Hindi+English' {
-  if (lang === 'hi') return 'Hindi';
-  if (lang === 'mixed') return 'Hindi+English';
-  return 'English';
-}
-
 /** Hindi prompts keyed by schema field id. English copy stays in the schema. */
 export const HI_FIELD_ASK: Record<string, string> = {
   journey_mode: 'आप खाता खोलना चाहते हैं, केवाईसी अपडेट, या री-केवाईसी?',

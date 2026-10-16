@@ -97,7 +97,7 @@ assert(hi.field_updates.addr_permanent_same_as_current === true, 'hi same addr')
 assert(hi.field_updates.existing_bank_customer === false, 'hi new customer');
 assert(hi.field_updates.pep_declaration === false, 'hi pep');
 assert(hi.field_updates.tax_resident_india_only === true, 'hi tax');
-assert(hi.field_updates.preferred_language === 'Hindi', `hi pref ${hi.field_updates.preferred_language}`);
+assert(hi.field_updates.preferred_language === undefined, 'hindi must not write preferred_language');
 assert(/[\u0900-\u097F]/.test(hi.next_ask || ''), `hi next not hindi: ${hi.next_ask}`);
 assert(/[\u0900-\u097F]/.test(hi.assistant_message || ''), `hi assistant not hindi: ${hi.assistant_message}`);
 assert((hi.assistant_message || '').includes('Fields vary by bank.'), 'hi bank copy');
@@ -117,7 +117,7 @@ assert(mixed.field_updates.journey_mode === 'account_opening', `mixed journey ${
 assert(mixed.field_updates.addr_current_city === 'Bengaluru', `mixed city ${mixed.field_updates.addr_current_city}`);
 assert(mixed.field_updates.nationality === 'Indian', 'mixed nationality');
 assert(mixed.field_updates.residential_status === 'resident_individual', 'mixed resident');
-assert(mixed.field_updates.preferred_language === 'Hindi+English', `mixed pref ${mixed.field_updates.preferred_language}`);
+assert(mixed.field_updates.preferred_language === undefined, 'mixed must not write preferred_language');
 assert(/[\u0900-\u097F]/.test(mixed.next_ask || ''), `mixed next missing Hindi: ${mixed.next_ask}`);
 assert((mixed.next_ask || '').includes('Please') || (mixed.next_ask || '').includes('Which') || (mixed.next_ask || '').includes('What') || (mixed.next_ask || '').includes('Is this') || (mixed.next_ask || '').includes('Do you'), `mixed next missing English: ${mixed.next_ask}`);
 assert((mixed.assistant_message || '').includes('Fields vary by bank.'), 'mixed bank copy');

@@ -22,7 +22,6 @@ import {
   hindiEnumLabel,
   liveNext,
   liveRefuse,
-  preferredLanguageLabel,
   type UtteranceLang,
 } from './utteranceLang';
 
@@ -551,12 +550,7 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   Object.assign(updates, detectConfirm(text));
 
   fillGaps(updates, extractHindiSlots(text));
-  if (lang !== 'en') {
-    const pref = preferredLanguageLabel(lang);
-    if (current.preferred_language !== pref && updates.preferred_language === undefined) {
-      updates.preferred_language = pref;
-    }
-  }
+  // preferred_language is set by the language picker, never guessed from an utterance's script.
 
   // Merge for missing calc
   const merged: FormValues = { ...current, ...updates };

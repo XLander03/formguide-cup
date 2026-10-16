@@ -412,13 +412,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       let resolvedPoiType: FormValues['ovd_poi_type'];
       let resolvedPoaType: FormValues['ovd_poa_type'];
       const beta = languageById(language)?.beta === true;
-      const latinName = storedLanguageName(language);
       const stored: FormValues = {};
       for (const [key, value] of Object.entries(updates)) {
-        if (typeof value === 'string' && beta && hasNonLatinLetter(value)) {
-          if (key === 'preferred_language') stored[key] = latinName;
-          continue;
-        }
+        // The language picker owns preferred_language. Extraction guesses it from the
+        // utterance's script ("Hindi+English" for any mixed sentence), which overwrote the pick.
+        if (key === 'preferred_language') continue;
+        if (typeof value === 'string' && beta && hasNonLatinLetter(value)) continue;
         stored[key] = value;
       }
       setValues((prev) => {

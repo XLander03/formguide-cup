@@ -153,4 +153,23 @@ describe('FormSession active form', () => {
     expect(session.values.ovd_poi_type).toBe('driving_licence');
     vi.unstubAllGlobals();
   });
+
+  it('keeps the picked language as preferred_language when a sentence mixes Hindi and English', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    mount();
+    act(() => session.selectLanguage('bn'));
+    expect(session.values.preferred_language).toBe('Bengali');
+    await act(async () => {
+      await session.onSubmitUtterance('मेरा नाम Priya Sharma है, mobile 9876543210');
+    });
+    expect(session.values.mobile_registered).toBe('9876543210');
+    expect(session.values.preferred_language).toBe('Bengali');
+
+    act(() => session.selectLanguage('en'));
+    await act(async () => {
+      await session.onSubmitUtterance('मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है');
+    });
+    expect(session.values.preferred_language).toBe('English');
+    vi.unstubAllGlobals();
+  });
 });
