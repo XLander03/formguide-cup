@@ -2,12 +2,35 @@ import { useEffect, useState } from 'react';
 import { BankFields } from '../components/BankFields';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { languageLabel } from '../lib/languages';
+import { fieldLabel } from '../lib/schema';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { FieldGroups } from '../ui/fields';
 import { ArrowRightIcon, MicIcon, PauseIcon, PencilIcon, StopIcon, VolumeIcon } from '../ui/icons';
 import { useMic } from '../ui/useMic';
+
+function listLabels(ids: string[]): string {
+  const names = ids.slice(0, 3).map(fieldLabel);
+  return ids.length > 3 ? `${names.join(', ')} and ${ids.length - 3} more` : names.join(', ');
+}
+
+/** Why read-back and the gates are locked, or null when they are open. */
+export function readbackBlocker(session: {
+  canReadback: boolean;
+  busy: boolean;
+  missing: string[];
+  flaggedIds: string[];
+  invalidIds: string[];
+}): string | null {
+  if (session.canReadback && !session.busy) return null;
+  if (session.busy) return 'Still filling from your last answer…';
+  const parts: string[] = [];
+  if (session.missing.length > 0) parts.push(`Still empty: ${listLabels(session.missing)}.`);
+  if (session.invalidIds.length > 0) parts.push(`Fix the format of: ${listLabels(session.invalidIds)}.`);
+  if (session.flaggedIds.length > 0) parts.push(`Confirm with “Check this”: ${listLabels(session.flaggedIds)}.`);
+  return parts.length > 0 ? parts.join(' ') : 'Fill the required details first.';
+}
 
 export function ReviewPage() {
   const { go } = useRoute();
@@ -16,6 +39,7 @@ export function ReviewPage() {
   const [name, setName] = useState(String(session.values.applicant_full_name || ''));
   const spokenLanguage = languageLabel(session.language);
   const script = buildReadbackScript(session.values, session.readbackLang);
+  const blocker = readbackBlocker(session);
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
   });
@@ -51,6 +75,20 @@ export function ReviewPage() {
             {session.speaking ? <PauseIcon /> : <VolumeIcon />}
             {session.speaking ? 'Pause readback' : `Read in ${spokenLanguage}`}
           </button>
+          {blocker ? (
+            <div className="mt-3 text-xs">
+              <p className="text-saffron">Read-back unlocks once the draft is complete. {blocker}</p>
+              {!session.busy ? (
+                <button
+                  type="button"
+                  className="mt-2 font-semibold text-background underline underline-offset-2 hover:text-primary"
+                  onClick={() => go('/speak')}
+                >
+                  Finish on Speak &amp; fill
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {session.speaking && session.readbackInEnglish ? (
             <p className="mt-2 text-[11px] text-background/60">Read-back in English on this device</p>
           ) : null}
@@ -111,10 +149,8 @@ export function ReviewPage() {
           <BankFields form={session.form} values={session.values} onChange={session.onChange} />
         </div>
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
-          <p className="text-xs text-muted-foreground">
-            {session.invalidIds.length > 0
-              ? 'Fix the format errors above before the gates. Fields vary by bank.'
-              : 'Missing fields can stay blank in the draft. Fields vary by bank.'}
+          <p className={`max-w-md text-xs ${blocker ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {blocker ? `${blocker} Fields vary by bank.` : 'Ready for the gates. Fields vary by bank.'}
           </p>
           <button
             type="button"
