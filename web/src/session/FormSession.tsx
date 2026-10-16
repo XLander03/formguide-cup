@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { bankOnlyFields, formKey, parseStoredForm } from '../forms/activeForm';
+import { bankOnlyFields, formKey, isBundledForm, parseStoredForm } from '../forms/activeForm';
 import { HDFC_V1, aadhaarPartialFieldIds } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import { extractFields } from '../lib/extractClient';
@@ -116,6 +116,11 @@ function loadPersisted(): Persisted | null {
   }
 }
 
+/** A published bank form is for one journey. The bundled HDFC form covers all of them. */
+function lockedJourney(form: FormVersion): JourneyId | null {
+  return !isBundledForm(form) && isJourneyId(form.journey) ? form.journey : null;
+}
+
 /** Shared schema keys plus the active form's bank-only keys. */
 function formValueKeys(form: FormVersion): Set<string> {
   return new Set([...Object.keys(emptyValues()), ...bankOnlyFields(form).map((field) => field.id)]);
@@ -205,6 +210,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
   });
   const [form, setForm] = useState<FormVersion>(saved?.form ?? HDFC_V1);
+  // applyUpdates and onPriya are memoized without `form`; read the current one here.
+  const formRef = useRef(form);
+  formRef.current = form;
   const [micLang, setMicLangState] = useState<MicLang>(saved?.language === 'hi' ? 'hi-IN' : 'en-IN');
   const [values, setValues] = useState<FormValues>(() =>
     bootFlags.current ? priyaDemoValues() : seedValues(saved),
@@ -373,7 +381,13 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyUpdates = useCallback(
-    (updates: FormValues, response: ExtractResponse, utterance?: string) => {
+    (incoming: FormValues, response: ExtractResponse, utterance?: string) => {
+      // "Open an account" said while filling a bank's Re-KYC form must not retarget the draft.
+      const locked = lockedJourney(formRef.current);
+      const updates =
+        locked && incoming.journey_mode !== undefined && incoming.journey_mode !== locked
+          ? Object.fromEntries(Object.entries(incoming).filter(([key]) => key !== 'journey_mode'))
+          : incoming;
       // `applyUpdates` is memoized once (deps: [flash], which never
       // changes) — a `values` closure read here would be permanently
       // stale. Capture the resolved type from inside the setValues
@@ -544,6 +558,11 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
+    const locked = lockedJourney(formRef.current);
+    if (locked && persona.journey_mode !== locked) {
+      persona.journey_mode = locked;
+      if (locked !== 'account_opening') persona.account_product_intent = '';
+    }
     maskSensitiveFields(persona, persona, AADHAAR_PARTIAL_IDS);
     setValues(persona);
     // Demo-only: strict === true so a click event passed as arg never triggers flags.

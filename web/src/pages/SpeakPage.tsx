@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MissingFieldInputs } from '../components/MissingFieldInputs';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
@@ -45,6 +46,8 @@ const FIELDS: PreviewField[] = [
   { id: null, label: 'Employer / business', hint: 'Name', required: false, section: 'Occupation' },
   { id: null, label: 'Annual income', hint: 'Range', required: false, section: 'Occupation' },
 ];
+
+const SHOWN_IDS = new Set(FIELDS.map((field) => field.id).filter((id): id is string => Boolean(id)));
 
 const SECTIONS = ['Identity', 'Contact', 'Address', 'Proof of identity', 'Occupation'];
 
@@ -113,7 +116,11 @@ export function SpeakPage() {
       if (result.transcript) setSaid(result.transcript);
       if (result.error === 'fields_bad_json') {
         setMicNote('Heard you, but could not fill the fields. Try again in shorter parts.');
-      } else if (result.error) setMicNote(result.error);
+      } else if (result.error && /_503|unavailable|_429|rate_limited/.test(result.error)) {
+        setMicNote('Heard you, but the voice service is busy right now. Tap the mic and say it again, or type it into the field.');
+      } else if (result.error === 'network_error') {
+        setMicNote('Could not reach the voice service. Check your connection and try again.');
+      } else if (result.error) setMicNote(`Could not fill the fields (${result.error}). Try again, or type it into the field.`);
       else if (!result.transcript) setMicNote('Could not transcribe that clip.');
     });
   });
@@ -162,7 +169,9 @@ export function SpeakPage() {
     ? session.language === 'hi'
       ? 'ज़रूरी जानकारी पूरी'
       : 'Required details complete'
-    : asked?.label || (session.language === 'hi' ? 'अगला ज़रूरी फ़ील्ड' : 'Next required field');
+    : asked?.label ||
+      (session.missing[0] ? fieldLabel(session.missing[0]) : null) ||
+      (session.language === 'hi' ? 'अगला ज़रूरी फ़ील्ड' : 'Next required field');
   const askNextHint = askComplete
     ? formatLine
       ? 'Fix the format first · Fields vary by bank.'
@@ -428,6 +437,12 @@ export function SpeakPage() {
           </button>
         </div>
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5" style={{ maxHeight: 'calc(100vh - 230px)' }}>
+          <MissingFieldInputs
+            missing={session.missing}
+            shownIds={SHOWN_IDS}
+            values={session.values}
+            onChange={session.onChange}
+          />
           {SECTIONS.map((name, index) => {
             const stat = sectionStats[index];
             const rows = FIELDS.filter((field) => field.section === name);

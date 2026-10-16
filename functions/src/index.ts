@@ -167,6 +167,7 @@ function authHeaders(apiKey: string): Record<string, string> {
 
 /** Preferred field model. gemini-3.8-flash currently returns 503 UNAVAILABLE (high demand). */
 const FIELD_MODEL = 'gemini-3.5-flash-lite';
+const FIELD_RETRIES = 2;
 
 type SpeakFail = Error & { code: string; httpStatus: number };
 
@@ -382,9 +383,9 @@ async function fieldJson(
   refuse_live_submit: boolean;
   assistant_message: string;
 }> {
-  // Keep gemini-3.5-flash-lite (gemini-3.8-flash was 503 high-demand). No retry loop.
+  // Keep gemini-3.5-flash-lite (gemini-3.8-flash was 503 high-demand).
   const missingBefore = getMissingRequired(current);
-  const res = await fetch(`${API}/v1beta/interactions`, {
+  const request = {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -400,7 +401,15 @@ async function fieldJson(
         mime_type: 'application/json',
       },
     }),
-  });
+  };
+  // flash-lite returns intermittent 503 (high demand) and occasional 429. Without a retry the
+  // user's transcript is thrown away and the draft cannot progress, so retry those twice.
+  let res = await fetch(`${API}/v1beta/interactions`, request);
+  for (let attempt = 1; attempt <= FIELD_RETRIES && (res.status === 503 || res.status === 429); attempt++) {
+    console.warn('fields_retry', attempt, res.status);
+    await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+    res = await fetch(`${API}/v1beta/interactions`, request);
+  }
   if (!res.ok) throw await readGeminiError('fields', res);
   const data = (await res.json()) as {
     output_text?: unknown;
