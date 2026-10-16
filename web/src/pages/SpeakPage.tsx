@@ -114,6 +114,10 @@ export function SpeakPage() {
     setTurns((count) => count + 1);
     void session.onSubmitSpeakClip(wav).then((result) => {
       if (result.transcript) setSaid(result.transcript);
+      if (result.fallback) {
+        setMicNote('The voice service was busy, so I filled what I could from what you said. Check the fields below.');
+        return;
+      }
       if (result.error === 'fields_bad_json') {
         setMicNote('Heard you, but could not fill the fields. Try again in shorter parts.');
       } else if (result.error && /_503|unavailable|_429|rate_limited/.test(result.error)) {
