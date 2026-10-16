@@ -4,7 +4,7 @@ import { buildReadbackScript } from '../lib/heuristicExtract';
 import { languageLabel } from '../lib/languages';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
-import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
+import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { FieldGroups } from '../ui/fields';
 import { ArrowRightIcon, MicIcon, PauseIcon, PencilIcon, StopIcon, VolumeIcon } from '../ui/icons';
 import { useMic } from '../ui/useMic';
@@ -41,7 +41,7 @@ export function ReviewPage() {
           <p className="mt-3 font-display text-2xl leading-snug">“{script}”</p>
           <button
             type="button"
-            className={`${BTN_MD} mt-5 border-2 border-background bg-background text-foreground hover:border-primary hover:bg-primary hover:text-primary-foreground`}
+            className={`${BTN} ${BTN_MD} mt-5 border-2 border-background bg-background text-foreground hover:border-primary hover:bg-primary hover:text-primary-foreground`}
             disabled={!session.canReadback || session.busy}
             onClick={() => {
               if (session.speaking) session.onStopReadback();

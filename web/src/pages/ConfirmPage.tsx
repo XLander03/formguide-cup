@@ -5,7 +5,7 @@ import { buildDraftPdf } from '../lib/publishedPdfFill';
 import type { SchemaField } from '../lib/types';
 import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
-import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
+import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { displayValue } from '../ui/fields';
 import { CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
 import { useMic } from '../ui/useMic';
@@ -139,7 +139,7 @@ export function ConfirmPage() {
             <div className="mt-6 flex flex-wrap gap-3">
               <button
                 type="button"
-                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+                className={`${BTN} ${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
                 onClick={() => {
                   const blob = new Blob([JSON.stringify(draftPayload(session), null, 2)], {
                     type: 'application/json',
@@ -156,7 +156,7 @@ export function ConfirmPage() {
               </button>
               <button
                 type="button"
-                className={`${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+                className={`${BTN} ${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
                 disabled={pdfBusy}
                 onClick={() => void downloadPdf()}
               >
