@@ -142,6 +142,23 @@ export async function listPublishedFormVersions(): Promise<FormVersion[]> {
   return forms;
 }
 
+/**
+ * Source PDF bytes for a published form version, so the user side can fill the bank's own layout.
+ * Null when the version is missing, not published, or its PDF is not in Storage.
+ */
+export async function readPublishedFormPdf(formId: string, version: string): Promise<Buffer | null> {
+  ensureAdmin();
+  const snap = await versions(formId).doc(version).get();
+  if (!snap.exists) return null;
+  const data = snap.data() as Partial<FormVersion> | undefined;
+  if (data?.status !== 'published' || typeof data.pdfPath !== 'string') return null;
+  const file = getStorage().bucket().file(safeStoragePath(data.pdfPath));
+  const [exists] = await file.exists();
+  if (!exists) return null;
+  const [buf] = await file.download();
+  return buf;
+}
+
 export async function productionPublish(req: HttpReq, res: HttpRes): Promise<void> {
   ensureAdmin();
   await handlePublish(req, res, {

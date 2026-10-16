@@ -42,6 +42,13 @@
         }
       },
       {
+        "source": "/api/publishedFormPdf",
+        "function": {
+          "functionId": "publishedFormPdf",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

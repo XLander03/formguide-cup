@@ -23,6 +23,7 @@ export default defineConfig({
       '/api/ingestForm': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
       '/api/publishForm': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
       '/api/publishedForms': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
+      '/api/publishedFormPdf': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
     },
   },
   test: {

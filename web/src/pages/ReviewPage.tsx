@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BankFields } from '../components/BankFields';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { languageLabel } from '../lib/languages';
 import { useRoute } from '../routing/router';
@@ -100,13 +101,14 @@ export function ReviewPage() {
       <section className="px-5 py-7 lg:col-span-7 lg:px-8">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-[10px] uppercase text-primary">Grouped draft</p>
+            <p className="text-[10px] uppercase text-primary">Grouped draft · {session.form.bankId} form</p>
             <h2 className="mt-2 font-display text-4xl">Check what will be saved</h2>
           </div>
           <span className="border border-saffron px-2 py-1 text-[10px] font-semibold text-saffron">NOT SUBMITTED</span>
         </div>
         <div className="mt-6">
           <FieldGroups values={session.values} flashIds={session.flashIds} hindi={session.language === 'hi'} />
+          <BankFields form={session.form} values={session.values} onChange={session.onChange} />
         </div>
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
           <p className="text-xs text-muted-foreground">

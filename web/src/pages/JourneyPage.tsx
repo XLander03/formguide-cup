@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { PublishedFormRows } from '../components/PublishedFormRows';
+import { formKey } from '../forms/activeForm';
+import { HDFC_V1 } from '../forms/hdfcV1';
+import type { FormVersion } from '../forms/types';
 import type { JourneyId } from '../lib/journeys';
 import { LANGUAGES } from '../lib/languages';
+import { appliesToJourney } from '../lib/publishedForms';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
@@ -140,11 +144,14 @@ function GreenDots() {
 
 export function JourneyPage() {
   const { go } = useRoute();
-  const { language, selectLanguage, selectJourney, selectDraft } = useFormSession();
+  const { language, selectLanguage, selectJourney, selectDraft, form, selectForm } = useFormSession();
   const [listening, setListening] = useState(false);
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
   const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
+  const [pickedForm, setPickedForm] = useState<FormVersion>(form);
+  // A form published for another journey cannot be filled for this one.
+  const chosenForm = appliesToJourney(pickedForm, selected.journey) ? pickedForm : HDFC_V1;
 
   return (
     <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
@@ -247,7 +254,11 @@ export function JourneyPage() {
           <span className="hidden text-xs text-muted-foreground sm:block">Fields vary by bank.</span>
         </div>
 
-        <PublishedFormRows journey={selected.journey} />
+        <PublishedFormRows
+          journey={selected.journey}
+          selected={formKey(chosenForm)}
+          onSelect={setPickedForm}
+        />
 
         <div className="mt-6 grid gap-px border-2 border-foreground bg-foreground sm:grid-cols-2">
           {OPEN_CARDS.map((card) => {
@@ -312,10 +323,12 @@ export function JourneyPage() {
               if (language === null) selectLanguage('en');
               if (selected.product) selectDraft(selected.journey, selected.product);
               selectJourney(selected.journey);
+              selectForm(chosenForm);
               go('/speak');
             }}
           >
-            Start filling {selected.name} <ArrowRightIcon />
+            Start filling {selected.name}
+            {chosenForm.bankId ? ` · ${chosenForm.bankId}` : ''} <ArrowRightIcon />
           </button>
         </div>
       </section>

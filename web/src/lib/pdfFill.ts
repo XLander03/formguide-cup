@@ -39,7 +39,7 @@ function applyFieldMappings(form: PDFForm, values: FormValues, today = new Date(
   }
 }
 
-async function drawDraftWatermark(pdfDoc: PDFDocument): Promise<void> {
+export async function drawDraftWatermark(pdfDoc: PDFDocument): Promise<void> {
   const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   for (const page of pdfDoc.getPages()) {
     const { width, height } = page.getSize();

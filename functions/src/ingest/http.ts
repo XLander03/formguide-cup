@@ -70,6 +70,49 @@ export const publishedForms = onRequest(
   },
 );
 
+const SAFE_ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+/** Source PDF of a published form version. Drafts and retired versions return 404. */
+export const publishedFormPdf = onRequest(
+  {
+    region: 'us-central1',
+    memory: '256MiB',
+    maxInstances: 2,
+    minInstances: 0,
+    timeoutSeconds: 30,
+    concurrency: 1,
+    invoker: 'public',
+    cors: HOSTS,
+  },
+  async (req, res) => {
+    if (req.method !== 'GET') {
+      res.status(405).json({ error: 'method_not_allowed' });
+      return;
+    }
+    const formId = typeof req.query.formId === 'string' ? req.query.formId : '';
+    const version = typeof req.query.version === 'string' ? req.query.version : '';
+    if (!SAFE_ID.test(formId) || !SAFE_ID.test(version)) {
+      res.status(400).json({ error: 'invalid_input' });
+      return;
+    }
+    try {
+      const { readPublishedFormPdf } = await import('./production');
+      const bytes = await readPublishedFormPdf(formId, version);
+      if (!bytes) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+      res.set('Content-Type', 'application/pdf');
+      res.set('Cache-Control', 'public, max-age=300');
+      res.status(200).send(bytes);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'error';
+      console.error('published_form_pdf_failed', message);
+      res.status(500).json({ error: 'published_form_pdf_failed' });
+    }
+  },
+);
+
 export const publishForm = onRequest(
   {
     region: 'us-central1',

@@ -9,7 +9,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { aadhaarPartialFieldIds } from '../forms/hdfcV1';
+import { bankOnlyFields, formKey, parseStoredForm } from '../forms/activeForm';
+import { HDFC_V1, aadhaarPartialFieldIds } from '../forms/hdfcV1';
+import type { FormVersion } from '../forms/types';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
@@ -81,6 +83,8 @@ interface Persisted {
   journey: JourneyId | null;
   values: FormValues;
   confidence?: Record<string, FieldConfidence>;
+  /** Published form being filled. Absent or invalid means the bundled HDFC v1. */
+  form?: FormVersion;
 }
 
 function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
@@ -108,17 +112,29 @@ function loadPersisted(): Persisted | null {
     const journey = isJourneyId(data.journey) ? data.journey : null;
     const values =
       data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
-    return { language, journey, values, confidence: parseConfidence(data.confidence) };
+    return {
+      language,
+      journey,
+      values,
+      confidence: parseConfidence(data.confidence),
+      form: parseStoredForm(data.form) ?? HDFC_V1,
+    };
   } catch {
     return null;
   }
 }
 
+/** Shared schema keys plus the active form's bank-only keys. */
+function formValueKeys(form: FormVersion): Set<string> {
+  return new Set([...Object.keys(emptyValues()), ...bankOnlyFields(form).map((field) => field.id)]);
+}
+
 function seedValues(saved: Persisted | null): FormValues {
   const base = emptyValues();
+  const keys = formValueKeys(saved?.form ?? HDFC_V1);
   if (saved?.values) {
     for (const [key, value] of Object.entries(saved.values)) {
-      if (key in base && value !== undefined) {
+      if (keys.has(key) && value !== undefined) {
         base[key] =
           typeof value === 'string' || typeof value === 'boolean' || value === null
             ? normalizeInput(key, value)
@@ -180,6 +196,10 @@ export interface FormSessionValue {
   said: Record<string, string>;
   fieldSource: Record<string, string>;
   selectDraft: (id: JourneyId, product: string | null) => void;
+  /** Bundled HDFC v1, or a published form from Firestore. */
+  form: FormVersion;
+  /** Switching forms drops the previous form's bank-only answers. Shared answers stay. */
+  selectForm: (form: FormVersion) => void;
 }
 
 const FormSessionContext = createContext<FormSessionValue | null>(null);
@@ -194,6 +214,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     const persona = priyaDemoValues();
     return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
   });
+  const [form, setForm] = useState<FormVersion>(saved?.form ?? HDFC_V1);
   const [micLang, setMicLangState] = useState<MicLang>(languageById(saved?.language)?.bcp47 ?? 'en-IN');
   const [values, setValues] = useState<FormValues>(() =>
     bootFlags.current ? priyaDemoValues() : seedValues(saved),
@@ -262,9 +283,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const payload: Persisted = { language, journey, values, confidence };
+    const payload: Persisted = { language, journey, values, confidence, form };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [language, journey, values, confidence]);
+  }, [language, journey, values, confidence, form]);
 
   useEffect(() => {
     // Browsers show their own fixed confirmation text on refresh/close —
@@ -329,6 +350,29 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     }));
     setDraftReady(false);
   }, []);
+
+  const selectForm = useCallback(
+    (next: FormVersion) => {
+      if (formKey(next) === formKey(form)) return;
+      const keep = formValueKeys(next);
+      const shared = new Set(Object.keys(emptyValues()));
+      const dropped = (id: string) => !shared.has(id);
+      setForm(next);
+      setValues((prev) => {
+        const out: FormValues = {};
+        for (const [key, value] of Object.entries(prev)) if (shared.has(key)) out[key] = value;
+        for (const key of keep) if (!(key in out)) out[key] = '';
+        return out;
+      });
+      const prune = <T,>(prev: Record<string, T>) =>
+        Object.fromEntries(Object.entries(prev).filter(([id]) => !dropped(id)));
+      setConfidence(prune);
+      setSaid(prune);
+      setFieldSource(prune);
+      setDraftReady(false);
+    },
+    [form],
+  );
 
   const setMicLang = useCallback(
     (lang: MicLang) => {
@@ -783,6 +827,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     said,
     fieldSource,
     selectDraft,
+    form,
+    selectForm,
   };
 
   return <FormSessionContext.Provider value={value}>{children}</FormSessionContext.Provider>;
