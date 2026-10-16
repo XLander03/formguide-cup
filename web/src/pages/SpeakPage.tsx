@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { languageLabel } from '../lib/languages';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
@@ -201,7 +202,7 @@ export function SpeakPage() {
         <div className="flex items-center justify-between border-b border-background/15 px-5 py-3 text-[10px] uppercase tracking-wide text-background/70">
           <span className="flex items-center gap-2">
             <span className={`size-2 bg-primary ${listening ? 'bg-saffron' : ''}`} />
-            Voice companion · {session.language === 'hi' ? 'हिन्दी' : 'English'}
+            Voice companion · {languageLabel(session.language)}
           </span>
           <span>Turn {turns}</span>
         </div>
@@ -255,19 +256,26 @@ export function SpeakPage() {
                   : 'Asks next · missing required (one dump can fill many)'}
               </p>
               {session.readingBack ? (
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <p role="status" aria-live="polite">
-                    <span className="inline-block bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
-                      ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
-                    </span>
-                  </p>
-                  <button
-                    type="button"
-                    className="shrink-0 border-2 border-background bg-background px-3 py-1 text-[11px] font-bold uppercase text-foreground hover:bg-primary hover:text-primary-foreground"
-                    onClick={() => session.onStopReadback()}
-                  >
-                    Stop
-                  </button>
+                <div className="mt-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p role="status" aria-live="polite">
+                      <span className="inline-block bg-primary px-1.5 py-0.5 text-[10px] font-bold uppercase text-primary-foreground">
+                        ● {session.readbackLang === 'hi' ? 'पढ़कर सुना रहे हैं…' : 'Reading back…'}
+                      </span>
+                    </p>
+                    <button
+                      type="button"
+                      className="shrink-0 border-2 border-background bg-background px-3 py-1 text-[11px] font-bold uppercase text-foreground hover:bg-primary hover:text-primary-foreground"
+                      onClick={() => session.onStopReadback()}
+                    >
+                      Stop
+                    </button>
+                  </div>
+                  {session.readbackInEnglish ? (
+                    <p className="mt-1 text-[11px] font-normal normal-case text-background/60">
+                      Read-back in English on this device
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {session.readingBack ? null : askComplete && flagLine ? (

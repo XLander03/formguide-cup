@@ -1,10 +1,12 @@
+import { isSpeakLanguage, type SpeakLanguage } from './languages';
+
 /** Gate audio before any outbound Gemini request. */
 
 export const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 export const MAX_PCM_BYTES = 16000 * 2 * 45;
 
 export type SpeakParts = {
-  language: 'en-IN' | 'hi-IN';
+  language: SpeakLanguage;
   current: Record<string, unknown>;
   audio: Buffer;
 };
@@ -74,7 +76,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
     cursor = next;
   }
 
-  let language: 'en-IN' | 'hi-IN' | '' = '';
+  let language: SpeakLanguage | '' = '';
   let current: Record<string, unknown> = {};
   let audio: Buffer | null = null;
 
@@ -87,7 +89,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
     const name = nameMatch ? nameMatch[1] : '';
     if (name === 'language') {
       const value = body.toString('utf8').trim();
-      if (value === 'en-IN' || value === 'hi-IN') language = value;
+      if (isSpeakLanguage(value)) language = value;
     } else if (name === 'current_values') {
       const text = body.toString('utf8').trim();
       if (text) {
@@ -107,7 +109,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
 
   if (!audio || audio.length === 0) return { ok: false, error: 'empty_audio' };
   if (audio.length > MAX_AUDIO_BYTES) return { ok: false, error: 'audio_too_large' };
-  if (language !== 'en-IN' && language !== 'hi-IN') return { ok: false, error: 'bad_language' };
+  if (!isSpeakLanguage(language)) return { ok: false, error: 'bad_language' };
   const wav = inspectWav(audio);
   if (!wav.ok) return wav;
   return { ok: true, parts: { language, current, audio } };

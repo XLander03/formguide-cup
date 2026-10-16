@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export function useMic(lang: 'en-IN' | 'hi-IN', onFinal: (text: string) => void) {
+export function useMic(lang: string, onFinal: (text: string) => void) {
   const [listening, setListening] = useState(false);
   const [live, setLive] = useState('');
   const recogRef = useRef<SpeechRecognition | null>(null);
@@ -122,7 +122,7 @@ type RecSession = {
 };
 
 /** Live speak mic: PCM until stop or 45s, then one WAV. Does not auto-restart. */
-export function useSpeakMic(lang: 'en-IN' | 'hi-IN', onClip: (wav: Blob, lang: 'en-IN' | 'hi-IN') => void) {
+export function useSpeakMic(lang: string, onClip: (wav: Blob, lang: string) => void) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onClipRef = useRef(onClip);

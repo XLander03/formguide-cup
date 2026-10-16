@@ -22,15 +22,23 @@ import {
   isFilled,
   priyaDemoValues,
 } from '../lib/schema';
-import { speakForUtterance, stopSpeaking } from '../lib/tts';
+import { speak, speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
 import { invalidFieldIds, normalizeInput } from '../lib/validate';
 import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
+import {
+  hasNonLatinLetter,
+  languageByBcp47,
+  languageById,
+  resolveReadbackVoice,
+  storedLanguageName,
+  type MicLang,
+  type ShellLanguage,
+} from '../lib/languages';
 
 const AADHAAR_PARTIAL_IDS = aadhaarPartialFieldIds();
 
-export type ShellLanguage = 'en' | 'hi';
-export type MicLang = 'en-IN' | 'hi-IN';
+export type { MicLang, ShellLanguage };
 
 const STORAGE_KEY = 'formguide.cup.session.v2';
 
@@ -96,7 +104,7 @@ function loadPersisted(): Persisted | null {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw) as Partial<Persisted>;
-    const language = data.language === 'hi' || data.language === 'en' ? data.language : null;
+    const language = languageById(typeof data.language === 'string' ? data.language : null)?.id ?? null;
     const journey = isJourneyId(data.journey) ? data.journey : null;
     const values =
       data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
@@ -120,7 +128,7 @@ function seedValues(saved: Persisted | null): FormValues {
   }
   if (saved?.journey) base.journey_mode = saved.journey;
   else if (!base.journey_mode) base.journey_mode = 'account_opening';
-  if (saved?.language) base.preferred_language = saved.language === 'hi' ? 'Hindi' : 'English';
+  if (saved?.language) base.preferred_language = storedLanguageName(saved.language);
   else if (!base.preferred_language) base.preferred_language = 'English';
   if (base.journey_mode === 'account_opening' && !base.account_product_intent) {
     base.account_product_intent = 'regular_savings';
@@ -140,6 +148,8 @@ export interface FormSessionValue {
   speaking: boolean;
   /** True only while the read-back script is being spoken (not next-ask TTS). */
   readingBack: boolean;
+  /** Beta language had no Web Speech voice, so this read-back is spoken in English. */
+  readbackInEnglish: boolean;
   last: ExtractResponse | null;
   flashIds: Set<string>;
   refuseMsg: string | null;
@@ -184,13 +194,14 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     const persona = priyaDemoValues();
     return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
   });
-  const [micLang, setMicLangState] = useState<MicLang>(saved?.language === 'hi' ? 'hi-IN' : 'en-IN');
+  const [micLang, setMicLangState] = useState<MicLang>(languageById(saved?.language)?.bcp47 ?? 'en-IN');
   const [values, setValues] = useState<FormValues>(() =>
     bootFlags.current ? priyaDemoValues() : seedValues(saved),
   );
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [readingBack, setReadingBack] = useState(false);
+  const [readbackInEnglish, setReadbackInEnglish] = useState(false);
   const [last, setLast] = useState<ExtractResponse | null>(null);
   const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
   const [refuseMsg, setRefuseMsg] = useState<string | null>(null);
@@ -280,16 +291,19 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   }, [hasProgress]);
 
   useEffect(() => {
-    document.documentElement.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
+    document.documentElement.lang = languageById(language)?.bcp47 ?? 'en-IN';
   }, [language]);
 
   const applyShellLanguage = useCallback((lang: ShellLanguage) => {
-    setLanguage(lang);
-    setMicLangState(lang === 'hi' ? 'hi-IN' : 'en-IN');
+    const option = languageById(lang);
+    if (!option) return;
+    setLanguage(option.id);
+    setMicLangState(option.bcp47);
     setValues((prev) => ({
       ...prev,
-      preferred_language: lang === 'hi' ? 'Hindi' : 'English',
+      preferred_language: option.englishName,
     }));
+    setReadbackInEnglish(false);
     setDraftReady(false);
   }, []);
 
@@ -318,7 +332,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const setMicLang = useCallback(
     (lang: MicLang) => {
-      applyShellLanguage(lang === 'hi-IN' ? 'hi' : 'en');
+      const option = languageByBcp47(lang);
+      if (option) applyShellLanguage(option.id);
     },
     [applyShellLanguage],
   );
@@ -330,15 +345,24 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const applyUpdates = useCallback(
     (updates: FormValues, response: ExtractResponse, utterance?: string) => {
-      // `applyUpdates` is memoized once (deps: [flash], which never
-      // changes) — a `values` closure read here would be permanently
-      // stale. Capture the resolved type from inside the setValues
+      // `applyUpdates` is memoized on [flash, language], not `values` — a
+      // `values` closure read here would be stale. Capture the resolved type from inside the setValues
       // updater instead, which always runs against the current `prev`.
       let resolvedPoiType: FormValues['ovd_poi_type'];
       let resolvedPoaType: FormValues['ovd_poa_type'];
+      const beta = languageById(language)?.beta === true;
+      const latinName = storedLanguageName(language);
+      const stored: FormValues = {};
+      for (const [key, value] of Object.entries(updates)) {
+        if (typeof value === 'string' && beta && hasNonLatinLetter(value)) {
+          if (key === 'preferred_language') stored[key] = latinName;
+          continue;
+        }
+        stored[key] = value;
+      }
       setValues((prev) => {
         const next = { ...prev };
-        for (const [key, value] of Object.entries(updates)) {
+        for (const [key, value] of Object.entries(stored)) {
           if (value === undefined) continue;
           // Merge only provided keys; do not clear an already-filled value with empty/null.
           if ((value === null || value === '') && prev[key] !== undefined && prev[key] !== null && prev[key] !== '') {
@@ -361,7 +385,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         const clip = utterance.trim().replace(/\s+/g, ' ');
         setSaid((prev) => {
           const next = { ...prev };
-          for (const [key, value] of Object.entries(updates)) {
+          for (const [key, value] of Object.entries(stored)) {
             if (value === undefined) continue;
             // The masked *value* is useless if the full Aadhaar number is
             // still sitting unmasked in the quoted "said" transcript right
@@ -378,7 +402,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       setConfidence((prev) => {
         const next = { ...prev };
         const conf = response.field_confidence ?? {};
-        for (const [key, value] of Object.entries(updates)) {
+        for (const [key, value] of Object.entries(stored)) {
           if (value === undefined || value === null || value === '') continue;
           const c = conf[key];
           const score = c && typeof c.confidence === 'number' ? c.confidence : 1;
@@ -388,13 +412,13 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       });
       setFieldSource((prev) => {
         const next = { ...prev };
-        for (const [key, value] of Object.entries(updates)) {
+        for (const [key, value] of Object.entries(stored)) {
           if (value !== undefined) next[key] = response.source;
         }
         return next;
       });
-      if (isJourneyId(updates.journey_mode)) setJourney(updates.journey_mode);
-      flash(Object.keys(updates));
+      if (isJourneyId(stored.journey_mode)) setJourney(stored.journey_mode);
+      flash(Object.keys(stored));
       setLast(response);
       if (response.refuse_live_submit) {
         setRefuseMsg(
@@ -403,7 +427,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-    [flash],
+    [flash, language],
   );
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
@@ -497,6 +521,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     stopSpeaking();
     setSpeaking(false);
     setReadingBack(false);
+    setReadbackInEnglish(false);
     setRefuseMsg(null);
     setDraftReady(false);
     const persona = priyaDemoValues();
@@ -570,9 +595,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     stopSpeaking();
     setSpeaking(false);
     setReadingBack(false);
+    setReadbackInEnglish(false);
     const next = emptyValues();
     if (journey) next.journey_mode = journey;
-    if (language) next.preferred_language = language === 'hi' ? 'Hindi' : 'English';
+    if (language) next.preferred_language = storedLanguageName(language);
     setValues(next);
     setConfidence({});
     setLast(null);
@@ -605,7 +631,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
    * Each run owns its timers; finishing one run never touches another run's timers.
    */
   const watchReadback = useCallback(
-    (id: number, text: string, lang: UtteranceLang): Promise<void> =>
+    (
+      id: number,
+      text: string,
+      lang: UtteranceLang,
+      speech?: { lang: string; voice: SpeechSynthesisVoice },
+    ): Promise<void> =>
       new Promise<void>((resolve) => {
         let settled = false;
         let started = false;
@@ -641,15 +672,19 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           finish();
         }, capMs);
         readbackRun.current = { id, finish, startedAt };
-        log(`speak called (chars=${text.length}, capMs=${capMs}, lang=${lang})`);
-        speakForUtterance(text, lang, {
+        log(`speak called (chars=${text.length}, capMs=${capMs}, lang=${speech?.lang ?? lang})`);
+        const hooks = {
           onStart: () => {
             started = true;
             log('onstart');
           },
           onEnd: () => log('onend'),
-          onError: (error) => log('onerror', error),
-        }).then(finish, finish);
+          onError: (error: string) => log('onerror', error),
+        };
+        const spoken = speech
+          ? speak(text, speech.lang, hooks, speech.voice)
+          : speakForUtterance(text, lang, hooks);
+        spoken.then(finish, finish);
       }),
     [],
   );
@@ -663,6 +698,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     }
     const id = ++readbackSeq.current;
     const script = buildReadbackScript(values, readbackLang);
+    const plan = await resolveReadbackVoice(micLang);
+    if (readbackSeq.current !== id) return;
+    setReadbackInEnglish(plan.fellBackToEnglish);
     setLast((prev) => ({
       field_updates: {},
       missing_required: missing,
@@ -677,17 +715,19 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setSpeaking(true);
     setReadingBack(true);
     try {
-      await watchReadback(id, script, readbackLang);
+      await watchReadback(id, script, readbackLang, plan.speech);
     } finally {
       // A newer read-back owns the speaking state once it has started.
       if (readbackSeq.current === id) {
         setSpeaking(false);
         setReadingBack(false);
+        setReadbackInEnglish(false);
       }
     }
-  }, [values, missing, completeness, readbackLang, watchReadback, canReadback]);
+  }, [values, missing, completeness, readbackLang, micLang, watchReadback, canReadback]);
 
   const onStopReadback = useCallback(() => {
+    readbackSeq.current += 1;
     stopSpeaking();
     const run = readbackRun.current;
     if (run) {
@@ -696,6 +736,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     }
     setSpeaking(false);
     setReadingBack(false);
+    setReadbackInEnglish(false);
   }, []);
 
   const emitDraft = useCallback(() => {
@@ -714,6 +755,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     busy,
     speaking,
     readingBack,
+    readbackInEnglish,
     last,
     flashIds,
     refuseMsg,

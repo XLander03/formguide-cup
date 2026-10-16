@@ -12,6 +12,13 @@ import {
 import { readSpeakRequest } from './wav';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
+import {
+  enforceLatinFieldValues,
+  fieldScriptNote,
+  hasNonLatinLetter,
+  isBetaSpeakLanguage,
+  type SpeakLanguage,
+} from './languages';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 // Optional. If unset, transcription has no fallback and a Gemini outage
@@ -255,7 +262,7 @@ async function deleteUploaded(apiKey: string, name: string): Promise<void> {
   await fetch(`${API}/v1beta/${name}`, { method: 'DELETE', headers: authHeaders(apiKey) });
 }
 
-async function transcribe(apiKey: string, uri: string, language: 'en-IN' | 'hi-IN'): Promise<string> {
+async function transcribe(apiKey: string, uri: string, language: SpeakLanguage): Promise<string> {
   const res = await fetch(`${API}/v1beta/interactions`, {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
@@ -286,14 +293,18 @@ const GROQ_API = 'https://api.groq.com/openai/v1/audio/transcriptions';
  * Groq's Whisper endpoint takes the raw WAV directly — no upload step,
  * unlike Gemini's file-then-transcribe flow.
  */
-async function transcribeWithGroq(apiKey: string, wav: Buffer, language: 'en-IN' | 'hi-IN'): Promise<string> {
+/** Whisper language codes for the speak hints. Odia is not a Whisper language, so it auto-detects. */
+const WHISPER_LANGS = new Set(['en', 'hi', 'bn', 'mr', 'te', 'gu', 'kn', 'ml', 'pa', 'as', 'sd']);
+
+async function transcribeWithGroq(apiKey: string, wav: Buffer, language: SpeakLanguage): Promise<string> {
   const form = new FormData();
   // Buffer's ArrayBufferLike vs BlobPart's stricter ArrayBuffer typing
   // mismatch (SharedArrayBuffer edge case) — Blob accepts a Buffer fine
   // at runtime, this is a typing-only cast.
   form.append('file', new Blob([wav as unknown as BlobPart], { type: 'audio/wav' }), 'speak.wav');
   form.append('model', 'whisper-large-v3');
-  form.append('language', language === 'hi-IN' ? 'hi' : 'en');
+  const whisperLang = language.split('-')[0];
+  if (WHISPER_LANGS.has(whisperLang)) form.append('language', whisperLang);
   form.append('response_format', 'json');
   const res = await fetch(GROQ_API, {
     method: 'POST',
@@ -316,13 +327,14 @@ async function transcribeWithGroq(apiKey: string, wav: Buffer, language: 'en-IN'
 
 function fieldPrompt(
   transcript: string,
-  language: 'en-IN' | 'hi-IN',
+  language: SpeakLanguage,
   current: FormValues,
   missing: string[],
 ): string {
   const filled = Object.fromEntries(
     Object.entries(current).filter(([, value]) => isFilled(value)),
   );
+  const scriptNote = fieldScriptNote(language);
   return `You are FormGuide extract for India BFSI account-opening and KYC demo schema aof_kyc_demo_v1.
 Page language: ${language}. Transcript may be English or Hindi (or mixed).
 
@@ -360,7 +372,7 @@ next_ask:
 
 OTHER:
 - refuse_live_submit true only if user asks to submit/send to a bank.
-- assistant_message must include the exact English sentence "Fields vary by bank."
+- assistant_message must include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}
 
 Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
@@ -372,7 +384,7 @@ Return JSON: field_updates (id → {value, confidence, reason?}), next_ask, repl
 async function fieldJson(
   apiKey: string,
   transcript: string,
-  language: 'en-IN' | 'hi-IN',
+  language: SpeakLanguage,
   current: FormValues,
 ): Promise<{
   field_updates: FormValues;
@@ -428,8 +440,9 @@ async function fieldJson(
     console.error('fields_bad_json', text.length);
     throw speakFail('fields_bad_json', 502);
   }
-  const hindi = parsed.reply_lang === 'hi' || /[\u0900-\u097F]/.test(transcript);
-  const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
+  const devanagari = /[\u0900-\u097F]/.test(transcript);
+  let replyLang: 'hi' | 'en' = parsed.reply_lang === 'hi' || devanagari ? 'hi' : 'en';
+  if (isBetaSpeakLanguage(language) && !devanagari) replyLang = 'en';
   const rawUpdates =
     parsed.field_updates && typeof parsed.field_updates === 'object' && !Array.isArray(parsed.field_updates)
       ? (parsed.field_updates as Record<string, unknown>)
@@ -439,7 +452,10 @@ async function fieldJson(
       ? (parsed.field_confidence as Record<string, unknown>)
       : {};
   const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
-  const updates = sanitizeUpdates(mergedIncoming);
+  const updates = enforceLatinFieldValues(sanitizeUpdates(mergedIncoming), language);
+  for (const key of Object.keys(meta)) {
+    if (!(key in updates)) delete meta[key];
+  }
   const merged: FormValues = { ...current, ...updates };
   // Aadhaar must never leave this function unmasked (schema requires last-4 only).
   // Resolve type from `merged` — it may have been set in an earlier turn.
@@ -452,8 +468,12 @@ async function fieldJson(
     );
   const askTable = replyLang === 'hi' ? HI_ASK : EN_ASK;
   const modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
-  const nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
+  let nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
+  if (isBetaSpeakLanguage(language) && nextAsk && hasNonLatinLetter(nextAsk)) {
+    nextAsk = buildNextAsk(missing, 'en', EN_ASK, null);
+  }
   let message = typeof parsed.assistant_message === 'string' ? parsed.assistant_message.trim() : '';
+  if (isBetaSpeakLanguage(language) && hasNonLatinLetter(message)) message = '';
   if (!message) message = nextAsk || 'Draft updated.';
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
   return {

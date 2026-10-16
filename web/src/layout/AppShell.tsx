@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { languageLabel } from '../lib/languages';
 import { useRoute, type RoutePath } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { FileTextIcon, LockIcon } from '../ui/icons';
@@ -27,7 +28,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { path, go } = useRoute();
   const { language } = useFormSession();
   const stepIndex = path === '/' ? 0 : path === '/journey' ? 1 : path === '/speak' ? 2 : path === '/review' ? 3 : 4;
-  const languageLabel = language === 'hi' ? 'हिन्दी' : 'English';
+  const shellLanguage = languageLabel(language);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -47,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
         </button>
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="hidden border border-foreground/20 px-2 py-1 sm:inline">{languageLabel}</span>
+          <span className="hidden border border-foreground/20 px-2 py-1 sm:inline">{shellLanguage}</span>
           <span className="flex items-center gap-1 border border-saffron bg-saffron/10 px-2 py-1 font-semibold text-saffron">
             <LockIcon className="size-3" /> DRAFT ONLY
           </span>
