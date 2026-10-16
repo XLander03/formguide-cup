@@ -191,7 +191,10 @@ export interface FormSessionValue {
   setMicLang: (lang: MicLang) => void;
   onChange: (id: string, value: string | boolean | null) => void;
   onSubmitUtterance: (text: string) => Promise<void>;
-  onSubmitSpeakClip: (wav: Blob) => Promise<{ transcript: string | null; error: string | null }>;
+  /** `fallback` means the field model failed and the transcript was filled locally instead. */
+  onSubmitSpeakClip: (
+    wav: Blob,
+  ) => Promise<{ transcript: string | null; error: string | null; fallback?: boolean }>;
   /** Pass true for the demo-only low-confidence variant (DOB + mobile flagged). */
   onPriya: (withFlags?: boolean) => void;
   onClear: () => void;
@@ -534,7 +537,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
 
   const onSubmitSpeakClip = useCallback(
-    async (wav: Blob): Promise<{ transcript: string | null; error: string | null }> => {
+    async (wav: Blob): Promise<{ transcript: string | null; error: string | null; fallback?: boolean }> => {
       setBusy(true);
       setRefuseMsg(null);
       setDraftReady(false);
@@ -548,10 +551,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         const res = await fetch('/api/speak', { method: 'POST', body, signal: ctrl.signal });
         const data = (await res.json()) as ExtractResponse & { transcript?: string; error?: string };
         if (!res.ok) {
-          return {
-            transcript: typeof data?.transcript === 'string' ? data.transcript : null,
-            error: typeof data?.error === 'string' ? data.error : `speak_${res.status}`,
-          };
+          const transcript = typeof data?.transcript === 'string' ? data.transcript : null;
+          const error = typeof data?.error === 'string' ? data.error : `speak_${res.status}`;
+          // Transcription worked but the field model did not (usually 503 high demand).
+          // Fill from the transcript with the local extractor rather than dropping what was said.
+          if (transcript?.trim() && error.startsWith('fields_')) {
+            const local = await extractFields(transcript, values);
+            applyUpdates(local.field_updates, local, transcript);
+            return { transcript, error: null, fallback: true };
+          }
+          return { transcript, error };
         }
         if (!data || !data.field_updates || typeof data.transcript !== 'string') {
           return { transcript: null, error: 'bad_response' };

@@ -129,4 +129,28 @@ describe('FormSession active form', () => {
     expect(session.journey).toBe('account_opening');
     vi.unstubAllGlobals();
   });
+
+  it('fills from the transcript when the speak field model is unavailable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/speak') {
+          return new Response(
+            JSON.stringify({ transcript: 'My driving license number is MH1220110012345.', error: 'fields_503_unavailable' }),
+            { status: 503 },
+          );
+        }
+        throw new Error('offline');
+      }),
+    );
+    mount();
+    let result: Awaited<ReturnType<FormSessionValue['onSubmitSpeakClip']>> | undefined;
+    await act(async () => {
+      result = await session.onSubmitSpeakClip(new Blob(['x'], { type: 'audio/wav' }));
+    });
+    expect(result).toEqual({ transcript: 'My driving license number is MH1220110012345.', error: null, fallback: true });
+    expect(session.values.ovd_poi_number).toBe('MH1220110012345');
+    expect(session.values.ovd_poi_type).toBe('driving_licence');
+    vi.unstubAllGlobals();
+  });
 });
