@@ -99,10 +99,15 @@ describe('publishForm', () => {
     assert.equal(saved?.fields[0]?.label, 'PAN number');
   });
 
-  it('treats confidence 0.8 as high enough to publish unchecked', async () => {
-    const deps = memoryPublish([version([field({ id: 'email', confidence: 0.8, checked: false })])]);
-    const res = mockRes();
-    await handlePublish({ method: 'POST', body: { formId: 'hdfc_aof', version: 'v1' }, headers: { authorization: 'Bearer admin' } }, res, deps);
-    assert.equal(res.statusCode, 200);
+  it('blocks an unchecked field at exactly 0.85 and accepts one just above it', async () => {
+    const atLine = memoryPublish([version([field({ id: 'email', confidence: 0.85, checked: false })])]);
+    const atRes = mockRes();
+    await handlePublish({ method: 'POST', body: { formId: 'hdfc_aof', version: 'v1' }, headers: { authorization: 'Bearer admin' } }, atRes, atLine);
+    assert.equal(atRes.statusCode, 400);
+
+    const above = memoryPublish([version([field({ id: 'email', confidence: 0.86, checked: false })])]);
+    const aboveRes = mockRes();
+    await handlePublish({ method: 'POST', body: { formId: 'hdfc_aof', version: 'v1' }, headers: { authorization: 'Bearer admin' } }, aboveRes, above);
+    assert.equal(aboveRes.statusCode, 200);
   });
 });

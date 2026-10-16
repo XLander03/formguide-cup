@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FormVersion } from '../../../shared/forms/types';
 import { FieldReview } from './FieldReview';
 import { placeholderFormVersion } from './placeholderForm';
 import { setViewport } from '../test/viewport';
@@ -48,20 +49,41 @@ function renderReview(width: number) {
 describe('FieldReview', () => {
   beforeEach(() => setViewport(1365));
 
-  it('sorts lowest confidence first and links rows with boxes at 1365px', async () => {
+  it('lists only fields at or below 85% for review, lowest first, and links rows with boxes at 1365px', async () => {
     const user = userEvent.setup();
     renderReview(1365);
 
-    expect(screen.getByRole('table')).toBeInTheDocument();
-    const labels = screen.getAllByRole('textbox', { name: 'Label' });
+    const review = screen.getByRole('table', { name: 'Fields needing review' });
+    const labels = within(review).getAllByRole('textbox', { name: 'Label' });
+    expect(labels).toHaveLength(8);
     expect(labels[0]).toHaveValue('Annual income');
+    expect(within(review).queryByDisplayValue('Full name')).not.toBeInTheDocument();
+    expect(screen.getByText(/Auto-accepted · 4 fields above 85%/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
 
     fireEvent.click(labels[0].closest('tr') as HTMLElement);
     expect(screen.getByRole('button', { name: 'Annual income field' })).toHaveAttribute('aria-pressed', 'true');
 
+    await user.click(screen.getByRole('button', { name: 'PAN field' }));
+    expect(within(review).getByDisplayValue('PAN').closest('tr')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('draws auto-accepted boxes only on request, and resize handles only on the selected box', async () => {
+    const user = userEvent.setup();
+    renderReview(1365);
+
+    expect(screen.queryByRole('button', { name: 'Full name field' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: /^Resize / })).toHaveLength(0);
+
+    await user.click(screen.getByRole('button', { name: 'PAN field' }));
+    expect(screen.getAllByRole('button', { name: /^Resize / }).map((node) => node.getAttribute('aria-label'))).toEqual([
+      'Resize PAN',
+    ]);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Show auto-accepted boxes' }));
     await user.click(screen.getByRole('button', { name: 'Full name field' }));
-    expect(screen.getByDisplayValue('Full name').closest('tr')).toHaveAttribute('aria-selected', 'true');
+    const auto = screen.getByRole('table', { name: 'Auto-accepted fields' });
+    expect(within(auto).getByDisplayValue('Full name').closest('tr')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('drags a box and snaps it inside the page', async () => {
@@ -81,30 +103,33 @@ describe('FieldReview', () => {
       },
     });
 
-    const box = screen.getByRole('button', { name: 'Full name field' });
+    // Mobile box at x 48, 200pt wide, y 700-724: screen top 118.
+    const box = screen.getByRole('button', { name: 'Mobile field' });
     await act(async () => {
-      box.dispatchEvent(pointerAt('pointerdown', 188, 70));
-      window.dispatchEvent(pointerAt('pointermove', 228, 70));
-      window.dispatchEvent(pointerAt('pointerup', 228, 70));
+      box.dispatchEvent(pointerAt('pointerdown', 148, 130));
+      window.dispatchEvent(pointerAt('pointermove', 188, 130));
+      window.dispatchEvent(pointerAt('pointerup', 188, 130));
     });
 
     const positioned = box.parentElement as HTMLDivElement;
     expect(positioned.style.left).toBe(`${(88 / 595) * 100}%`);
   });
 
-  it('publishes only after low-confidence rows are checked and confirmed', async () => {
+  it('publishes once every low-confidence field is confirmed or removed', async () => {
     const user = userEvent.setup();
     const { publish } = renderReview(1365);
     const publishButton = screen.getByRole('button', { name: 'Publish' });
     expect(publishButton).toBeDisabled();
 
-    const checks = screen.getAllByRole('checkbox', { name: 'Checked' });
-    await user.click(checks[0]);
+    await user.click(screen.getByRole('button', { name: 'Remove Annual income' }));
+    expect(screen.queryByDisplayValue('Annual income')).not.toBeInTheDocument();
     expect(publishButton).toBeDisabled();
 
-    for (const check of checks) {
-      if (!(check as HTMLInputElement).checked) await user.click(check);
-    }
+    const checks = screen.getAllByRole('checkbox', { name: /^Confirm / });
+    expect(checks).toHaveLength(7);
+    for (const check of checks.slice(0, -1)) await user.click(check);
+    expect(publishButton).toBeDisabled();
+    await user.click(checks[checks.length - 1]);
     expect(publishButton).toBeEnabled();
     await user.click(publishButton);
 
@@ -112,7 +137,20 @@ describe('FieldReview', () => {
     expect(dialog).toHaveTextContent('Publish this form?');
     await user.click(within(dialog).getByRole('button', { name: 'Publish' }));
     expect(publish).toHaveBeenCalledTimes(1);
+    const sent = (publish.mock.calls[0] as unknown as [FormVersion])[0];
+    expect(sent.fields).toHaveLength(11);
+    expect(sent.fields.some((field) => field.id === 'annual_income')).toBe(false);
+    expect(sent.fields.every((field) => field.checked)).toBe(true);
     expect(await screen.findByRole('status')).toHaveTextContent('Published.');
+  });
+
+  it('brings a removed field back with Undo', async () => {
+    const user = userEvent.setup();
+    renderReview(1365);
+    await user.click(screen.getByRole('button', { name: 'Remove PAN' }));
+    expect(screen.queryByDisplayValue('PAN')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByDisplayValue('PAN')).toBeInTheDocument();
   });
 
   it('stacks the field list at about 400px', async () => {
@@ -120,7 +158,7 @@ describe('FieldReview', () => {
     renderReview(400);
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    const list = screen.getByRole('list', { name: 'Fields' });
+    const list = screen.getByRole('list', { name: 'Fields needing review' });
     expect(list).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Page 1' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Page 2' })).toBeInTheDocument();

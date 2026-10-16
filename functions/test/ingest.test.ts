@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FormVersion } from '../../shared/forms/types';
+import { AUTO_ACCEPT_ABOVE } from '../../shared/forms/review';
 import { draftFromPdf } from '../src/ingest/draft';
 import { handleIngest } from '../src/ingest/handlers';
 import { buildOcrPrompt, type OcrField } from '../src/ingest/geminiOcr';
@@ -47,7 +48,7 @@ describe('ingestForm', () => {
     assert.equal(name?.required, true);
     assert.equal(name?.pii, true);
     assert.equal(name?.confidence, 1);
-    assert.equal(name?.checked, false);
+    assert.equal(name?.checked, true, 'above AUTO_ACCEPT_ABOVE is accepted at ingest');
     assert.equal(name?.page, 1);
     assert.equal(name?.pdfField, 'applicant_full_name');
     assert.equal(name?.maxChars, 120);
@@ -57,7 +58,7 @@ describe('ingestForm', () => {
     assert.ok(mother);
     assert.equal(mother?.id, 'custom_mother_maiden_name');
     assert.equal(mother?.pii, true);
-    assert.ok((mother?.confidence ?? 1) < 0.8);
+    assert.ok((mother?.confidence ?? 1) <= AUTO_ACCEPT_ABOVE);
     assert.equal(mother?.checked, false);
 
     assert.equal(byId.get('photo_consent')?.type, 'checkbox');
@@ -87,6 +88,7 @@ describe('ingestForm', () => {
     assert.equal(dob?.type, 'date');
     assert.equal(dob?.required, true);
     assert.equal(dob?.confidence, 0.91);
+    assert.equal(dob?.checked, true);
     assert.equal(dob?.pii, true);
     assert.equal(dob?.page, 1);
     assert.deepEqual(dob?.box, { x: 61.2, y: 594, w: 244.8, h: 39.6 });
@@ -95,6 +97,7 @@ describe('ingestForm', () => {
     assert.equal(custom?.pii, true);
     assert.equal(custom?.required, true);
     assert.equal(custom?.confidence, 0.42);
+    assert.equal(custom?.checked, false);
     assert.equal(custom?.page, 2);
     assert.equal(JSON.stringify(calls).includes(SENTINEL), false);
   });

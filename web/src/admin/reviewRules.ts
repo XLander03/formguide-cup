@@ -1,14 +1,15 @@
+import { AUTO_ACCEPT_ABOVE, isAutoAccepted, unconfirmedLowConfidence } from '../../../shared/forms/review';
 import type { FieldRecord } from '../../../shared/forms/types';
 
-/** Rows under this confidence must be checked before publish. */
-export const CONFIDENCE_CHECK_BELOW = 0.8;
+export { AUTO_ACCEPT_ABOVE, isAutoAccepted };
 
+/** A field at or below the threshold that the admin has not confirmed yet. */
 export function needsConfidenceCheck(field: FieldRecord): boolean {
-  return field.confidence < CONFIDENCE_CHECK_BELOW && !field.checked;
+  return !isAutoAccepted(field.confidence) && !field.checked;
 }
 
 export function publishBlocked(fields: FieldRecord[]): boolean {
-  return fields.some(needsConfidenceCheck);
+  return unconfirmedLowConfidence(fields).length > 0;
 }
 
 export function fieldsByLowestConfidence(fields: FieldRecord[]): FieldRecord[] {

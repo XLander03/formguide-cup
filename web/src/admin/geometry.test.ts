@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clientToPdf, moveBox, pdfBoxToScreen, resizeBox, snapBox } from './geometry';
+import { boxStyle, clientToPdf, moveBox, pdfBoxToScreen, resizeBox, snapBox } from './geometry';
 
 const page = { width: 100, height: 200 };
 
@@ -35,5 +35,10 @@ describe('pdf box geometry', () => {
     expect(moved.y).toBe(36);
     const resized = resizeBox(10, 80, { x: 55, y: 40 }, { width: 200, height: 200 });
     expect(resized).toEqual({ x: 12, y: 40, w: 44, h: 40 });
+  });
+
+  it('draws a box that runs past the page edge at the edge', () => {
+    const style = boxStyle({ x: 80, y: -10, w: 40, h: 20 }, page);
+    expect(style).toEqual({ left: '60%', top: '90%', width: '40%', height: '10%' });
   });
 });
