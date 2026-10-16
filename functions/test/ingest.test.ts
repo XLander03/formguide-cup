@@ -59,7 +59,9 @@ describe('ingestForm', () => {
     assert.equal(mother?.id, 'custom_mother_maiden_name');
     assert.equal(mother?.pii, true);
     assert.ok((mother?.confidence ?? 1) <= AUTO_ACCEPT_ABOVE);
-    assert.equal(mother?.checked, false);
+    // A bank-only AcroForm widget is certain (name, type and box come from the PDF); its low
+    // score is only the library-match score, so it is accepted without review.
+    assert.equal(mother?.checked, true);
 
     assert.equal(byId.get('photo_consent')?.type, 'checkbox');
     assert.equal(byId.get('photo_consent')?.page, 1);

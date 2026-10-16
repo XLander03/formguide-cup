@@ -49,16 +49,17 @@ function renderReview(width: number) {
 describe('FieldReview', () => {
   beforeEach(() => setViewport(1365));
 
-  it('lists only fields at or below 85% for review, lowest first, and links rows with boxes at 1365px', async () => {
+  it('lists only the fields to review, lowest first, and links rows with boxes at 1365px', async () => {
     const user = userEvent.setup();
     renderReview(1365);
 
-    const review = screen.getByRole('table', { name: 'Fields needing review' });
+    const review = screen.getByRole('table', { name: 'Fields to review' });
     const labels = within(review).getAllByRole('textbox', { name: 'Label' });
     expect(labels).toHaveLength(8);
     expect(labels[0]).toHaveValue('Annual income');
-    expect(within(review).queryByDisplayValue('Full name')).not.toBeInTheDocument();
-    expect(screen.getByText(/Auto-accepted · 4 fields above 85%/)).toBeInTheDocument();
+    // Auto-accepted fields are not listed anywhere, only counted.
+    expect(screen.queryByDisplayValue('Full name')).not.toBeInTheDocument();
+    expect(screen.getByText(/4 other fields were read with high confidence/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
 
     fireEvent.click(labels[0].closest('tr') as HTMLElement);
@@ -68,7 +69,7 @@ describe('FieldReview', () => {
     expect(within(review).getByDisplayValue('PAN').closest('tr')).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('draws auto-accepted boxes only on request, and resize handles only on the selected box', async () => {
+  it('draws only the boxes to review, and a resize handle only on the selected box', async () => {
     const user = userEvent.setup();
     renderReview(1365);
 
@@ -80,10 +81,7 @@ describe('FieldReview', () => {
       'Resize PAN',
     ]);
 
-    await user.click(screen.getByRole('checkbox', { name: 'Show auto-accepted boxes' }));
-    await user.click(screen.getByRole('button', { name: 'Full name field' }));
-    const auto = screen.getByRole('table', { name: 'Auto-accepted fields' });
-    expect(within(auto).getByDisplayValue('Full name').closest('tr')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('checkbox', { name: /auto-accepted/i })).not.toBeInTheDocument();
   });
 
   it('drags a box and snaps it inside the page', async () => {
@@ -158,7 +156,7 @@ describe('FieldReview', () => {
     renderReview(400);
 
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    const list = screen.getByRole('list', { name: 'Fields needing review' });
+    const list = screen.getByRole('list', { name: 'Fields to review' });
     expect(list).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Page 1' })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Page 2' })).toBeInTheDocument();

@@ -12,12 +12,26 @@ export function isAutoAccepted(confidence: number): boolean {
   return confidence > AUTO_ACCEPT_ABOVE;
 }
 
-/** Ingest marks high-confidence fields as already accepted. */
-export function withAutoAccept(fields: FieldRecord[]): FieldRecord[] {
-  return fields.map((field) => (isAutoAccepted(field.confidence) ? { ...field, checked: true } : field));
+/**
+ * A bank-only field read from a fillable PDF's own widget is certain: its name, type and box
+ * come from the PDF. Its confidence is only how well that name matched a shared library id,
+ * which it did not claim, so a low score there says nothing about the field itself.
+ */
+function isCertainWidget(field: FieldRecord): boolean {
+  return Boolean(field.pdfField) && field.id.startsWith('custom_');
 }
 
-/** Fields that still block publish: at or below the threshold and not confirmed. */
+/** Whether a field goes onto the form without an admin looking at it. */
+export function fieldAutoAccepted(field: FieldRecord): boolean {
+  return isCertainWidget(field) || isAutoAccepted(field.confidence);
+}
+
+/** Ingest marks high-confidence fields as already accepted. */
+export function withAutoAccept(fields: FieldRecord[]): FieldRecord[] {
+  return fields.map((field) => (fieldAutoAccepted(field) ? { ...field, checked: true } : field));
+}
+
+/** Fields that still block publish: not auto-accepted and not confirmed. */
 export function unconfirmedLowConfidence(fields: FieldRecord[]): FieldRecord[] {
-  return fields.filter((field) => !isAutoAccepted(field.confidence) && field.checked !== true);
+  return fields.filter((field) => !fieldAutoAccepted(field) && field.checked !== true);
 }

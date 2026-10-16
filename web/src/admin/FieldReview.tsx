@@ -4,7 +4,7 @@ import type { FieldRecord, FormVersion } from '../../../shared/forms/types';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { boxStyle, moveBox, resizeBox, type PageSize } from './geometry';
 import { paperPageDataUrl } from './paperImage';
-import { AUTO_ACCEPT_ABOVE, isAutoAccepted, needsConfidenceCheck, publishBlocked } from './reviewRules';
+import { AUTO_ACCEPT_ABOVE, fieldAutoAccepted, isAutoAccepted, needsConfidenceCheck, publishBlocked } from './reviewRules';
 import { useMinWidth } from './useMinWidth';
 
 const FIELD_TYPES: FieldRecord['type'][] = [
@@ -65,8 +65,6 @@ export function FieldReview({
   );
   const [removed, setRemoved] = useState<Row[]>([]);
   const [selectedKey, setSelectedKey] = useState<number | null>(null);
-  const [showAutoBoxes, setShowAutoBoxes] = useState(false);
-  const [autoOpen, setAutoOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -79,8 +77,9 @@ export function FieldReview({
     pageImages ??
     pages.map((page, index) => paperPageDataUrl(index + 1, page));
 
-  const reviewRows = rows.filter((row) => !isAutoAccepted(row.field.confidence)).sort(byLowestConfidence);
-  const autoRows = rows.filter((row) => isAutoAccepted(row.field.confidence)).sort(byLowestConfidence);
+  // Only fields an admin has to look at are listed or drawn. Auto-accepted ones are already on the form.
+  const reviewRows = rows.filter((row) => !fieldAutoAccepted(row.field)).sort(byLowestConfidence);
+  const autoCount = rows.length - reviewRows.length;
   const remaining = reviewRows.filter((row) => needsConfidenceCheck(row.field)).length;
   const blocked = publishBlocked(rows.map((row) => row.field));
 
@@ -131,8 +130,6 @@ export function FieldReview({
 
   function select(key: number) {
     setSelectedKey(key);
-    const row = rows.find((item) => item.key === key);
-    if (row && isAutoAccepted(row.field.confidence)) setAutoOpen(true);
   }
 
   function update(key: number, patch: Partial<FieldRecord>) {
@@ -223,7 +220,7 @@ export function FieldReview({
 
   const pageNumbers = pages.map((_, index) => index + 1);
 
-  function fieldList(list: Row[], label: string, auto: boolean) {
+  function fieldList(list: Row[], label: string) {
     if (list.length === 0) return null;
     if (wide) {
       return (
@@ -245,7 +242,7 @@ export function FieldReview({
               <th className="px-1.5 py-2">Req.</th>
               <th className="px-1.5 py-2">PII</th>
               <th className="px-1.5 py-2">Conf.</th>
-              <th className="px-1.5 py-2">{auto ? 'Remove' : 'Confirm'}</th>
+              <th className="px-1.5 py-2">Confirm</th>
             </tr>
           </thead>
           <tbody>
@@ -257,7 +254,7 @@ export function FieldReview({
                 className={`border-t border-foreground/20 ${row.key === selectedKey ? 'bg-primary/10' : 'bg-background'}`}
                 onClick={() => select(row.key)}
               >
-                <FieldCells row={row} update={update} remove={remove} auto={auto} />
+                <FieldCells row={row} update={update} remove={remove} />
               </tr>
             ))}
           </tbody>
@@ -274,7 +271,7 @@ export function FieldReview({
             className={`grid gap-2 border-2 p-3 ${row.key === selectedKey ? 'border-primary bg-primary/10' : 'border-foreground bg-background'}`}
             onClick={() => select(row.key)}
           >
-            <FieldCells row={row} update={update} remove={remove} auto={auto} stacked />
+            <FieldCells row={row} update={update} remove={remove} stacked />
           </li>
         ))}
       </ul>
@@ -293,7 +290,7 @@ export function FieldReview({
             {form.bankId} · {journeyTitle(form.journey)}
           </h1>
           <p className="mt-2 text-xs text-muted-foreground">
-            Boxes show fields at or below {THRESHOLD_PCT}% confidence. Select one to drag or resize it.
+            Boxes show only the fields to review. Select one to drag or resize it.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
             <span className="flex items-center gap-1.5">
@@ -304,14 +301,6 @@ export function FieldReview({
               <span aria-hidden className="inline-block size-3 border-2 border-primary/60 bg-primary/10" />
               Confirmed
             </span>
-            <label className="flex items-center gap-1.5 font-semibold">
-              <input
-                type="checkbox"
-                checked={showAutoBoxes}
-                onChange={(event) => setShowAutoBoxes(event.target.checked)}
-              />
-              Show auto-accepted boxes
-            </label>
           </div>
           <div className="mt-4 grid gap-4">
             {pageNumbers.map((pageNumber) => {
@@ -319,7 +308,7 @@ export function FieldReview({
               const onPage = rows.filter(
                 (row) =>
                   row.field.page === pageNumber &&
-                  (showAutoBoxes || row.key === selectedKey || !isAutoAccepted(row.field.confidence)),
+                  (row.key === selectedKey || !fieldAutoAccepted(row.field)),
               );
               return (
                 <div
@@ -337,12 +326,9 @@ export function FieldReview({
                   />
                   {onPage.map((row) => {
                     const selected = row.key === selectedKey;
-                    const auto = isAutoAccepted(row.field.confidence);
                     const tone = selected
                       ? 'z-10 border-2 border-primary bg-primary/25'
-                      : auto
-                        ? 'border border-dashed border-foreground/40'
-                        : row.field.checked
+                      : row.field.checked
                           ? 'border-2 border-primary/60 bg-primary/10'
                           : 'border-2 border-saffron bg-saffron/30';
                     return (
@@ -384,12 +370,18 @@ export function FieldReview({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
             Lowest confidence first
           </p>
-          <h2 className="mt-2 font-display text-3xl leading-none">Needs review</h2>
+          <h2 className="mt-2 font-display text-3xl leading-none">Fields to review</h2>
           <p className="mt-2 text-xs text-muted-foreground">
             {reviewRows.length === 0
-              ? `Every field scored above ${THRESHOLD_PCT}%. Nothing to confirm.`
-              : `${remaining} of ${reviewRows.length} at or below ${THRESHOLD_PCT}% left to confirm. Edit, confirm or remove each one.`}
+              ? 'Nothing to review. Every field was read with high confidence.'
+              : `${remaining} of ${reviewRows.length} left. Edit, confirm or remove each one.`}
           </p>
+          {autoCount > 0 ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {autoCount} other field{autoCount === 1 ? ' was' : 's were'} read with high confidence (above{' '}
+              {THRESHOLD_PCT}%, or straight from the PDF) and {autoCount === 1 ? 'is' : 'are'} already on the form.
+            </p>
+          ) : null}
           {removed.length > 0 ? (
             <p className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               Removed {removed.length} field{removed.length === 1 ? '' : 's'}.
@@ -398,25 +390,7 @@ export function FieldReview({
               </button>
             </p>
           ) : null}
-          <div className="mt-4">{fieldList(reviewRows, 'Fields needing review', false)}</div>
-
-          {autoRows.length > 0 ? (
-            <details
-              className="mt-6 border-2 border-foreground"
-              open={autoOpen}
-              onToggle={(event) => setAutoOpen((event.currentTarget as HTMLDetailsElement).open)}
-            >
-              <summary className="cursor-pointer bg-muted px-3 py-2 text-sm font-semibold">
-                Auto-accepted · {autoRows.length} field{autoRows.length === 1 ? '' : 's'} above {THRESHOLD_PCT}%
-              </summary>
-              <div className="p-2">
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Already on the form. Open one to edit it, or remove it.
-                </p>
-                {fieldList(autoRows, 'Auto-accepted fields', true)}
-              </div>
-            </details>
-          ) : null}
+          <div className="mt-4">{fieldList(reviewRows, 'Fields to review')}</div>
         </section>
       </div>
 
@@ -431,8 +405,8 @@ export function FieldReview({
         </button>
         <p className="text-xs text-muted-foreground">
           {blocked
-            ? `Confirm or remove ${remaining} more field${remaining === 1 ? '' : 's'} at or below ${THRESHOLD_PCT}% confidence.`
-            : `${rows.length} fields ready: ${autoRows.length} auto-accepted, ${reviewRows.length} confirmed.`}
+            ? `Confirm or remove ${remaining} more field${remaining === 1 ? '' : 's'} to publish.`
+            : `${rows.length} fields ready: ${autoCount} auto-accepted, ${reviewRows.length} reviewed.`}
         </p>
         {message ? (
           <p role="status" className="w-full text-sm">
@@ -474,13 +448,11 @@ function FieldCells({
   row,
   update,
   remove,
-  auto,
   stacked = false,
 }: {
   row: Row;
   update: (key: number, patch: Partial<FieldRecord>) => void;
   remove: (key: number) => void;
-  auto: boolean;
   stacked?: boolean;
 }) {
   const { field, key } = row;
@@ -531,7 +503,7 @@ function FieldCells({
     />
   );
   const confidence = <ConfidencePill confidence={field.confidence} />;
-  const confirm = auto ? null : (
+  const confirm = (
     <input
       aria-label={`Confirm ${field.label}`}
       type="checkbox"
@@ -596,12 +568,10 @@ function FieldCells({
           {pii}
           PII
         </label>
-        {confirm ? (
-          <label className="flex items-center gap-2 font-semibold">
-            {confirm}
-            Confirmed
-          </label>
-        ) : null}
+        <label className="flex items-center gap-2 font-semibold">
+          {confirm}
+          Confirmed
+        </label>
         {confidence}
         {removeButton}
       </div>
