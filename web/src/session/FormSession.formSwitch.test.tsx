@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FieldRecord, FormVersion } from '../forms/types';
 import { FormSessionProvider, useFormSession, type FormSessionValue } from './FormSession';
@@ -98,5 +98,35 @@ describe('FormSession active form', () => {
     mount();
     expect(session.form.formId).toBe('axis_rekyc');
     expect(session.values.custom_city_of_birth).toBe('Pune');
+  });
+
+  it('keeps the journey of a selected bank form when speech or the demo names another', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    mount();
+    act(() => session.selectJourney('rekyc'));
+    act(() => session.selectForm(REKYC));
+    await act(async () => {
+      await session.onSubmitUtterance('I want to open a new savings account. My name is Priya Sharma.');
+    });
+    expect(session.values.applicant_full_name).toBe('Priya Sharma');
+    expect(session.values.journey_mode).toBe('rekyc');
+    expect(session.journey).toBe('rekyc');
+
+    act(() => session.onPriya());
+    expect(session.values.journey_mode).toBe('rekyc');
+    expect(session.journey).toBe('rekyc');
+    expect(session.missing).not.toContain('account_product_intent');
+    vi.unstubAllGlobals();
+  });
+
+  it('still lets speech change the journey on the bundled HDFC form', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    mount();
+    act(() => session.selectJourney('rekyc'));
+    await act(async () => {
+      await session.onSubmitUtterance('I want to open a new savings account.');
+    });
+    expect(session.journey).toBe('account_opening');
+    vi.unstubAllGlobals();
   });
 });
