@@ -12,6 +12,7 @@ import {
 import { bankOnlyFields, formKey, isBundledForm, parseStoredForm } from '../forms/activeForm';
 import { HDFC_V1, aadhaarPartialFieldIds } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
+import { cardLast4, debitDefaults, isDebitJourney, redactFullCardNumbers } from '../lib/debitReissue';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
@@ -23,6 +24,7 @@ import {
   getNextAsk,
   isFilled,
   priyaDemoValues,
+  updateApplies,
 } from '../lib/schema';
 import { speak, speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
@@ -154,7 +156,45 @@ function seedValues(saved: Persisted | null): FormValues {
   if (base.journey_mode === 'account_opening' && !base.account_product_intent) {
     base.account_product_intent = 'regular_savings';
   }
-  return base;
+  return withDebitDefaults(base);
+}
+
+const GATE_IDS = ['card_old_blocked_ack', 'readback_confirmed', 'draft_only_ack', 'no_live_submit_ack'];
+
+/** Fill debit card defaults (reissue yes, charges to the same account) where still empty. */
+function withDebitDefaults(values: FormValues): FormValues {
+  if (!isDebitJourney(values.journey_mode)) return values;
+  const next = { ...values };
+  for (const [key, value] of Object.entries(debitDefaults())) {
+    if (!isFilled(next[key])) next[key] = value;
+  }
+  return next;
+}
+
+/**
+ * Point the draft at a journey. AOF/KYC and debit card reissue share no fields
+ * past the name, so their values sit side by side and each journey shows only
+ * its own. Crossing between them clears the gates so a read-back confirmed for
+ * one never carries over to the other.
+ */
+function withJourney(prev: FormValues, id: JourneyId): FormValues {
+  const next: FormValues = { ...prev, journey_mode: id };
+  if (isDebitJourney(id) !== isDebitJourney(prev.journey_mode)) {
+    for (const gate of GATE_IDS) next[gate] = null;
+  }
+  return withDebitDefaults(next);
+}
+
+/** Card fields keep digits only, and a full card number is cut to its last 4. */
+function normalizeCardInput(id: string, value: string | boolean | null): string | boolean | null {
+  if (typeof value !== 'string') return value;
+  if (id === 'card_last4') return cardLast4(value);
+  if (id === 'card_account_number') return value.replace(/\D/g, '').slice(0, 18);
+  if (id === 'card_confirm_mobile') {
+    const digits = value.replace(/\D/g, '');
+    return digits.length > 10 ? digits.slice(-10) : digits;
+  }
+  return value;
 }
 
 export interface FormSessionValue {
@@ -226,6 +266,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   // applyUpdates and onPriya are memoized without `form`; read the current one here.
   const formRef = useRef(form);
   formRef.current = form;
+  // applyUpdates is memoized without `journey`; read the current one here.
+  const journeyRef = useRef(journey);
+  journeyRef.current = journey;
   const [micLang, setMicLangState] = useState<MicLang>(languageById(saved?.language)?.bcp47 ?? 'en-IN');
   const [values, setValues] = useState<FormValues>(() =>
     bootFlags.current ? priyaDemoValues() : seedValues(saved),
@@ -263,19 +306,26 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         .filter(([id, c]) => {
           const v = values[id];
           const filled = typeof v === 'boolean' || (typeof v === 'string' && v.trim() !== '');
-          return filled && !c.confirmed && c.confidence < CONFIDENCE_FLAG_THRESHOLD;
+          return filled && !c.confirmed && c.confidence < CONFIDENCE_FLAG_THRESHOLD && updateApplies(id, values);
         })
         .map(([id]) => id),
     [confidence, values],
   );
-  const invalidIds = useMemo(() => invalidFieldIds(values), [values]);
+  // A field from the other journey is off screen, so it must not block this one.
+  const invalidIds = useMemo(
+    () => invalidFieldIds(values).filter((id) => updateApplies(id, values)),
+    [values],
+  );
+  const oldCardBlockedOk = !isDebitJourney(values.journey_mode) || values.card_old_blocked_ack === true;
   const canReadback =
     (completeness === 'demo_ready' || completeness === 'full_bank_packet') &&
     flaggedIds.length === 0 &&
-    invalidIds.length === 0;
+    invalidIds.length === 0 &&
+    oldCardBlockedOk;
   const confirmGatesOk =
     flaggedIds.length === 0 &&
     invalidIds.length === 0 &&
+    oldCardBlockedOk &&
     values.readback_confirmed === true &&
     values.draft_only_ack === true &&
     values.no_live_submit_ack === true;
@@ -348,17 +398,13 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
 
   const selectJourney = useCallback((id: JourneyId) => {
     setJourney(id);
-    setValues((prev) => ({ ...prev, journey_mode: id }));
+    setValues((prev) => withJourney(prev, id));
     setDraftReady(false);
   }, []);
 
   const selectDraft = useCallback((id: JourneyId, product: string | null) => {
     setJourney(id);
-    setValues((prev) => ({
-      ...prev,
-      journey_mode: id,
-      account_product_intent: product ?? '',
-    }));
+    setValues((prev) => ({ ...withJourney(prev, id), account_product_intent: product ?? '' }));
     setDraftReady(false);
   }, []);
 
@@ -420,8 +466,17 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         if (typeof value === 'string' && beta && hasNonLatinLetter(value)) continue;
         stored[key] = value;
       }
+      // Keep only what belongs to the journey this clip lands on: no DOB on a card reissue.
+      const target = isJourneyId(stored.journey_mode) ? stored.journey_mode : journeyRef.current;
+      const probe: FormValues = { journey_mode: target ?? 'account_opening' };
+      for (const key of Object.keys(stored)) {
+        if (!updateApplies(key, probe)) delete stored[key];
+      }
       setValues((prev) => {
-        const next = { ...prev };
+        let next = { ...prev };
+        if (isJourneyId(stored.journey_mode) && stored.journey_mode !== prev.journey_mode) {
+          next = withJourney(next, stored.journey_mode);
+        }
         for (const [key, value] of Object.entries(stored)) {
           if (value === undefined) continue;
           // Merge only provided keys; do not clear an already-filled value with empty/null.
@@ -430,9 +485,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           }
           next[key] =
             typeof value === 'string' || typeof value === 'boolean' || value === null
-              ? normalizeInput(key, value)
+              ? normalizeInput(key, normalizeCardInput(key, value))
               : value;
         }
+        next = redactFullCardNumbers(next);
         // Aadhaar must never land in state (and therefore sessionStorage,
         // the screen, or a downloaded draft) unmasked, regardless of
         // whether it came from speak, extract, or the heuristic fallback.
@@ -491,9 +547,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const onChange = useCallback((id: string, value: string | boolean | null) => {
-    const stored = normalizeInput(id, value);
+    const stored = normalizeInput(id, normalizeCardInput(id, value));
     setValues((prev) => {
-      const next = { ...prev, [id]: stored };
+      const next =
+        id === 'journey_mode' && isJourneyId(stored)
+          ? withJourney(prev, stored)
+          : redactFullCardNumbers({ ...prev, [id]: stored });
       // Mask once a full Aadhaar-length number has been typed, so manual
       // edits on the Review page can't leave a full number sitting in
       // state. Only triggers at 12 digits so it doesn't fight live typing
@@ -590,6 +649,47 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setReadbackInEnglish(false);
     setRefuseMsg(null);
     setDraftReady(false);
+    if (isDebitJourney(journeyRef.current)) {
+      const persona = withJourney(
+        {
+          ...emptyValues(),
+          preferred_language: storedLanguageName(language ?? 'en'),
+          applicant_full_name: 'Priya Sharma',
+          card_customer_id: 'CIF102938',
+          card_account_number: '501002223334',
+          card_last4: '4417',
+          card_reason: 'stolen',
+          card_reissue_new: true,
+          card_charges_account: 'same account',
+          card_confirm_mobile: '9876543210',
+        },
+        'debit_reissue',
+      );
+      const filledIds = Object.keys(persona).filter((key) => isFilled(persona[key]) && key !== 'journey_mode');
+      setValues(persona);
+      setConfidence(
+        withFlags === true
+          ? { card_last4: { confidence: 0.6, reason: 'Digits unclear in audio', confirmed: false } }
+          : {},
+      );
+      flash(filledIds);
+      setSaid(Object.fromEntries(filledIds.map((key) => [key, 'Fake prefill demo'])));
+      setFieldSource(Object.fromEntries(filledIds.map((key) => [key, 'priya_demo'])));
+      const miss = getMissingRequired(persona);
+      setLast({
+        field_updates: persona,
+        missing_required: miss,
+        next_ask:
+          getNextAsk(miss, persona, language === 'hi' ? 'hi' : 'en') ||
+          'Demo debit card reissue loaded. Tick that the old card is blocked, then read it back. Fields vary by bank.',
+        gates: { answers: {} },
+        completeness: completenessLevel(persona, miss),
+        refuse_live_submit: false,
+        source: 'priya_demo',
+        assistant_message: 'Filled a synthetic debit card reissue. Last 4 only. No PIN. Fields vary by bank.',
+      });
+      return;
+    }
     const persona = priyaDemoValues();
     const locked = lockedJourney(formRef.current);
     if (locked && persona.journey_mode !== locked) {
@@ -670,7 +770,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     const next = emptyValues();
     if (journey) next.journey_mode = journey;
     if (language) next.preferred_language = storedLanguageName(language);
-    setValues(next);
+    setValues(withDebitDefaults(next));
     setConfidence({});
     setLast(null);
     setSaid({});

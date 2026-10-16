@@ -1,4 +1,5 @@
-import { HDFC_V1, missingRequiredIds, toSchemaFields } from '../forms/hdfcV1';
+import { HDFC_V1, fieldOnJourney, missingRequiredIds, toSchemaFields } from '../forms/hdfcV1';
+import type { SchemaFieldSnapshot } from '../forms/types';
 import { loadPublishedFormVersions } from '../forms/loadPublished';
 import compact from '../schema/aof_kyc_demo_v1.compact.json';
 import fullSchema from '../schema/aof_kyc_demo_v1.schema.json';
@@ -36,6 +37,7 @@ export const COMPACT = compact;
 
 export const FIELD_GROUPS = [
   { id: 'identity', title: 'Identity', blurb: 'Name, DOB, PAN / Form 60, residential status' },
+  { id: 'card_reissue', title: 'Debit card', blurb: 'Customer ID, account, last 4 digits, reason' },
   { id: 'contact', title: 'Contact', blurb: 'Registered mobile and email' },
   { id: 'address', title: 'Address', blurb: 'Current (and permanent if different)' },
   { id: 'kyc_ovd', title: 'KYC / OVD', blurb: 'Proof of identity & address — fields vary by bank' },
@@ -43,6 +45,24 @@ export const FIELD_GROUPS = [
   { id: 'profile_light', title: 'Profile', blurb: 'Occupation, PEP, tax residency' },
   { id: 'confirm_gates', title: 'Confirm gates', blurb: 'Read-back + draft-only acknowledgements' },
 ] as const;
+
+/** Whether a field belongs to the session's journey. AOF/KYC fields stay off debit card reissue. */
+export function fieldApplies(field: SchemaField, values: FormValues): boolean {
+  return fieldOnJourney(field as unknown as SchemaFieldSnapshot, values);
+}
+
+/** Whether a value id belongs to the session's journey. Ids outside the shared schema (bank-only boxes) always do. */
+export function updateApplies(id: string, values: FormValues): boolean {
+  if (id === 'journey_mode') return true;
+  const field = SCHEMA.fields.find((item) => item.id === id);
+  if (!field) return true;
+  return fieldApplies(field, values);
+}
+
+/** Only the values that belong to the session's journey, for the PDF and the saved draft. */
+export function journeyValues(values: FormValues): FormValues {
+  return Object.fromEntries(Object.entries(values).filter(([id]) => updateApplies(id, values)));
+}
 
 export const BANK_VARIES_COPY = 'Fields vary by bank.';
 
@@ -82,6 +102,7 @@ export function isFieldApplicable(field: SchemaField, values: FormValues): boole
 }
 
 export function isEffectivelyRequired(field: SchemaField, values: FormValues): boolean {
+  if (!fieldApplies(field, values)) return false;
   if (field.required) return true;
   if (!field.required_if) return false;
   return isFieldApplicable(field, values);
@@ -110,8 +131,10 @@ export function reviewSections(values: FormValues): Array<{
   return FIELD_GROUPS.filter((group) => group.id !== 'confirm_gates').map((group) => ({
     id: group.id,
     title: group.title,
-    fields: SCHEMA.fields.filter((field) => field.group === group.id && isFieldApplicable(field, values)),
-  }));
+    fields: SCHEMA.fields.filter(
+      (field) => field.group === group.id && fieldApplies(field, values) && isFieldApplicable(field, values),
+    ),
+  })).filter((group) => group.fields.length > 0);
 }
 
 export function getNextAsk(
@@ -142,17 +165,33 @@ export function completenessLevel(
   if (filled === 0) return 'empty';
   if (missing.length === 0) {
     const optionalLeft = SCHEMA.fields.filter(
-      (f) => f.group !== 'confirm_gates' && !isFilled(values[f.id]) && !isEffectivelyRequired(f, values),
+      (f) =>
+        f.group !== 'confirm_gates' &&
+        fieldApplies(f, values) &&
+        isFieldApplicable(f, values) &&
+        !isFilled(values[f.id]) &&
+        !isEffectivelyRequired(f, values),
     ).length;
     return optionalLeft <= 2 ? 'full_bank_packet' : 'demo_ready';
   }
-  const coreIds = [
-    'journey_mode',
-    'applicant_full_name',
-    'dob',
-    'mobile_registered',
-    'pan_available',
-  ];
+  const debit = values.journey_mode === 'debit_reissue';
+  const coreIds = debit
+    ? [
+        'journey_mode',
+        'applicant_full_name',
+        'card_customer_id',
+        'card_account_number',
+        'card_last4',
+        'card_reason',
+        'card_reissue_new',
+      ]
+    : [
+        'journey_mode',
+        'applicant_full_name',
+        'dob',
+        'mobile_registered',
+        'pan_available',
+      ];
   const coreOk = coreIds.every((id) => isFilled(values[id]));
   return coreOk ? 'partial_core' : 'empty';
 }

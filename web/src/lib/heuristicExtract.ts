@@ -1,5 +1,13 @@
 import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
+import {
+  debitReadback,
+  extractDebitSlots,
+  isDebitJourney,
+  keepDebitUpdates,
+  redactFullCardNumbers,
+  stripDebitOnly,
+} from './debitReissue';
 import type { ExtractResponse, FormValues, GateAnswer } from './types';
 import {
   extractHindiSlots,
@@ -123,6 +131,13 @@ function detectOvd(text: string): string | null {
 
 function detectJourney(text: string): string | null {
   const t = text.toLowerCase();
+  if (
+    /\b(?:debit|atm)\s+cards?\b|\bcard\s+re-?issue\b|\bre-?issue\b.{0,24}\bcard\b|\bhot-?list\b.{0,24}\bcard\b|\b(?:lost|stolen|damaged)\b.{0,24}\b(?:debit|atm)\s+card\b/i.test(
+      text,
+    )
+  ) {
+    return 'debit_reissue';
+  }
   if (/\bre-?kyc\b|\brekyc\b/.test(t)) return 'rekyc';
   if (/\bkyc\b|\bupdate\s+kyc\b|\bcustomer\s+information\b/.test(t)) return 'kyc_update';
   if (
@@ -416,6 +431,38 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   const journey = detectJourney(text);
   if (journey) updates.journey_mode = journey;
 
+  const hindiPreview = extractHindiSlots(text);
+  const detectedJourney =
+    journey || (typeof hindiPreview.journey_mode === 'string' ? hindiPreview.journey_mode : null);
+  const effectiveJourney = detectedJourney || (typeof current.journey_mode === 'string' ? current.journey_mode : null);
+  if (isDebitJourney(effectiveJourney)) {
+    updates.journey_mode = 'debit_reissue';
+    const debitName = extractName(text);
+    if (debitName) updates.applicant_full_name = debitName;
+    if (typeof hindiPreview.applicant_full_name === 'string' && !updates.applicant_full_name) {
+      updates.applicant_full_name = hindiPreview.applicant_full_name;
+    }
+    Object.assign(updates, extractDebitSlots(text));
+    Object.assign(updates, detectConfirm(text));
+    const debitUpdates = redactFullCardNumbers(keepDebitUpdates(updates));
+    const mergedDebit: FormValues = redactFullCardNumbers({ ...current, ...debitUpdates, journey_mode: 'debit_reissue' });
+    const missingDebit = getMissingRequired(mergedDebit);
+    const completenessDebit = completenessLevel(mergedDebit, missingDebit);
+    const nextDebit = refuseLive ? liveNext(lang) : getNextAsk(missingDebit, mergedDebit, lang);
+    return {
+      field_updates: debitUpdates,
+      missing_required: missingDebit,
+      next_ask: nextDebit,
+      gates: { answers: buildGates(mergedDebit, missingDebit, false, refuseLive) },
+      completeness: completenessDebit,
+      refuse_live_submit: refuseLive,
+      refuse_message: refuseLive ? liveRefuse(lang) : undefined,
+      source: 'heuristic',
+      assistant_message: assistantMessage(lang, Object.keys(debitUpdates).length, nextDebit),
+      reply_lang: lang,
+    };
+  }
+
   const name = extractName(text);
   if (name) updates.applicant_full_name = name;
 
@@ -550,6 +597,12 @@ export function heuristicExtract(utterance: string, current: FormValues): Extrac
   Object.assign(updates, detectConfirm(text));
 
   fillGaps(updates, extractHindiSlots(text));
+  if (!isDebitJourney(updates.journey_mode) && !isDebitJourney(current.journey_mode)) {
+    const cleaned = stripDebitOnly(updates);
+    for (const key of Object.keys(updates)) {
+      if (!(key in cleaned)) delete updates[key];
+    }
+  }
   // preferred_language is set by the language picker, never guessed from an utterance's script.
 
   // Merge for missing calc
@@ -639,6 +692,7 @@ export function buildReadbackScript(
   lang: UtteranceLang = 'en',
   form: FormVersion = HDFC_V1,
 ): string {
+  if (isDebitJourney(values.journey_mode)) return debitReadback(values, lang);
   const name = formValue(form, values, 'applicant_full_name') || (lang === 'en' ? 'applicant' : 'आवेदक');
   const dob = formValue(form, values, 'dob') || (lang === 'en' ? 'date of birth not set' : 'जन्म तिथि नहीं');
   const mobile = String(formValue(form, values, 'mobile_registered') || '');

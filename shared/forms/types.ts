@@ -83,6 +83,8 @@ export interface SchemaFieldSnapshot {
   voice_hints?: string[];
   notes?: string;
   default?: string;
+  /** When set, the field is only shown and required on these journeys. */
+  journey_modes?: string[];
 }
 
 export interface BoundField extends FieldRecord {
