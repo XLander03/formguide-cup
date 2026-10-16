@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { bankOnlyFields, isBundledForm } from '../forms/activeForm';
 import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
-import { buildFilledKycPdf } from '../lib/pdfFill';
+import { buildDraftPdf } from '../lib/publishedPdfFill';
+import type { SchemaField } from '../lib/types';
 import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
@@ -46,10 +48,21 @@ function confidenceLabel(
   }
 }
 
+type ReceiptField = Pick<SchemaField, 'id' | 'label_en'>;
+
+/** Filled shared fields, then filled boxes that only the selected bank's form has. A cleared checkbox is not filled. */
+function filledFields(session: ReturnType<typeof useFormSession>): ReceiptField[] {
+  const shared = SCHEMA.fields.filter(
+    (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
+  );
+  const bank = bankOnlyFields(session.form)
+    .filter((field) => isFilled(session.values[field.id]) && session.values[field.id] !== false)
+    .map((field) => ({ id: field.id, label_en: field.label }));
+  return [...shared, ...bank];
+}
+
 function handoffFields(session: ReturnType<typeof useFormSession>) {
-  return SCHEMA.fields
-    .filter((field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]))
-    .map((field) => ({
+  return filledFields(session).map((field) => ({
       id: field.id,
       value: session.values[field.id],
       source: session.fieldSource[field.id] ?? 'unknown',
@@ -64,6 +77,12 @@ function draftPayload(session: ReturnType<typeof useFormSession>) {
     schema_id: 'aof_kyc_demo_v1',
     demo_outcome: 'draft_ready_no_bank_submit',
     journey: session.journey,
+    form: {
+      form_id: session.form.formId,
+      version: session.form.version,
+      bank: session.form.bankId,
+      journey: session.form.journey,
+    },
     language: session.language,
     mic_lang: session.micLang,
     values: session.values,
@@ -88,11 +107,13 @@ export function ConfirmPage() {
     setPdfBusy(true);
     setPdfError(null);
     try {
-      const blob = await buildFilledKycPdf(session.values);
+      const blob = await buildDraftPdf(session.form, session.values);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'formguide-hdfc-kyc-draft.pdf';
+      link.download = isBundledForm(session.form)
+        ? 'formguide-hdfc-kyc-draft.pdf'
+        : `formguide-${session.form.bankId.toLowerCase()}-${session.form.journey}-draft.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -101,9 +122,8 @@ export function ConfirmPage() {
       setPdfBusy(false);
     }
   };
-  const rows = SCHEMA.fields.filter(
-    (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
-  );
+  const rows = filledFields(session);
+  const pdfLabel = isBundledForm(session.form) ? 'HDFC KYC' : `${session.form.bankId} form`;
 
   if (session.draftReady) {
     return (
@@ -140,7 +160,7 @@ export function ConfirmPage() {
                 disabled={pdfBusy}
                 onClick={() => void downloadPdf()}
               >
-                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : 'Download PDF (HDFC KYC)'}
+                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : `Download PDF (${pdfLabel})`}
               </button>
               <button
                 type="button"
@@ -234,7 +254,7 @@ function Receipt({
   rows,
   session,
 }: {
-  rows: typeof SCHEMA.fields;
+  rows: ReceiptField[];
   session: ReturnType<typeof useFormSession>;
 }) {
   const { go } = useRoute();

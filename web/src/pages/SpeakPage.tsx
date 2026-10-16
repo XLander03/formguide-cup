@@ -415,7 +415,7 @@ export function SpeakPage() {
           <div>
             <h1 className="font-display text-3xl leading-none">Draft filling live</h1>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Fields vary by bank. Nothing is sent to a bank.
+              Filling the {session.form.bankId} form. Fields vary by bank. Nothing is sent to a bank.
             </p>
           </div>
           <button

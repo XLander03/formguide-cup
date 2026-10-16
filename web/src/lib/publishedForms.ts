@@ -1,5 +1,6 @@
 import type { FormVersion } from '../../../shared/forms/types';
 import { firebaseWebConfig } from '../admin/firebaseConfig';
+import { formKey } from '../forms/activeForm';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import { loadPublishedFormVersions } from '../forms/loadPublished';
 import { JOURNEY_IDS } from './journeys';
@@ -11,8 +12,8 @@ export interface PublishedFormRow {
   key: string;
   bankName: string;
   detail: string;
-  /** Only the bundled HDFC v1 is carried through questions, review, voice and PDF today. */
-  selectable: boolean;
+  /** Selecting a row makes this the form the session fills. */
+  form: FormVersion;
 }
 
 function isDemoJourney(journey: string): boolean {
@@ -28,13 +29,10 @@ export function appliesToJourney(form: FormVersion, journey: string): boolean {
 export function hdfcFallbackRows(journey: string): PublishedFormRow[] {
   const bundled = visiblePublishedForms([HDFC_V1], journey);
   if (bundled && bundled.length > 0) return rowsFromPublished(bundled);
-  return [{ key: `hdfc-${journey}`, bankName: HDFC_V1.bankId, detail: 'Bundled form', selectable: true }];
+  return [{ key: `hdfc-${journey}`, bankName: HDFC_V1.bankId, detail: 'Bundled form', form: HDFC_V1 }];
 }
 
-/**
- * The bundled HDFC row always comes first, because it is the form every later step fills.
- * Other published banks are listed after it but are not selectable yet.
- */
+/** The bundled HDFC row always comes first and stays the default. Published banks follow it. */
 export function journeyRows(published: FormVersion[] | null, journey: string): PublishedFormRow[] {
   const others = (published ?? []).filter((form) => form.formId !== BUNDLED_FORM_ID);
   return [...hdfcFallbackRows(journey), ...rowsFromPublished(others)];
@@ -48,10 +46,10 @@ export function visiblePublishedForms(forms: FormVersion[] | null, journey: stri
 
 export function rowsFromPublished(forms: FormVersion[]): PublishedFormRow[] {
   return forms.map((form) => ({
-    key: `${form.formId}@${form.version}`,
+    key: formKey(form),
     bankName: form.bankId || 'Bank',
     detail: `${form.fields.length} fields`,
-    selectable: form.formId === BUNDLED_FORM_ID,
+    form,
   }));
 }
 

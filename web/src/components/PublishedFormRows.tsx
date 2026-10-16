@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormVersion } from '../../../shared/forms/types';
-import { BANK_VARIES_COPY, NOT_SELECTABLE_COPY } from '../lib/schema';
+import { formKey } from '../forms/activeForm';
+import { BANK_VARIES_COPY } from '../lib/schema';
 import {
   hdfcFallbackRows,
   journeyRows,
@@ -8,13 +9,19 @@ import {
   visiblePublishedForms,
   type PublishedFormRow,
 } from '../lib/publishedForms';
+import { CheckIcon } from '../ui/icons';
 
 export function PublishedFormRows({
   journey,
   load = listPublishedForms,
+  selected,
+  onSelect,
 }: {
   journey: string;
   load?: (journey: string) => Promise<FormVersion[] | null>;
+  /** formKey of the chosen form. */
+  selected?: string;
+  onSelect?: (form: FormVersion) => void;
 }) {
   const [rows, setRows] = useState<PublishedFormRow[]>(() => hdfcFallbackRows(journey));
 
@@ -32,23 +39,30 @@ export function PublishedFormRows({
 
   return (
     <ul aria-label="Published forms" className="mt-4 grid gap-2">
-      {rows.map((row) => (
-        <li
-          key={row.key}
-          aria-disabled={row.selectable ? undefined : true}
-          className={`flex flex-col gap-1 border border-foreground/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between${
-            row.selectable ? '' : ' opacity-60'
-          }`}
-        >
-          <span>
-            <span className="block text-sm font-semibold">{row.bankName}</span>
-            <span className="block text-xs text-muted-foreground">{row.detail}</span>
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {row.selectable ? BANK_VARIES_COPY : NOT_SELECTABLE_COPY}
-          </span>
-        </li>
-      ))}
+      {rows.map((row) => {
+        const on = selected === formKey(row.form);
+        return (
+          <li key={row.key}>
+            <button
+              type="button"
+              aria-pressed={on}
+              onClick={() => onSelect?.(row.form)}
+              className={`flex w-full flex-col gap-1 border-2 px-3 py-2 text-left sm:flex-row sm:items-center sm:justify-between ${
+                on ? 'border-primary bg-primary/10' : 'border-foreground/20 hover:border-foreground'
+              }`}
+            >
+              <span>
+                <span className="flex items-center gap-1.5 text-sm font-semibold">
+                  {on ? <CheckIcon className="size-4 text-primary" /> : null}
+                  {row.bankName}
+                </span>
+                <span className="block text-xs text-muted-foreground">{row.detail}</span>
+              </span>
+              <span className="text-xs text-muted-foreground">{on ? 'Selected' : BANK_VARIES_COPY}</span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
