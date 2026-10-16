@@ -1,3 +1,4 @@
+import { withAutoAccept } from '../../../shared/forms/review';
 import type { FieldRecord, FormVersion } from '../../../shared/forms/types';
 import { readAcroFormFields, loadPdf } from './acroform';
 import { IngestError, MAX_PDF_BYTES, MAX_PDF_PAGES } from './errors';
@@ -65,7 +66,7 @@ function recordsFromOcr(
 }
 
 /**
- * Parse a PDF and produce draft fields. AcroForm PDFs never call `ocrPage`.
+ * Parse a PDF and produce draft fields. Fields above AUTO_ACCEPT_ABOVE come back checked. AcroForm PDFs never call `ocrPage`.
  * Flat PDFs call it once per page, in order.
  */
 export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promise<IngestDraft> {
@@ -92,7 +93,7 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
   if (acro.length > 0) {
     return {
       source: 'acroform',
-      fields: assignOrder(acro),
+      fields: withAutoAccept(assignOrder(acro)),
       pageCount: loaded.pageCount,
       pages,
     };
@@ -113,7 +114,7 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
   }
   return {
     source: 'ocr',
-    fields: assignOrder(fields),
+    fields: withAutoAccept(assignOrder(fields)),
     pageCount: loaded.pageCount,
     pages,
   };

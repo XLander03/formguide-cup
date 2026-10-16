@@ -1,6 +1,7 @@
 import type { FieldRecord, FormVersion } from '../../../shared/forms/types';
 import { buildFormVersion, draftFromPdf, type OcrPageFn } from './draft';
-import { IngestError, MAX_PDF_BYTES, PUBLISH_CONFIDENCE } from './errors';
+import { IngestError, MAX_PDF_BYTES } from './errors';
+import { unconfirmedLowConfidence } from '../../../shared/forms/review';
 import { randomBytes } from 'node:crypto';
 
 export type HttpReq = {
@@ -149,8 +150,7 @@ function sendError(res: HttpRes, err: unknown): void {
 }
 
 export function lowConfidenceUnchecked(fields: FieldRecord[]): Array<{ id: string; confidence: number; checked: boolean }> {
-  return fields
-    .filter((field) => field.confidence < PUBLISH_CONFIDENCE && field.checked !== true)
+  return unconfirmedLowConfidence(fields)
     .map((field) => ({ id: field.id, confidence: field.confidence, checked: field.checked === true }));
 }
 

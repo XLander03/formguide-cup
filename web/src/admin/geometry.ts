@@ -71,8 +71,21 @@ export function resizeBox(
   return snapBox({ x: left, y: pointer.y, w: pointer.x - left, h: top - pointer.y }, page);
 }
 
+/** Shift (and if needed shrink) a box so it sits wholly on the page. No minimum size, unlike clampBox. */
+export function fitBoxToPage(box: FieldBox, page: PageSize): FieldBox {
+  const w = Math.min(Math.max(box.w, 0), page.width);
+  const h = Math.min(Math.max(box.h, 0), page.height);
+  return {
+    x: Math.min(Math.max(box.x, 0), page.width - w),
+    y: Math.min(Math.max(box.y, 0), page.height - h),
+    w,
+    h,
+  };
+}
+
+/** Drawn position. Extraction can return boxes past the page edge; they are drawn at the edge. */
 export function boxStyle(box: FieldBox, page: PageSize): { left: string; top: string; width: string; height: string } {
-  const screen = pdfBoxToScreen(box, page, 100, 100);
+  const screen = pdfBoxToScreen(fitBoxToPage(box, page), page, 100, 100);
   return {
     left: `${screen.x}%`,
     top: `${screen.y}%`,
