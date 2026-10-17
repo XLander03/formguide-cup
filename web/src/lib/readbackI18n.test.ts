@@ -23,7 +23,7 @@ describe('regional read-back', () => {
     expect(script).toContain('3210');
     expect(script).toContain('డ్రైవింగ్ లైసెన్స్');
     expect(script).toContain('సాధారణ పొదుపు ఖాతా');
-    expect(script).toContain('Fields vary by bank.');
+    expect(script).not.toMatch(/Fields vary by bank|draft only/i);
     expect(script).not.toContain('Please confirm');
   });
 
@@ -43,7 +43,7 @@ describe('regional read-back', () => {
     expect(script).toContain('ಡೆಬಿಟ್ ಕಾರ್ಡ್ ಮರು ವಿತರಣೆ');
     expect(script).toContain('4417');
     expect(script).toContain('ಕಳ್ಳತನವಾಗಿದೆ');
-    expect(script).toContain('Fields vary by bank.');
+    expect(script).not.toMatch(/Fields vary by bank|draft only/i);
   });
 
   it('has copy for every regional picker language, English and Hindi unchanged', () => {

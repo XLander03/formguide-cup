@@ -197,14 +197,12 @@ export function debitReadback(values: FormValues, lang: ReadbackLang): string {
   const en =
     `Please confirm this read-back. Debit card reissue. Name: ${name}. Customer ID: ${customer}. ` +
     `Account number: ${account}. Card last four: ${last4}. Reason: ${reason}${other}. ` +
-    `Reissue a new card: ${reissue}. ${REGISTERED_ADDRESS_COPY}. ` +
-    `This is a draft only. Fields vary by bank. No live bank submit.`;
+    `Reissue a new card: ${reissue}. ${REGISTERED_ADDRESS_COPY}.`;
   if (lang === 'en') return en;
   const hi =
     `कृपया इस रीड-बैक की पुष्टि करें। डेबिट कार्ड री-इश्यू। नाम: ${name}. ग्राहक आईडी: ${customer}. ` +
     `खाता संख्या: ${account}. कार्ड के आखिरी चार अंक ${last4}. कारण: ${reason}${other}. ` +
-    `नया कार्ड: ${reissue}. ${REGISTERED_ADDRESS_COPY}. ` +
-    `यह केवल ड्राफ्ट है। Fields vary by bank. बैंक में लाइव जमा नहीं होगा।`;
+    `नया कार्ड: ${reissue}. ${REGISTERED_ADDRESS_COPY}.`;
   if (lang === 'mixed') return `${hi} ${en}`;
   return hi;
 }

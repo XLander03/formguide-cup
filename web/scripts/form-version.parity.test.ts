@@ -23,7 +23,7 @@ const ENUM_CLAUSE =
   'journey_mode=account_opening|kyc_update|rekyc|debit_reissue; gender=female|male|other|prefer_not_to_say; residential_status=resident_individual; ovd_poi_type/ovd_poa_type=passport|driving_licence|proof_of_possession_of_aadhaar|voter_id|nrega_job_card|npr_letter; account_product_intent=regular_savings|salary_savings|bsbda|individual_current|unspecified_varies_by_bank; occupation_bucket=salaried|self_employed|professional|student|homemaker|retired|other; card_reason=lost_or_misplaced|stolen|damaged|other';
 
 const READBACK =
-  'Please confirm this read-back. Name: Priya Sharma. Date of birth: 12 March 1994. Mobile ending 3210. Proof of identity: driving licence. Product or journey: regular savings. This is a draft only. Fields vary by bank. No live bank submit.';
+  'Please confirm this read-back. Name: Priya Sharma. Date of birth: 12 March 1994. Mobile ending 3210. Proof of identity: driving licence. Product or journey: regular savings.';
 
 const REVIEW = [
   'identity:journey_mode',
