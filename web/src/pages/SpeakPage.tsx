@@ -210,8 +210,8 @@ export function SpeakPage() {
   });
 
   return (
-    <div className="grid min-h-[calc(100vh-150px)] lg:h-[calc(100vh-150px)] lg:grid-cols-12">
-      <section className="flex flex-col border-b-2 border-foreground bg-foreground text-background lg:col-span-4 lg:border-b-0 lg:border-r-2">
+    <div className="grid min-h-[calc(100vh-150px)] lg:h-[calc(100vh-10.5rem)] lg:grid-cols-12 lg:overflow-hidden">
+      <section className="flex min-h-0 flex-col border-b-2 border-foreground bg-foreground text-background lg:col-span-4 lg:overflow-hidden lg:border-b-0 lg:border-r-2">
         <div className="flex items-center justify-between border-b border-background/15 px-5 py-3 text-[10px] uppercase tracking-wide text-background/70">
           <span className="flex items-center gap-2">
             <span className={`size-2 bg-primary ${listening ? 'bg-saffron' : ''}`} />
@@ -266,7 +266,7 @@ export function SpeakPage() {
                     : flagLine
                       ? 'Asks next · check flagged'
                       : 'Asks next · none missing'
-                  : 'Asks next · missing required (one dump can fill many)'}
+                  : 'Asks next · still required'}
               </p>
               {session.readingBack ? (
                 <div className="mt-1">
@@ -364,7 +364,7 @@ export function SpeakPage() {
                   session.onPriya(demoFlags);
                 }}
               >
-                Fake prefill
+                Load sample draft
               </button>
               {session.readingBack ? (
                 <button type="button" className={lightBtn} onClick={() => session.onStopReadback()}>
@@ -382,13 +382,13 @@ export function SpeakPage() {
               )}
             </div>
             <p className="text-center text-[10px] font-semibold text-saffron">
-              FAKE PREFILL DEMO · not CKYC or DigiLocker data
+              Sample person · not from a bank
             </p>
           </div>
         </div>
       </section>
 
-      <nav className="border-b-2 border-foreground px-4 py-4 lg:col-span-2 lg:border-b-0 lg:border-r-2 lg:overflow-y-auto">
+      <nav className="border-b-2 border-foreground px-4 py-4 lg:col-span-2 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r-2">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">{label}</p>
         <p className="mt-1 font-display text-5xl leading-none">
           {requiredFilled}/{requiredFields.length}
@@ -448,7 +448,7 @@ export function SpeakPage() {
             <span className="ml-1 bg-foreground px-1.5 text-[10px] text-background">v{turns}</span>
           </button>
         </div>
-        <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5" style={{ maxHeight: 'calc(100vh - 230px)' }}>
+        <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
           <MissingFieldInputs
             missing={session.missing}
             invalid={session.invalidIds}

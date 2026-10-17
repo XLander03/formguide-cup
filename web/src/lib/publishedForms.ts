@@ -38,10 +38,25 @@ export function journeyRows(published: FormVersion[] | null, journey: string): P
   return [...hdfcFallbackRows(journey), ...rowsFromPublished(others)];
 }
 
-/** Drafts and other journeys never become rows. Null means the catalog could not be read. */
+/**
+ * A published form is a guided draft when at least half its fields use the shared library.
+ * A raw widget dump (the live Axis uploads were ~90% custom_) stays off the customer list
+ * until someone maps it. An empty field list is metadata only and is left to the caller.
+ */
+export function isCustomerFillable(form: FormVersion): boolean {
+  if (form.formId === BUNDLED_FORM_ID) return true;
+  const fields = form.fields ?? [];
+  if (fields.length === 0) return true;
+  const custom = fields.filter((field) => field.id.startsWith('custom_')).length;
+  return custom / fields.length <= 0.5;
+}
+
+/** Drafts, other journeys, and unmapped widget dumps never become rows. Null means the catalog could not be read. */
 export function visiblePublishedForms(forms: FormVersion[] | null, journey: string): FormVersion[] | null {
   if (!forms) return null;
-  return forms.filter((form) => form.status === 'published' && appliesToJourney(form, journey));
+  return forms.filter(
+    (form) => form.status === 'published' && appliesToJourney(form, journey) && isCustomerFillable(form),
+  );
 }
 
 export function rowsFromPublished(forms: FormVersion[]): PublishedFormRow[] {

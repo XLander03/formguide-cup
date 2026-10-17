@@ -9,7 +9,7 @@ import { appliesToJourney } from '../lib/publishedForms';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
-import { ArrowRightIcon, CheckIcon, MicIcon, StopIcon } from '../ui/icons';
+import { ArrowRightIcon, CheckIcon, MicIcon } from '../ui/icons';
 
 type OpenCard = {
   id: string;
@@ -145,7 +145,6 @@ function GreenDots() {
 export function JourneyPage() {
   const { go } = useRoute();
   const { language, selectLanguage, selectJourney, selectDraft, form, selectForm } = useFormSession();
-  const [listening, setListening] = useState(false);
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
   const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
@@ -169,16 +168,15 @@ export function JourneyPage() {
         <div className="mt-10 flex flex-col items-center">
           <button
             type="button"
-            aria-label="Tap, say your need"
-            aria-pressed={listening}
-            onClick={() => setListening((on) => !on)}
+            aria-label="Speaking starts on the next step"
+            onClick={() => {
+              document.getElementById('journey-samples')?.scrollIntoView({ block: 'nearest' });
+            }}
             className="grid size-40 place-items-center rounded-full bg-primary text-primary-foreground"
           >
-            {listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
+            <MicIcon className="size-12" />
           </button>
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide">
-            {listening ? 'Listening · local only · not a transcript' : 'Tap · say your need'}
-          </p>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide">Speaking starts on the next step</p>
           <GreenDots />
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px]" role="group" aria-label="Language">
             <span className="flex items-center gap-1.5 text-background/80">
@@ -214,7 +212,7 @@ export function JourneyPage() {
           </p>
         </div>
 
-        <div className="mt-8 border-t border-background/20 pt-4">
+        <div id="journey-samples" className="mt-8 border-t border-background/20 pt-4">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-background/50">
             No mic? Try a sample voice
           </p>
@@ -224,7 +222,6 @@ export function JourneyPage() {
                 key={sample.text}
                 type="button"
                 onClick={() => {
-                  setListening(false);
                   setHeard(sample.text);
                   setSelectedId(sample.cardId);
                 }}

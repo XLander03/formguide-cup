@@ -37,4 +37,11 @@ describe('publish gate', () => {
     expect(publishBlocked([bankOnlyWidget])).toBe(false);
     expect(publishBlocked([bankOnlyWidget, sharedMatch])).toBe(true);
   });
+
+  it('does not auto-accept an unmatched OCR label just because the model is confident', () => {
+    const base = form.fields[0];
+    const ocrCustom = { ...base, id: 'custom_fixed_deposit', pdfField: undefined, confidence: 0.95, checked: false };
+    expect(fieldAutoAccepted(ocrCustom)).toBe(false);
+    expect(publishBlocked([ocrCustom])).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { BANK_VARIES_COPY } from '../lib/schema';
 import { RouteProvider } from '../routing/router';
@@ -29,6 +30,15 @@ describe('JourneyPage published forms', () => {
 
     renderJourney(400);
     expect(await screen.findByText('HDFC')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Tap, say your need/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Speaking starts on the next step/i })).toBeInTheDocument();
+  });
+
+  it('does not pretend the journey mic is transcribing', async () => {
+    const user = userEvent.setup();
+    renderJourney(1365);
+    const mic = await screen.findByRole('button', { name: /Speaking starts on the next step/i });
+    await user.click(mic);
+    expect(screen.queryByText(/Listening/i)).not.toBeInTheDocument();
+    expect(mic).not.toHaveAttribute('aria-pressed', 'true');
   });
 });

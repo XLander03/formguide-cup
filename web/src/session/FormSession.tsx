@@ -604,7 +604,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     flash(Object.keys(persona).filter((key) => persona[key] !== '' && persona[key] !== null));
     const miss = getMissingRequired(persona);
     const level = completenessLevel(persona, miss);
-    const clip = 'Fake prefill demo';
+    const clip = 'Sample draft';
     setSaid(() => {
       const next: Record<string, string> = {};
       for (const [key, value] of Object.entries(persona)) {

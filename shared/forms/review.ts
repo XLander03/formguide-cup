@@ -21,8 +21,13 @@ function isCertainWidget(field: FieldRecord): boolean {
   return Boolean(field.pdfField) && field.id.startsWith('custom_');
 }
 
-/** Whether a field goes onto the form without an admin looking at it. */
+/**
+ * Whether a field goes onto the form without an admin looking at it.
+ * An unmatched OCR label stays in review even when the model reports a high score.
+ * A fillable-PDF widget is different: its name and box come from the file.
+ */
 export function fieldAutoAccepted(field: FieldRecord): boolean {
+  if (field.id.startsWith('custom_') && !field.pdfField) return false;
   return isCertainWidget(field) || isAutoAccepted(field.confidence);
 }
 
