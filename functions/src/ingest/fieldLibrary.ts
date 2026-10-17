@@ -67,6 +67,10 @@ const PARTIAL: Record<string, { keep: 'last'; count: number }> = {
   linked_account_last4: { keep: 'last', count: 4 },
 };
 
+/** How banks print the first and second lines of an address. */
+const LINE1 = ['flat no', 'house no', 'flat no bldg name', 'house flat no', 'company name flat no bldg name', 'premises bldg name', 'building name'];
+const LINE2 = ['road no name', 'road name', 'street', 'street road name', 'street name', 'area locality'];
+
 /**
  * Extra phrases a bank PDF might use for a shared id.
  * Exact alias hits score just under a literal id/label match.
@@ -82,11 +86,15 @@ const ALIASES: Record<string, readonly string[]> = {
   pan_number: ['pan', 'pan no', 'pan number', 'permanent account number'],
   mobile_registered: ['mobile', 'mobile number', 'mobile no', 'phone', 'phone number', 'registered mobile'],
   email: ['email', 'e mail', 'email id', 'email address'],
-  addr_current_line1: ['current address', 'residential address', 'address line 1'],
+  addr_current_line1: [
+    'current address', 'residential address', 'address line 1', 'communication address', 'mailing address',
+    'correspondence address', 'present address', 'residence address', ...LINE1,
+  ],
+  addr_current_line2: ['address line 2', ...LINE2],
   addr_current_city: ['city', 'town'],
   addr_current_state: ['state'],
   addr_current_pin: ['pin code', 'pincode', 'postal code', 'zip code'],
-  addr_permanent_line1: ['permanent address'],
+  addr_permanent_line1: ['permanent address', ...LINE1.map((phrase) => `permanent ${phrase}`)],
   addr_permanent_city: ['permanent city'],
   addr_permanent_state: ['permanent state'],
   addr_permanent_pin: ['permanent pin', 'permanent pin code', 'permanent pincode'],
@@ -108,6 +116,9 @@ const OTHER_PERSON = [
 ];
 const NOT_FATHER = OTHER_PERSON.filter((token) => !FATHER.includes(token));
 const NUMBERISH = ['number', 'no', 'num', 'id'];
+const ADDRESS_LINE = [
+  'address', 'addr', 'line', 'flat', 'house', 'bldg', 'building', 'premises', 'premise', 'road', 'street', 'area', 'locality',
+];
 
 const RULES: Record<string, MatchRule> = {
   applicant_full_name: { needs: [['name']], rejects: [...NAME_PART, ...OTHER_PERSON] },
@@ -119,6 +130,10 @@ const RULES: Record<string, MatchRule> = {
   customer_id_cif: { rejects: ['name'] },
   // A bare "Current" (account type) tick box is not "permanent address same as current".
   addr_permanent_same_as_current: { needs: [['permanent', 'same']] },
+  // Address lines need an address word: "road name" must not pull in a bare "Name".
+  addr_current_line1: { needs: [ADDRESS_LINE] },
+  addr_current_line2: { needs: [ADDRESS_LINE] },
+  addr_permanent_line1: { needs: [ADDRESS_LINE] },
   ovd_poi_number: { needs: [NUMBERISH] },
   ovd_poa_number: { needs: [NUMBERISH] },
   tax_resident_india_only: { needs: [['tax']] },
@@ -134,6 +149,13 @@ const PART_TOKENS: Record<'first' | 'middle' | 'last', string[]> = {
   first: ['first', 'given'],
   middle: ['middle'],
   last: ['last', 'surname'],
+};
+
+/** One-word names for a part ("SURNAME") that share no token with "last name". */
+const PART_PHRASES: Record<'first' | 'middle' | 'last', string[]> = {
+  first: ['given name'],
+  middle: [],
+  last: ['surname', 'family name'],
 };
 
 type SeedField = (typeof AOF_KYC_SEED.fields)[number];
@@ -195,8 +217,8 @@ export const DERIVED_LIBRARY: LibraryField[] = DERIVED_NAME_FIELDS.map((field) =
     pii: true,
     section: 'identity',
     aliases: applicant
-      ? [`${part} name`, `name ${part}`, `customer name ${part} name`, `applicant ${part} name`]
-      : [`fathers ${part} name`, `fathers name ${part} name`, `father ${part} name`],
+      ? [`${part} name`, `name ${part}`, `customer name ${part} name`, `applicant ${part} name`, ...PART_PHRASES[part]]
+      : [`fathers ${part} name`, `fathers name ${part} name`, `father ${part} name`, ...PART_PHRASES[part].map((p) => `fathers ${p}`)],
     match: {
       needs: applicant ? [PART_TOKENS[part]] : [['father', 'fathers'], PART_TOKENS[part]],
       rejects: applicant ? OTHER_PERSON : NOT_FATHER,

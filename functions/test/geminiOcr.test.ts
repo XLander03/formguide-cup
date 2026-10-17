@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { FIELD_MODEL, buildOcrPrompt, ocrPageWithGemini, parseOcrFields } from '../src/ingest/geminiOcr';
+import { FIELD_MODEL, OCR_RESPONSE_SCHEMA, buildOcrPrompt, ocrPageWithGemini, parseOcrFields } from '../src/ingest/geminiOcr';
 import './support';
 
 describe('gemini ocr client', () => {
@@ -12,7 +12,7 @@ describe('gemini ocr client', () => {
     assert.throws(() => buildOcrPrompt(1.5, 2));
   });
 
-  it('calls interactions once and never puts the key in the parsed result', async () => {
+  it('calls generateContent once with a response schema and never puts the key in the parsed result', async () => {
     const logs: unknown[][] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => {
@@ -31,34 +31,43 @@ describe('gemini ocr client', () => {
         height: 10,
         fetchImpl: async (url, init) => {
           calls += 1;
-          assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/interactions');
+          assert.equal(url, `https://generativelanguage.googleapis.com/v1beta/models/${FIELD_MODEL}:generateContent`);
+          assert.equal(FIELD_MODEL, 'gemini-3.5-flash-lite');
           assert.equal(init?.headers?.['x-goog-api-key'], key);
           const body = JSON.parse(String(init?.body)) as {
-            model: string;
-            input: Array<{ type: string; text?: string; mime_type?: string; data?: string }>;
-            generation_config: { thinking_level: string; max_output_tokens: number };
-            response_format: { type: string; mime_type: string };
+            contents: Array<{ parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> }>;
+            generationConfig: {
+              responseMimeType: string;
+              responseJsonSchema: unknown;
+              temperature: number;
+              maxOutputTokens: number;
+              thinkingConfig: { thinkingLevel: string };
+            };
           };
-          assert.equal(body.model, FIELD_MODEL);
-          assert.equal(body.model, 'gemini-3.5-flash-lite');
-          assert.equal(body.generation_config.thinking_level, 'low');
-          assert.equal(body.generation_config.max_output_tokens, 32768);
-          assert.deepEqual(body.response_format, { type: 'text', mime_type: 'application/json' });
-          assert.equal(body.input[0].text, buildOcrPrompt(2, 2));
-          assert.equal(body.input[1].mime_type, 'image/png');
-          assert.equal(body.input[1].data, png.toString('base64'));
+          assert.equal(body.generationConfig.responseMimeType, 'application/json');
+          assert.deepEqual(body.generationConfig.responseJsonSchema, OCR_RESPONSE_SCHEMA);
+          assert.equal(body.generationConfig.temperature, 0);
+          assert.equal(body.generationConfig.maxOutputTokens, 65536);
+          assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+          assert.equal(body.contents[0].parts[0].text, buildOcrPrompt(2, 2));
+          assert.equal(body.contents[0].parts[1].inlineData?.mimeType, 'image/png');
+          assert.equal(body.contents[0].parts[1].inlineData?.data, png.toString('base64'));
           assert.equal(JSON.stringify(body).includes('unit-test-key-not-real'), false);
+          const reply = {
+            fields: [{ label: 'City', type: 'text', required: false, box_2d: [[100, 200, 120, 600]], confidence: 0.9 }],
+          };
           return {
             ok: true,
             status: 200,
             async json() {
-              return { output_text: JSON.stringify({ fields: [] }) };
+              return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(reply) }] } }] };
             },
           };
         },
       });
       assert.equal(calls, 1);
-      assert.deepEqual(fields, []);
+      // A box wrapped as [[...]] (Gemini's multi-box style) still parses.
+      assert.deepEqual(fields.map((f) => f.label), ['City']);
       assert.equal(JSON.stringify(logs).includes(key), false);
     } finally {
       console.error = original;

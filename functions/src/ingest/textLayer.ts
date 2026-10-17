@@ -187,6 +187,8 @@ export type Anchor = {
   box: UnitBox;
   /** Printed label position found in the text layer. */
   label: UnitBox;
+  /** Height of one line of the printed label (the label may wrap over several). */
+  lineH: number;
   /** Applied offset, in points. */
   shiftPt: { dx: number; dy: number };
 };
@@ -255,7 +257,8 @@ export function anchorToLabel(field: LabelledBox, text: PageText): (Anchor & { p
   const { box: predicted, proxy } = predictedLabel(field, width);
   let best: { score: number; anchor: Anchor & { proxy: boolean } } | null = null;
   for (const run of labelRuns(tokens, text.words)) {
-    const rect = union(text.words.slice(run.first, run.first + run.length));
+    const runWords = text.words.slice(run.first, run.first + run.length);
+    const rect = union(runWords);
     const { dx, dy } = runOffset(run, tokens.length, rect, predicted, proxy);
     const distance = Math.hypot(dx * width, dy * height);
     if (distance > MAX_LABEL_SHIFT_PT) continue;
@@ -266,6 +269,7 @@ export function anchorToLabel(field: LabelledBox, text: PageText): (Anchor & { p
         anchor: {
           box: { x: field.box.x + dx, y: field.box.y + dy, w: field.box.w, h: field.box.h },
           label: rect,
+          lineH: Math.min(...runWords.map((w) => w.h)),
           shiftPt: { dx: dx * width, dy: dy * height },
           proxy,
         },

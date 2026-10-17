@@ -113,11 +113,48 @@ export function typeFits(entryType: FieldType, hint?: FieldType): boolean {
   return true;
 }
 
-/** Library guards (needs / rejects / session-only) and the widget type. */
-export function ruleAllows(entry: LibraryField, labelTokens: ReadonlySet<string>, hint?: FieldType): boolean {
+/**
+ * A section printed for someone other than the applicant, or for the bank's own use.
+ * Its "Name", "City" or "Mobile" boxes are not the applicant's, so they never take a shared id.
+ */
+const OTHER_SECTION =
+  /\b(?:2nd|second|third|joint|nominee|nomination|guardian|minor|witness(?:es)?|introducer|official|employee)\b|\b(?:branch|office|bank) use\b|\bfor (?:the )?bank\b/;
+const PERMANENT_WORDS = /\bpermanent\b/;
+const CURRENT_WORDS = /\b(?:mailing|communication|correspondence|current|present|residence|residential|local)\b/;
+
+export function sectionBlocksShared(section: string | undefined): boolean {
+  return OTHER_SECTION.test(normalize(section ?? ''));
+}
+
+/**
+ * Which address block a box belongs to, from its label first, then its printed section.
+ * "Residence Address Same as Permanent" is a tick box, not a block, so it decides nothing.
+ */
+export function addressBlock(label: string, section: string | undefined): 'permanent' | 'current' | null {
+  for (const text of [normalize(label), normalize(section ?? '')]) {
+    if (/\bsame\b/.test(text)) continue;
+    const permanent = PERMANENT_WORDS.test(text);
+    const current = CURRENT_WORDS.test(text);
+    if (permanent && !current) return 'permanent';
+    if (current && !permanent) return 'current';
+  }
+  return null;
+}
+
+/** Library guards (needs / rejects / session-only), the widget type, and the address block. */
+export function ruleAllows(
+  entry: LibraryField,
+  labelTokens: ReadonlySet<string>,
+  hint?: FieldType,
+  block: 'permanent' | 'current' | null = null,
+): boolean {
   const rule = entry.match;
   if (rule?.sessionOnly) return false;
   if (!typeFits(entry.type, hint)) return false;
+  if (block && entry.id !== 'addr_permanent_same_as_current') {
+    if (block === 'current' && entry.id.startsWith('addr_permanent_')) return false;
+    if (block === 'permanent' && entry.id.startsWith('addr_current_')) return false;
+  }
   if (rule?.rejects?.some((token) => labelTokens.has(token))) return false;
   if (rule?.needs?.some((group) => !group.some((token) => labelTokens.has(token)))) return false;
   return true;
@@ -137,6 +174,8 @@ export type LibraryMatch = { entry: LibraryField | null; score: number; claim: s
 export type MatchOptions = {
   /** Widget or OCR type of the box; ids of an incompatible type are never offered. */
   type?: FieldType;
+  /** Section heading the box sits under, as OCR read it ("PERMANENT ADDRESS 1st APPLICANT"). */
+  section?: string;
 };
 
 /**
@@ -151,11 +190,16 @@ export function matchLibrary(query: string, used?: ReadonlySet<string>, options:
   const labelTokens = new Set(normalized.split(' '));
   // "Yes" / "No" / "Others" name an answer box, not a field.
   if ([...labelTokens].every((token) => ANSWER_WORDS.has(token))) return { entry: null, score: 0, claim: null };
+  // A nominee's or second applicant's boxes stay bank-only fields.
+  if (sectionBlocksShared(options.section)) return { entry: null, score: 0, claim: null };
   const scored = scoringQuery(normalized);
-  const ranked = MATCH_LIBRARY.filter((entry) => ruleAllows(entry, labelTokens, options.type)).map((entry, index) => ({
+  const block = addressBlock(query, options.section);
+  // Under a permanent-address heading, a bare "City" is scored as "permanent city".
+  const permanentQuery = block === 'permanent' && !labelTokens.has('permanent') ? `permanent ${scored}` : scored;
+  const ranked = MATCH_LIBRARY.filter((entry) => ruleAllows(entry, labelTokens, options.type, block)).map((entry, index) => ({
     entry,
     index,
-    score: scoreLibraryField(scored, entry),
+    score: scoreLibraryField(entry.id.startsWith('addr_permanent_') ? permanentQuery : scored, entry),
   }));
   ranked.sort((a, b) => b.score - a.score || a.index - b.index);
   const top = ranked[0]?.score ?? 0;
