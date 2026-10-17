@@ -37,11 +37,16 @@ function hasBox(field: FieldRecord): boolean {
 
 /**
  * The value printed for a field. Name-part cells (applicant_first_name...) are cut
- * from the full name unless a value was typed for that id.
+ * from the full name unless a value was typed for that id. A permanent-address cell
+ * repeats the current address when the user said the two are the same.
  */
 function fieldValue(id: string, values: FormValues): FormValues[string] {
   const own = values[id];
   if (typeof own === 'string' && own.trim()) return own;
+  if (id.startsWith('addr_permanent_') && values.addr_permanent_same_as_current === true) {
+    const current = values[id.replace('addr_permanent_', 'addr_current_')];
+    if (typeof current === 'string' && current.trim()) return current;
+  }
   const derived = derivedNameValue(id, values);
   return derived === undefined ? own : derived;
 }

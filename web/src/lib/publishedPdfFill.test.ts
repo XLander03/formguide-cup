@@ -147,6 +147,25 @@ describe('planBoxWrites', () => {
     ]);
   });
 
+  it('repeats the current address in permanent cells when the user said they are the same', () => {
+    const form = {
+      ...NAMES,
+      fields: [
+        field({ id: 'addr_permanent_city', type: 'text' }),
+        field({ id: 'addr_permanent_pin', type: 'pin' }),
+      ],
+    };
+    const text = (values: Record<string, string | boolean>) =>
+      planBoxWrites(form, values).map((w) => (w.kind === 'text' ? w.text : ''));
+    const current = { addr_current_city: 'Bengaluru', addr_current_pin: '560038' };
+    expect(text({ ...current, addr_permanent_same_as_current: true })).toEqual(['Bengaluru', '560038']);
+    expect(text({ ...current, addr_permanent_same_as_current: false })).toEqual([]);
+    expect(text({ ...current, addr_permanent_same_as_current: true, addr_permanent_city: 'Pune' })).toEqual([
+      'Pune',
+      '560038',
+    ]);
+  });
+
   it('never lists name-part cells as bank-only inputs', () => {
     expect(bankOnlyFields(NAMES).map((f) => f.id)).toEqual(['custom_customer_name_prefix']);
   });
