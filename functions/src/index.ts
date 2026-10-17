@@ -10,6 +10,8 @@ import {
   missingRequiredIds,
 } from './forms/hdfcV1';
 import { readSpeakRequest } from './wav';
+import { checkRateLimits, clientKey } from './rateLimit';
+import { firestoreCounter } from './rateLimitStore';
 import {
   bankFieldsPrompt,
   currentBankValues,
@@ -31,6 +33,8 @@ const geminiApiKey = defineSecret('GEMINI_API_KEY');
 // Optional. If unset, transcription has no fallback and a Gemini outage
 // fails the request as before — see SETUP.md for how to configure this.
 const groqApiKey = defineSecret('GROQ_API_KEY');
+
+const speakCounter = firestoreCounter();
 
 const FIELD_IDS = extractFieldIds(HDFC_V1);
 const ENUMS: Record<string, readonly string[]> = enumMap(HDFC_V1);
@@ -555,6 +559,16 @@ export const speak = onRequest(
     }
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'POST only' });
+      return;
+    }
+
+    const limit = await checkRateLimits(
+      speakCounter,
+      clientKey(req.header('x-forwarded-for'), req.ip),
+    );
+    if (!limit.ok) {
+      res.set('Retry-After', String(limit.retryAfterSeconds));
+      res.status(429).json({ error: 'rate_limited' });
       return;
     }
 
