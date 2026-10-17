@@ -1,4 +1,4 @@
-import { heuristicExtract } from './heuristicExtract';
+import { heuristicExtract, isRekycText } from './heuristicExtract';
 
 export type JourneyCardId =
   | 'regular_savings'
@@ -25,20 +25,12 @@ function isLater(text: string): boolean {
   );
 }
 
-/** Re-KYC before a plain "KYC" match, so "redo my KYC" is not a profile update. */
-function isRekyc(text: string): boolean {
-  return (
-    /re-?kyc|\brekyc\b|redo\b[^.]{0,40}\bkyc|re-?verif/i.test(text) ||
-    /री[-\s]?के(?:वाई|वाइ)सी|रीकेवाईसी/.test(text)
-  );
-}
-
 /** Map a free description to one open journey card. */
 export function pickJourneyCard(text: string): JourneyPick {
   const raw = text.trim();
   if (!raw) return { kind: 'unknown' };
   if (isLater(raw)) return { kind: 'later' };
-  if (isRekyc(raw)) return { kind: 'card', cardId: 'rekyc' };
+  if (isRekycText(raw)) return { kind: 'card', cardId: 'rekyc' };
 
   const updates = heuristicExtract(raw, {}).field_updates;
   const journey = typeof updates.journey_mode === 'string' ? updates.journey_mode : '';

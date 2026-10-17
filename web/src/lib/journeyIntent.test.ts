@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { heuristicExtract } from './heuristicExtract';
 import { pickJourneyCard } from './journeyIntent';
 
 describe('pickJourneyCard', () => {
@@ -14,6 +15,15 @@ describe('pickJourneyCard', () => {
       kind: 'card',
       cardId: 'rekyc',
     });
+  });
+
+  it('fills the same Re-KYC journey that Continue carries into Speak', () => {
+    // Continue re-submits the heard text; the fill must not undo the card the user picked.
+    expect(heuristicExtract('My bank sent a letter saying I need to redo my KYC', {}).field_updates.journey_mode).toBe(
+      'rekyc',
+    );
+    expect(heuristicExtract('I want to re-verify my KYC', {}).field_updates.journey_mode).toBe('rekyc');
+    expect(heuristicExtract('Please update my KYC address', {}).field_updates.journey_mode).toBe('kyc_update');
   });
 
   it('hears the other open journeys', () => {

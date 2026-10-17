@@ -121,9 +121,17 @@ function detectOvd(text: string): string | null {
   return null;
 }
 
+/** Re-KYC before a plain "KYC" match, so "redo my KYC" is not a profile update. */
+export function isRekycText(text: string): boolean {
+  return (
+    /re-?kyc|\brekyc\b|redo\b[^.]{0,40}\bkyc|re-?verif/i.test(text) ||
+    /री[-\s]?के(?:वाई|वाइ)सी|रीकेवाईसी/.test(text)
+  );
+}
+
 function detectJourney(text: string): string | null {
   const t = text.toLowerCase();
-  if (/\bre-?kyc\b|\brekyc\b/.test(t)) return 'rekyc';
+  if (isRekycText(text)) return 'rekyc';
   if (/\bkyc\b|\bupdate\s+kyc\b|\bcustomer\s+information\b/.test(t)) return 'kyc_update';
   if (
     /\bopen\b.*\baccount\b|\bsavings\b|\baof\b|\baccount\s+opening\b|\bnew\s+account\b/.test(t)
