@@ -104,6 +104,23 @@ describe('ingestForm', () => {
     assert.equal(JSON.stringify(calls).includes(SENTINEL), false);
   });
 
+  it('OCRs flat pages concurrently and keeps fields in page order', async () => {
+    const bytes = await flatPdf();
+    let inFlight = 0;
+    let peak = 0;
+    const draft = await draftFromPdf(bytes, async (input) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      // Page 1 finishes last, so a merge in completion order would be caught.
+      await new Promise((resolve) => setTimeout(resolve, input.page === 1 ? 30 : 0));
+      inFlight -= 1;
+      return ocrFor(input.page);
+    });
+    assert.equal(peak, 2);
+    assert.deepEqual(draft.fields.map((field) => field.page), [1, 2]);
+    assert.deepEqual(draft.fields.map((field) => field.id), ['dob', 'custom_favourite_colour']);
+  });
+
   it('saves a draft FormVersion and page pngs for an uploaded PDF', async () => {
     const bytes = await flatPdf();
     const deps = memoryIngest();

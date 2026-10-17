@@ -15,8 +15,9 @@ export const INGEST_UNAVAILABLE = 'Ingest is not available yet.';
 
 /**
  * Called directly, not via the `/api/ingestForm` Hosting rewrite: Hosting
- * cuts proxied function requests off at 60s, and OCR of a 4-page flat PDF
- * takes 1.5-2 minutes. The function's own CORS list allows the web.app
+ * cuts proxied function requests off at 60s, and OCR of a flat PDF can run
+ * past that (pages are OCR'd concurrently, but one slow page or a retry still
+ * sets the pace). The function's own CORS list allows the web.app
  * origin and localhost:5173.
  */
 const INGEST_URL =

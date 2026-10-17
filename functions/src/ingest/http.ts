@@ -19,11 +19,14 @@ export const ingestForm = onRequest(
     // PDF pages to PNG for OCR — unlike the other ingest functions, this one
     // does real image work, not just Firestore reads/writes.
     memory: '512MiB',
+    // At 512MiB a 2nd-gen function only gets a fraction of a vCPU, which
+    // makes pdf.js rasterising and PNG encoding slow. A full vCPU cuts that.
+    cpu: 1,
     maxInstances: 2,
     minInstances: 0,
-    // 120s was measured hitting ECONNRESET mid-request: up to 4 pages are
-    // OCR'd sequentially, and the larger token budget needed to avoid
-    // truncation (see geminiOcr.ts) makes each page's call slower too.
+    // 120s was measured hitting ECONNRESET when pages were OCR'd one after
+    // another. Pages now run concurrently (see draft.ts), but a slow page plus
+    // its one retry (see geminiOcr.ts) can still take a while, so keep 300s.
     timeoutSeconds: 300,
     concurrency: 1,
     invoker: 'public',
