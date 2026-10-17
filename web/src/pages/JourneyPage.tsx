@@ -8,6 +8,7 @@ import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import type { JourneyId } from '../lib/journeys';
 import { pickJourneyCard } from '../lib/journeyIntent';
+import { PREP_LIST } from '../lib/prepList';
 import {
   planFromResponse,
   requestPlan,
@@ -30,7 +31,6 @@ type OpenCard = {
   journey: JourneyId;
   /** Existing account_product_intent value, or null for KYC journeys. */
   product: string | null;
-  needs: string[];
 };
 
 const OPEN_CARDS: OpenCard[] = [
@@ -41,12 +41,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Everyday savings account for individuals',
     journey: 'account_opening',
     product: 'regular_savings',
-    needs: [
-      'Mobile number you can access',
-      'Current address with PIN code',
-      'One proof of identity (passport, voter ID, driving licence)',
-      'PAN card number',
-    ],
   },
   {
     id: 'salary_savings',
@@ -55,12 +49,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Zero-balance account linked to your employer',
     journey: 'account_opening',
     product: 'salary_savings',
-    needs: [
-      'Employer name',
-      'Mobile number you can access',
-      'Current address with PIN code',
-      'PAN card number',
-    ],
   },
   {
     id: 'bsbda',
@@ -69,7 +57,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Simple no-frills savings account',
     journey: 'account_opening',
     product: 'bsbda',
-    needs: ['Mobile number', 'Current address with PIN code', 'One proof of identity'],
   },
   {
     id: 'individual_current',
@@ -78,12 +65,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Current account for business transactions',
     journey: 'account_opening',
     product: 'individual_current',
-    needs: [
-      'PAN card number',
-      'Business or trade name',
-      'Address with PIN code',
-      'One proof of identity',
-    ],
   },
   {
     id: 'kyc_update',
@@ -92,11 +73,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Change address, mobile, or identity details',
     journey: 'kyc_update',
     product: null,
-    needs: [
-      'One proof of identity (passport, voter ID, driving licence)',
-      'Current address with PIN code',
-      'Mobile number you can access',
-    ],
   },
   {
     id: 'rekyc',
@@ -105,11 +81,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Periodic re-verification your bank asked for',
     journey: 'rekyc',
     product: null,
-    needs: [
-      'One proof of identity (passport, voter ID, driving licence)',
-      'Current address with PIN code',
-      'Mobile number you can access',
-    ],
   },
   {
     id: 'debit_reissue',
@@ -118,12 +89,6 @@ const OPEN_CARDS: OpenCard[] = [
     blurb: 'Replace a lost, stolen, or damaged debit card',
     journey: 'debit_reissue',
     product: null,
-    needs: [
-      'Customer ID',
-      'Account number',
-      'Last 4 digits of the card — never the full number',
-      'Reason: lost or misplaced, stolen, damaged, or other',
-    ],
   },
 ];
 
@@ -297,16 +262,24 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
 
         <div className="mt-8 border-t-2 border-foreground pt-5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-            02 · Keep these nearby for {selected.name}
+            02 · Before you start · {selected.name}
           </p>
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {selected.needs.map((need) => (
-              <li key={need} className="flex items-start gap-2 border border-foreground/20 p-3 text-xs">
+          <h3 className="mt-2 font-display text-2xl">Keep these in front of you.</h3>
+          <p className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
+            You only say these details; nothing is uploaded. Having the cards in hand gets the numbers right first
+            time. Take the originals to the branch, where the bank checks them.
+          </p>
+          <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+            {PREP_LIST[selected.journey].map((need) => (
+              <li key={need} className="flex items-start gap-2 border border-foreground/20 p-3 text-sm">
                 <CheckIcon className="mt-0.5 size-4 shrink-0 text-primary" />
                 {need}
               </li>
             ))}
           </ul>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Never say an OTP, PIN, CVV or full card number. FormGuide will not ask for them.
+          </p>
         </div>
 
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4">
