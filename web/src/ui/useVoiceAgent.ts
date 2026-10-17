@@ -114,7 +114,7 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
       if (result.spoken) {
         setReply(result.spoken);
         setPhase('speaking');
-        await sessionRef.current.say(result.spoken, result.replyLang);
+        await sessionRef.current.sayTurn(result);
       }
       return { context, intent: result.intent, spoke: Boolean(result.spoken) };
     },

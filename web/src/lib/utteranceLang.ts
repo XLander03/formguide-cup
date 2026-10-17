@@ -1,6 +1,11 @@
-/** Cup shell language: Hindi + English. Regional languages are out of this slice. */
+import { isRegionalLanguage, regionalReadbackFollowup, type RegionalLanguage } from './readbackI18n';
+
+/** Cup shell language: Hindi + English. Regional read-back copy lives in readbackI18n. */
 
 export type UtteranceLang = 'en' | 'hi' | 'mixed';
+
+/** Language of a read-back script: the en/hi/mixed copy, or one regional language. */
+export type ReadbackLang = UtteranceLang | RegionalLanguage;
 
 const DEVANAGARI = /[\u0900-\u097F]/;
 
@@ -33,39 +38,74 @@ export function readbackLanguage(mic: MicLang, utterance: UtteranceLang): Uttera
   return utterance;
 }
 
+/**
+ * English questions keyed by schema field id, kept in step with EN_ASK in the speak
+ * function. Used when the local extractor asks next, instead of a bare field label.
+ */
+export const EN_FIELD_ASK: Record<string, string> = {
+  journey_mode: 'What would you like to do today: open a new account, update your KYC details, or do your periodic re-KYC?',
+  applicant_full_name: 'What is your full name, exactly as it is printed on your ID card?',
+  father_or_spouse_name: "What is your father's full name? If you are married, you can give your spouse's name instead.",
+  dob: 'What is your date of birth? Please say the day, month and year, for example 12 March 1994.',
+  residential_status: 'Do you live in India and hold Indian residency, or are you a non-resident (NRI)?',
+  pan_available: "Do you have a PAN card? If you don't, that's fine, we will note Form 60 instead.",
+  mobile_registered: 'What is your 10-digit mobile number? The bank will send updates and OTPs to it.',
+  addr_current_line1: 'What is your current address? Start with the house or flat number and the street.',
+  addr_current_city: 'Which city or town is that address in?',
+  addr_current_state: 'Which state is that in?',
+  addr_current_pin: 'What is the 6-digit PIN code of that address?',
+  addr_permanent_same_as_current: 'Is your permanent address the same as the address you just gave, or is it different?',
+  ovd_poi_type: 'Which ID will you show as proof of identity: passport, driving licence, Aadhaar, voter ID, NREGA job card, or NPR letter?',
+  ovd_poi_number: 'What is the number printed on that ID?',
+  ovd_poa_same_as_poi: 'Does that same ID also show your current address, so it can be your address proof?',
+  photo_consent: 'The bank keeps a recent photograph with your form. Is it okay to take or attach one?',
+  ovd_originals_ack: 'When you visit the branch, will you bring the original ID so the staff can check it?',
+  existing_bank_customer: 'Do you already have an account with this bank, or will you be a new customer?',
+  pep_declaration: 'Do you, or a close family member, hold a senior government or political position, such as a minister, MP, MLA, judge or senior officer?',
+  tax_resident_india_only: 'Do you pay tax only in India, or are you also a tax resident of another country?',
+  pan_number: 'What is your PAN number? It is 10 characters: 5 letters, 4 digits and 1 letter.',
+  form60_declared: 'Since you do not have a PAN, shall I note that you will fill Form 60 instead?',
+  account_product_intent: 'Which account would you like: a regular savings account, a salary account, a basic savings account with zero balance, or a current account?',
+  customer_id_cif: 'What is your customer ID, also called CIF? It is on your passbook or cheque book. You can skip this if you do not have it.',
+  card_customer_id: 'What is your customer ID? You can find it on your passbook, cheque book or net banking.',
+  card_account_number: 'What is the account number this card is linked to?',
+  card_last4: 'What are the last 4 digits printed on the card? Please do not say the full card number.',
+  card_reason: 'What happened to the card: was it lost, stolen, damaged, or is it something else?',
+  card_reason_other: 'In a few words, what is the reason you need a new card?',
+  card_reissue_new: 'Would you like the bank to send you a new card to replace this one?',
+};
+
 /** Hindi prompts keyed by schema field id. English copy stays in the schema. */
 export const HI_FIELD_ASK: Record<string, string> = {
-  journey_mode: 'आप खाता खोलना चाहते हैं, केवाईसी अपडेट, या री-केवाईसी?',
-  applicant_full_name: 'कृपया अपना पूरा नाम बताएं, जैसा पहचान पत्र पर है।',
-  dob: 'जन्म तिथि बताएं — दिन, महीना और साल।',
-  residential_status: 'क्या आप भारत के निवासी व्यक्ति हैं?',
-  pan_available: 'क्या आपके पास पैन है, या बिना पैन के फॉर्म 60 नोट करें?',
-  mobile_registered: 'रजिस्टर्ड मोबाइल नंबर बताएं, दस अंक।',
-  addr_current_line1: 'वर्तमान पते की पहली पंक्ति बताएं।',
-  addr_current_city: 'वर्तमान शहर या कस्बा बताएं।',
-  addr_current_state: 'वर्तमान राज्य या केंद्र शासित प्रदेश बताएं।',
-  addr_current_pin: 'वर्तमान पते का छह अंकों का पिन कोड बताएं।',
-  addr_permanent_same_as_current: 'क्या स्थायी पता वर्तमान पते जैसा ही है?',
-  ovd_poi_type:
-    'पहचान के लिए कौन सा दस्तावेज़ देंगे — पासपोर्ट, ड्राइविंग लाइसेंस, आधार का प्रमाण, वोटर आईडी, नरेगा जॉब कार्ड, या एनपीआर पत्र?',
-  ovd_poi_number: 'उस पहचान दस्तावेज़ का नंबर बताएं।',
-  ovd_poa_same_as_poi: 'क्या पते का प्रमाण वही दस्तावेज़ है?',
-  photo_consent: 'क्या आप फोटो की सहमति देते हैं?',
-  ovd_originals_ack: 'क्या आप मूल दस्तावेज़ दिखाएँगे?',
-  existing_bank_customer: 'क्या आप इस बैंक के मौजूदा ग्राहक हैं, या नए हैं?',
-  pep_declaration: 'क्या आप राजनीतिक रूप से उजागर व्यक्ति (PEP) हैं?',
-  tax_resident_india_only: 'क्या आप कर के लिए केवल भारत के निवासी हैं?',
-  pan_number: 'पैन नंबर बताएं।',
-  form60_declared: 'पैन नहीं है — क्या फॉर्म 60 दर्ज करें?',
-  account_product_intent:
-    'यह रेगुलर सेविंग्स, सैलरी, बेसिक सेविंग्स (BSBDA), या व्यक्तिगत करंट खाता है? उत्पाद के नाम बैंक के अनुसार बदलते हैं।',
-  customer_id_cif: 'अगर पास हो तो ग्राहक आईडी या CIF बताएं।',
-  card_customer_id: 'ग्राहक आईडी बताएं।',
-  card_account_number: 'खाता संख्या बताएं।',
-  card_last4: 'कार्ड के आखिरी चार अंक बताएं। पूरा कार्ड नंबर नहीं।',
-  card_reason: 'कार्ड खोया, चोरी, खराब, या कोई और कारण?',
-  card_reason_other: 'अन्य कारण क्या लिखें?',
-  card_reissue_new: 'क्या नया कार्ड चाहिए?',
+  journey_mode: 'आज आप क्या करना चाहते हैं: नया खाता खोलना, केवाईसी विवरण अपडेट करना, या री-केवाईसी?',
+  applicant_full_name: 'आपका पूरा नाम क्या है? ठीक वैसे बताइए जैसा आपके पहचान पत्र पर छपा है।',
+  dob: 'आपकी जन्म तिथि क्या है? दिन, महीना और साल बताइए, जैसे 12 मार्च 1994।',
+  residential_status: 'क्या आप भारत में रहते हैं और भारत के निवासी हैं, या आप अनिवासी (NRI) हैं?',
+  pan_available: 'क्या आपके पास पैन कार्ड है? अगर नहीं है तो कोई बात नहीं, हम फॉर्म 60 दर्ज कर देंगे।',
+  mobile_registered: 'आपका दस अंकों का मोबाइल नंबर क्या है? बैंक इसी पर जानकारी और OTP भेजेगा।',
+  addr_current_line1: 'आपका वर्तमान पता क्या है? मकान या फ़्लैट नंबर और गली से शुरू कीजिए।',
+  addr_current_city: 'यह पता किस शहर या कस्बे में है?',
+  addr_current_state: 'यह किस राज्य में है?',
+  addr_current_pin: 'इस पते का छह अंकों का पिन कोड क्या है?',
+  addr_permanent_same_as_current: 'क्या आपका स्थायी पता यही है, या अलग है?',
+  ovd_poi_type: 'पहचान के प्रमाण के लिए कौन सा दस्तावेज़ दिखाएँगे: पासपोर्ट, ड्राइविंग लाइसेंस, आधार, वोटर आईडी, नरेगा जॉब कार्ड, या एनपीआर पत्र?',
+  ovd_poi_number: 'उस दस्तावेज़ पर छपा नंबर क्या है?',
+  ovd_poa_same_as_poi: 'क्या उसी दस्तावेज़ पर आपका वर्तमान पता भी है, ताकि वही पते का प्रमाण बन सके?',
+  photo_consent: 'बैंक फॉर्म के साथ आपकी एक हाल की फोटो रखता है। क्या फोटो लेना या लगाना ठीक है?',
+  ovd_originals_ack: 'शाखा आते समय क्या आप मूल दस्तावेज़ साथ लाएँगे, ताकि स्टाफ़ उसे जाँच सके?',
+  existing_bank_customer: 'क्या इस बैंक में आपका पहले से खाता है, या आप नए ग्राहक होंगे?',
+  pep_declaration: 'क्या आप या आपके परिवार का कोई करीबी सदस्य किसी बड़े सरकारी या राजनीतिक पद पर है, जैसे मंत्री, सांसद, विधायक, जज या वरिष्ठ अधिकारी?',
+  tax_resident_india_only: 'क्या आप केवल भारत में टैक्स देते हैं, या किसी और देश में भी टैक्स निवासी हैं?',
+  pan_number: 'आपका पैन नंबर क्या है? इसमें 10 अक्षर होते हैं: 5 अक्षर, 4 अंक और 1 अक्षर।',
+  form60_declared: 'आपके पास पैन नहीं है, तो क्या मैं दर्ज करूँ कि आप फॉर्म 60 भरेंगे?',
+  account_product_intent: 'आप कौन सा खाता चाहते हैं: रेगुलर सेविंग्स, सैलरी खाता, ज़ीरो बैलेंस वाला बेसिक सेविंग्स खाता, या करंट खाता?',
+  customer_id_cif: 'आपकी ग्राहक आईडी, यानी CIF, क्या है? यह पासबुक या चेक बुक पर होती है। न हो तो छोड़ सकते हैं।',
+  card_customer_id: 'आपकी ग्राहक आईडी क्या है? यह पासबुक, चेक बुक या नेट बैंकिंग में मिलेगी।',
+  card_account_number: 'यह कार्ड किस खाता संख्या से जुड़ा है?',
+  card_last4: 'कार्ड पर छपे आखिरी चार अंक क्या हैं? कृपया पूरा कार्ड नंबर न बोलें।',
+  card_reason: 'कार्ड के साथ क्या हुआ: खो गया, चोरी हुआ, खराब हो गया, या कुछ और?',
+  card_reason_other: 'कुछ शब्दों में बताइए, नया कार्ड क्यों चाहिए?',
+  card_reissue_new: 'क्या आप चाहते हैं कि बैंक इसकी जगह नया कार्ड भेजे?',
   addr_permanent_line1: 'स्थायी पते की पहली पंक्ति बताएं।',
   addr_permanent_city: 'स्थायी पते का शहर बताएं।',
   addr_permanent_state: 'स्थायी पते का राज्य बताएं।',
@@ -76,6 +116,7 @@ export const HI_FIELD_ASK: Record<string, string> = {
   readback_confirmed: 'रीड-बैक सुनकर बताएं कि विवरण सही है।',
   draft_only_ack: 'पुष्टि करें कि यह केवल ड्राफ्ट है।',
   no_live_submit_ack: 'पुष्टि करें कि बैंक में लाइव जमा नहीं करना है।',
+  father_or_spouse_name: 'आपके पिता का पूरा नाम क्या है? अगर आप विवाहित हैं, तो पति या पत्नी का नाम भी बता सकते हैं।',
 };
 
 const HI_BY_EN: Record<string, string> = {
@@ -217,7 +258,8 @@ export const EN_READBACK_FOLLOWUP =
 const HI_READBACK_FOLLOWUP =
   'सुनने के बाद “मैंने भरे गए विवरण और सुधार देख लिए”, “मैं समझता/समझती हूँ कि यह केवल ड्राफ्ट है”, और “मैं समझता/समझती हूँ कि बैंक में कुछ जमा नहीं होगा” पर टिक करें — या बोलें “सही है, केवल ड्राफ्ट, लाइव जमा नहीं”.';
 
-export function readbackFollowup(lang: UtteranceLang): string {
+export function readbackFollowup(lang: ReadbackLang): string {
+  if (isRegionalLanguage(lang)) return regionalReadbackFollowup(lang);
   if (lang === 'en') return EN_READBACK_FOLLOWUP;
   if (lang === 'mixed') return `${HI_READBACK_FOLLOWUP} ${EN_READBACK_FOLLOWUP}`;
   return HI_READBACK_FOLLOWUP;

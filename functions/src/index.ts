@@ -25,10 +25,16 @@ import { maskSensitiveFields } from './pii';
 import {
   enforceLatinFieldValues,
   fieldScriptNote,
-  hasNonLatinLetter,
   isBetaSpeakLanguage,
   type SpeakLanguage,
 } from './languages';
+import {
+  detectSpokenLanguage,
+  isInLanguageScript,
+  spokenLangChoices,
+  spokenLanguageName,
+  transcriptionLanguageCodes,
+} from './spokenLanguage';
 import { recordSpeakTurn } from './insights';
 import { matchVoiceCommand, type VoiceContext } from '../../shared/voiceCommands';
 
@@ -53,70 +59,77 @@ export type TurnIntent = 'answer' | 'correction' | 'question' | 'other' | 'comma
 const MODEL_INTENTS = new Set<TurnIntent>(['answer', 'correction', 'question', 'other']);
 const MAX_REPLY_CHARS = 400;
 
+/**
+ * One clear question per field: what is needed, in what format, and why when it is not
+ * obvious. The model rephrases these for the spoken language, so keep the meaning exact.
+ */
 const EN_ASK: Record<string, string> = {
-  journey_mode: 'Are you opening an account, updating KYC, or doing re-KYC?',
-  applicant_full_name: 'What is your full name, as on your ID?',
-  father_or_spouse_name: "What is your father's or spouse's full name?",
-  dob: 'What is your date of birth?',
-  residential_status: 'Are you a resident individual of India?',
-  pan_available: 'Do you have a PAN, or should this note Form 60?',
-  mobile_registered: 'What is your 10-digit registered mobile number?',
-  addr_current_line1: 'What is the first line of your current address?',
-  addr_current_city: 'Which city or town do you live in?',
+  journey_mode: 'What would you like to do today: open a new account, update your KYC details, or do your periodic re-KYC?',
+  applicant_full_name: 'What is your full name, exactly as it is printed on your ID card?',
+  father_or_spouse_name: "What is your father's full name? If you are married, you can give your spouse's name instead.",
+  dob: 'What is your date of birth? Please say the day, month and year, for example 12 March 1994.',
+  residential_status: 'Do you live in India and hold Indian residency, or are you a non-resident (NRI)?',
+  pan_available: "Do you have a PAN card? If you don't, that's fine, we will note Form 60 instead.",
+  mobile_registered: 'What is your 10-digit mobile number? The bank will send updates and OTPs to it.',
+  addr_current_line1: 'What is your current address? Start with the house or flat number and the street.',
+  addr_current_city: 'Which city or town is that address in?',
   addr_current_state: 'Which state is that in?',
-  addr_current_pin: 'What is the 6-digit PIN code?',
-  addr_permanent_same_as_current: 'Is your permanent address the same as your current address?',
-  ovd_poi_type: 'Which identity document will you use?',
-  ovd_poi_number: 'What is that document number?',
-  ovd_poa_same_as_poi: 'Is the address proof the same document?',
-  photo_consent: 'Do you consent to a photograph?',
-  ovd_originals_ack: 'Will you show the original documents?',
-  existing_bank_customer: 'Are you already a customer of this bank?',
-  pep_declaration: 'Are you a politically exposed person?',
-  tax_resident_india_only: 'Are you a tax resident of India only?',
-  pan_number: 'What is your PAN number?',
-  form60_declared: 'No PAN — should Form 60 be noted?',
-  account_product_intent: 'Is this a regular savings, salary, basic savings, or individual current account?',
-  customer_id_cif: 'What is your customer ID or CIF, if you have one?',
-  card_customer_id: 'What is your customer ID?',
-  card_account_number: 'What is the account number?',
-  card_last4: 'What are the last 4 digits of the card?',
-  card_reason: 'Was the card lost or misplaced, stolen, damaged, or something else?',
-  card_reason_other: 'What should we write for the other reason?',
-  card_reissue_new: 'Should we reissue a new card?',
+  addr_current_pin: 'What is the 6-digit PIN code of that address?',
+  addr_permanent_same_as_current: 'Is your permanent address the same as the address you just gave, or is it different?',
+  ovd_poi_type:
+    'Which ID will you show as proof of identity: passport, driving licence, Aadhaar, voter ID, NREGA job card, or NPR letter?',
+  ovd_poi_number: 'What is the number printed on that ID?',
+  ovd_poa_same_as_poi: 'Does that same ID also show your current address, so it can be your address proof?',
+  photo_consent: 'The bank keeps a recent photograph with your form. Is it okay to take or attach one?',
+  ovd_originals_ack: 'When you visit the branch, will you bring the original ID so the staff can check it?',
+  existing_bank_customer: 'Do you already have an account with this bank, or will you be a new customer?',
+  pep_declaration:
+    'Do you, or a close family member, hold a senior government or political position, such as a minister, MP, MLA, judge or senior officer?',
+  tax_resident_india_only: 'Do you pay tax only in India, or are you also a tax resident of another country?',
+  pan_number: 'What is your PAN number? It is 10 characters: 5 letters, 4 digits and 1 letter.',
+  form60_declared: 'Since you do not have a PAN, shall I note that you will fill Form 60 instead?',
+  account_product_intent:
+    'Which account would you like: a regular savings account, a salary account, a basic savings account with zero balance, or a current account?',
+  customer_id_cif: 'What is your customer ID, also called CIF? It is on your passbook or cheque book. You can skip this if you do not have it.',
+  card_customer_id: 'What is your customer ID? You can find it on your passbook, cheque book or net banking.',
+  card_account_number: 'What is the account number this card is linked to?',
+  card_last4: 'What are the last 4 digits printed on the card? Please do not say the full card number.',
+  card_reason: 'What happened to the card: was it lost, stolen, damaged, or is it something else?',
+  card_reason_other: 'In a few words, what is the reason you need a new card?',
+  card_reissue_new: 'Would you like the bank to send you a new card to replace this one?',
 };
 
 const HI_ASK: Record<string, string> = {
-  journey_mode: 'आप खाता खोलना चाहते हैं, केवाईसी अपडेट, या री-केवाईसी?',
-  applicant_full_name: 'कृपया अपना पूरा नाम बताएं, जैसा पहचान पत्र पर है।',
-  father_or_spouse_name: 'पिता या पति/पत्नी का पूरा नाम बताएं।',
-  dob: 'जन्म तिथि बताएं — दिन, महीना और साल।',
-  residential_status: 'क्या आप भारत के निवासी व्यक्ति हैं?',
-  pan_available: 'क्या आपके पास पैन है, या बिना पैन के फॉर्म 60 नोट करें?',
-  mobile_registered: 'रजिस्टर्ड मोबाइल नंबर बताएं, दस अंक।',
-  addr_current_line1: 'वर्तमान पते की पहली पंक्ति बताएं।',
-  addr_current_city: 'वर्तमान शहर या कस्बा बताएं।',
-  addr_current_state: 'वर्तमान राज्य बताएं।',
-  addr_current_pin: 'छह अंकों का पिन कोड बताएं।',
-  addr_permanent_same_as_current: 'क्या स्थायी पता वर्तमान पते जैसा ही है?',
-  ovd_poi_type: 'पहचान के लिए कौन सा दस्तावेज़ देंगे?',
-  ovd_poi_number: 'उस दस्तावेज़ का नंबर बताएं।',
-  ovd_poa_same_as_poi: 'क्या पते का प्रमाण वही दस्तावेज़ है?',
-  photo_consent: 'क्या आप फोटो की सहमति देते हैं?',
-  ovd_originals_ack: 'क्या आप मूल दस्तावेज़ दिखाएँगे?',
-  existing_bank_customer: 'क्या आप इस बैंक के मौजूदा ग्राहक हैं?',
-  pep_declaration: 'क्या आप राजनीतिक रूप से उजागर व्यक्ति हैं?',
-  tax_resident_india_only: 'क्या आप कर के लिए केवल भारत के निवासी हैं?',
-  pan_number: 'पैन नंबर बताएं।',
-  form60_declared: 'पैन नहीं है — क्या फॉर्म 60 दर्ज करें?',
-  account_product_intent: 'यह रेगुलर सेविंग्स, सैलरी, बेसिक सेविंग्स, या व्यक्तिगत करंट खाता है?',
-  customer_id_cif: 'ग्राहक आईडी या CIF बताएं, अगर पास हो।',
-  card_customer_id: 'ग्राहक आईडी बताएं।',
-  card_account_number: 'खाता संख्या बताएं।',
-  card_last4: 'कार्ड के आखिरी चार अंक बताएं।',
-  card_reason: 'कार्ड खोया, चोरी, खराब, या कोई और कारण?',
-  card_reason_other: 'अन्य कारण क्या लिखें?',
-  card_reissue_new: 'क्या नया कार्ड चाहिए?',
+  journey_mode: 'आज आप क्या करना चाहते हैं: नया खाता खोलना, केवाईसी विवरण अपडेट करना, या री-केवाईसी?',
+  applicant_full_name: 'आपका पूरा नाम क्या है? ठीक वैसे बताइए जैसा आपके पहचान पत्र पर छपा है।',
+  father_or_spouse_name: 'आपके पिता का पूरा नाम क्या है? अगर आप विवाहित हैं, तो पति या पत्नी का नाम भी बता सकते हैं।',
+  dob: 'आपकी जन्म तिथि क्या है? दिन, महीना और साल बताइए, जैसे 12 मार्च 1994।',
+  residential_status: 'क्या आप भारत में रहते हैं और भारत के निवासी हैं, या आप अनिवासी (NRI) हैं?',
+  pan_available: 'क्या आपके पास पैन कार्ड है? अगर नहीं है तो कोई बात नहीं, हम फॉर्म 60 दर्ज कर देंगे।',
+  mobile_registered: 'आपका दस अंकों का मोबाइल नंबर क्या है? बैंक इसी पर जानकारी और OTP भेजेगा।',
+  addr_current_line1: 'आपका वर्तमान पता क्या है? मकान या फ़्लैट नंबर और गली से शुरू कीजिए।',
+  addr_current_city: 'यह पता किस शहर या कस्बे में है?',
+  addr_current_state: 'यह किस राज्य में है?',
+  addr_current_pin: 'इस पते का छह अंकों का पिन कोड क्या है?',
+  addr_permanent_same_as_current: 'क्या आपका स्थायी पता यही है, या अलग है?',
+  ovd_poi_type: 'पहचान के प्रमाण के लिए कौन सा दस्तावेज़ दिखाएँगे: पासपोर्ट, ड्राइविंग लाइसेंस, आधार, वोटर आईडी, नरेगा जॉब कार्ड, या एनपीआर पत्र?',
+  ovd_poi_number: 'उस दस्तावेज़ पर छपा नंबर क्या है?',
+  ovd_poa_same_as_poi: 'क्या उसी दस्तावेज़ पर आपका वर्तमान पता भी है, ताकि वही पते का प्रमाण बन सके?',
+  photo_consent: 'बैंक फॉर्म के साथ आपकी एक हाल की फोटो रखता है। क्या फोटो लेना या लगाना ठीक है?',
+  ovd_originals_ack: 'शाखा आते समय क्या आप मूल दस्तावेज़ साथ लाएँगे, ताकि स्टाफ़ उसे जाँच सके?',
+  existing_bank_customer: 'क्या इस बैंक में आपका पहले से खाता है, या आप नए ग्राहक होंगे?',
+  pep_declaration: 'क्या आप या आपके परिवार का कोई करीबी सदस्य किसी बड़े सरकारी या राजनीतिक पद पर है, जैसे मंत्री, सांसद, विधायक, जज या वरिष्ठ अधिकारी?',
+  tax_resident_india_only: 'क्या आप केवल भारत में टैक्स देते हैं, या किसी और देश में भी टैक्स निवासी हैं?',
+  pan_number: 'आपका पैन नंबर क्या है? इसमें 10 अक्षर होते हैं: 5 अक्षर, 4 अंक और 1 अक्षर।',
+  form60_declared: 'आपके पास पैन नहीं है, तो क्या मैं दर्ज करूँ कि आप फॉर्म 60 भरेंगे?',
+  account_product_intent: 'आप कौन सा खाता चाहते हैं: रेगुलर सेविंग्स, सैलरी खाता, ज़ीरो बैलेंस वाला बेसिक सेविंग्स खाता, या करंट खाता?',
+  customer_id_cif: 'आपकी ग्राहक आईडी, यानी CIF, क्या है? यह पासबुक या चेक बुक पर होती है। न हो तो छोड़ सकते हैं।',
+  card_customer_id: 'आपकी ग्राहक आईडी क्या है? यह पासबुक, चेक बुक या नेट बैंकिंग में मिलेगी।',
+  card_account_number: 'यह कार्ड किस खाता संख्या से जुड़ा है?',
+  card_last4: 'कार्ड पर छपे आखिरी चार अंक क्या हैं? कृपया पूरा कार्ड नंबर न बोलें।',
+  card_reason: 'कार्ड के साथ क्या हुआ: खो गया, चोरी हुआ, खराब हो गया, या कुछ और?',
+  card_reason_other: 'कुछ शब्दों में बताइए, नया कार्ड क्यों चाहिए?',
+  card_reissue_new: 'क्या आप चाहते हैं कि बैंक इसकी जगह नया कार्ड भेजे?',
 };
 
 type FieldValue = string | boolean | null;
@@ -338,7 +351,8 @@ async function transcribe(apiKey: string, uri: string, language: SpeakLanguage):
       input: [{ type: 'audio', uri, mime_type: 'audio/wav' }],
       generation_config: {
         transcription_config: {
-          language_codes: [language],
+          // Empty for an English pick, so the model auto-detects what was actually spoken.
+          language_codes: transcriptionLanguageCodes(language),
           mode: { type: 'verbatim' },
         },
       },
@@ -370,8 +384,9 @@ async function transcribeWithGroq(apiKey: string, wav: Buffer, language: SpeakLa
   // at runtime, this is a typing-only cast.
   form.append('file', new Blob([wav as unknown as BlobPart], { type: 'audio/wav' }), 'speak.wav');
   form.append('model', 'whisper-large-v3');
+  // Same rule as Gemini: an English pick leaves Whisper to detect the language.
   const whisperLang = language.split('-')[0];
-  if (WHISPER_LANGS.has(whisperLang)) form.append('language', whisperLang);
+  if (language !== 'en-IN' && WHISPER_LANGS.has(whisperLang)) form.append('language', whisperLang);
   form.append('response_format', 'json');
   const res = await fetch(GROQ_API, {
     method: 'POST',
@@ -404,8 +419,9 @@ function fieldPrompt(
     Object.entries(current).filter(([, value]) => isFilled(value)),
   );
   const scriptNote = fieldScriptNote(language);
+  const askWordings = Object.fromEntries(missing.slice(0, 3).map((id) => [id, EN_ASK[id]]).filter(([, ask]) => ask));
   return `You are FormGuide extract for India BFSI account-opening and KYC demo schema aof_kyc_demo_v1.
-Page language: ${language}. Transcript may be English or Hindi (or mixed).
+Language picked on the page: ${language} (${spokenLanguageName(language)}). The customer may speak any Indian language below, or mix it with English, whatever the picker says.
 
 FIELD IDS (exact strings only — never invent bank form ids like full_name):
 ${FIELD_IDS.join(', ')}
@@ -435,18 +451,27 @@ DEBIT CARD REISSUE — when the user asks to reissue, replace, or block a debit 
 - Do not fill an address. Delivery is the registered address and is not a field.
 - Do not fill AOF or KYC fields (dob, pan, ovd, address) on this journey.
 - One spoken dump may fill name, customer ID, account number, last 4, and reason together. Then ask only what is still missing.
-- DOB → YYYY-MM-DD (English or Hindi spoken dates).
-- City/state as place names (बेंगलुरु→Bengaluru, मुंबई→Mumbai).
+- DOB → YYYY-MM-DD (dates spoken in any language).
+- City/state as English place names (बेंगलुरु→Bengaluru, ಬೆಂಗಳೂರು→Bengaluru, மும்பை→Mumbai).
+- Spoken in a regional language other than Hindi: store names and addresses transliterated into Latin script, never in that script.
 - Spoken numbers → digits (mobile 10 digits, PIN 6 digits).
 - Booleans true/false only.
+
+spoken_lang:
+- The language the customer spoke in this transcript, as one of: ${spokenLangChoices()}.
+- Hindi mixed with English (Hinglish) is "hi-IN". Plain English is "en-IN".
 
 next_ask:
 - After this turn, ask only still-missing REQUIRED fields.
 - Currently missing required ids: ${JSON.stringify(missing)}
-- You may ask 1–2 missing requireds in one short natural question. Do not re-ask filled fields.
+- Ask for 1 missing field, or 2 that belong together (city and PIN). Do not re-ask filled fields.
 - Null if nothing required remains.
-- Language: Hindi if transcript is Hindi, else English.
-- reply_lang: "hi" or "en".
+- Write it in spoken_lang, in that language's own script (Hindi and Marathi in Devanagari, Telugu in Telugu script, Tamil is not used). English only if spoken_lang is "en-IN".
+- Sound like a patient bank officer talking to a first-time customer: plain everyday words, no form jargon, no field ids.
+- Say exactly what you need and the format: "day, month and year", "10-digit mobile number", "6-digit PIN code". Name the choices when there are choices.
+- Keep PAN, PIN, OTP, KYC, CIF, NRI, Form 60, digits and ID names that people say in English as they are.
+- Keep the meaning of these wordings for the missing ids: ${JSON.stringify(askWordings)}
+- reply_lang: "hi" if spoken_lang is "hi-IN", else "en".
 
 TURN INTENT — decide first what this turn is, and return it as intent:
 - "answer": the customer gives new details for the form.
@@ -456,8 +481,8 @@ TURN INTENT — decide first what this turn is, and return it as intent:
 Where the customer is: ${context} (fill = filling the form; readback = just heard the draft read back; review = checking the draft; confirm = on the final confirmation page).
 
 reply (string or null) — spoken aloud before next_ask:
-- question → answer in 1–2 short sentences (max 40 words), plain everyday words, Hindi if the transcript is Hindi, else English. Name the field by its form label below. Explain Indian banking terms simply (KYC, CKYC, re-KYC, PAN, Form 60, OVD, PEP, CIF, tax residency). Say why a bank asks when asked why. No financial or legal advice; if unsure, say the bank will explain. Do not end with a question; next_ask carries the next question.
-- correction → one short sentence saying what changed, e.g. "Changed your PIN code to 560037." (same language as the transcript).
+- question → answer in 1–2 short sentences (max 40 words), plain everyday words, in spoken_lang and its own script (English only if spoken_lang is "en-IN"; keep PAN, KYC, CKYC and similar terms as they are). Name the field by its form label below. Explain Indian banking terms simply (KYC, CKYC, re-KYC, PAN, Form 60, OVD, PEP, CIF, tax residency). Say why a bank asks when asked why. No financial or legal advice; if unsure, say the bank will explain. Do not end with a question; next_ask carries the next question.
+- correction → one short sentence saying what changed, e.g. "Changed your PIN code to 560037." (in spoken_lang).
 - answer / other → null.
 
 FORM LABELS (id: label):
@@ -465,13 +490,13 @@ ${FIELD_LABEL_LINES}
 
 OTHER:
 - refuse_live_submit true only if user asks to submit/send to a bank.
-- assistant_message must include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}${bankBlock ? `\n\n${bankBlock}` : ''}
+- assistant_message: one short line in spoken_lang saying what you filled. It must also include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}${bankBlock ? `\n\n${bankBlock}` : ''}
 
 Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
 Transcript: ${JSON.stringify(transcript)}
 
-Return JSON: intent, reply, field_updates (id → {value, confidence, reason?}), next_ask, reply_lang, refuse_live_submit, assistant_message.`;
+Return JSON: intent, reply, field_updates (id → {value, confidence, reason?}), spoken_lang, next_ask, reply_lang, refuse_live_submit, assistant_message.`;
 }
 
 /** Bank-only fields of a published form for this request, and their current values. */
@@ -494,7 +519,12 @@ export async function fieldJson(
   field_updates: FormValues;
   field_confidence: FieldMetaMap;
   next_ask: string | null;
+  /** Language next_ask is written in: spoken_lang, or English when the model's question was unusable. */
+  next_ask_lang: SpeakLanguage;
+  /** The same question in English, for a device with no voice for next_ask_lang. */
+  next_ask_en: string | null;
   reply_lang: 'hi' | 'en';
+  spoken_lang: SpeakLanguage;
   refuse_live_submit: boolean;
   assistant_message: string;
 }> {
@@ -552,6 +582,7 @@ export async function fieldJson(
     field_confidence?: unknown;
     next_ask?: unknown;
     reply_lang?: unknown;
+    spoken_lang?: unknown;
     refuse_live_submit?: unknown;
     assistant_message?: unknown;
   } = {};
@@ -562,9 +593,16 @@ export async function fieldJson(
     console.error('fields_bad_json', text.length);
     throw speakFail('fields_bad_json', 502);
   }
-  const devanagari = /[\u0900-\u097F]/.test(transcript);
-  let replyLang: 'hi' | 'en' = parsed.reply_lang === 'hi' || devanagari ? 'hi' : 'en';
-  if (isBetaSpeakLanguage(language) && !devanagari) replyLang = 'en';
+  // The page hint used to decide this; now the transcript does, so a Hindi pick that
+  // hears Telugu answers in Telugu. An old model reply with only reply_lang "hi" still counts.
+  const spokenLang = detectSpokenLanguage(
+    transcript,
+    language,
+    parsed.spoken_lang ?? (parsed.reply_lang === 'hi' ? 'hi-IN' : undefined),
+  );
+  const replyLang: 'hi' | 'en' = spokenLang === 'hi-IN' ? 'hi' : 'en';
+  // Values stay Latin for any regional language, picked or only detected.
+  const scriptLang = isBetaSpeakLanguage(spokenLang) ? spokenLang : language;
   const rawUpdates =
     parsed.field_updates && typeof parsed.field_updates === 'object' && !Array.isArray(parsed.field_updates)
       ? (parsed.field_updates as Record<string, unknown>)
@@ -577,7 +615,7 @@ export async function fieldJson(
   const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap, {
     correction: modelIntent === 'correction',
   });
-  const updates = enforceLatinFieldValues(sanitizeUpdates(mergedIncoming), language);
+  const updates = enforceLatinFieldValues(sanitizeUpdates(mergedIncoming), scriptLang);
   for (const key of Object.keys(meta)) {
     if (!(key in updates)) delete meta[key];
   }
@@ -596,17 +634,28 @@ export async function fieldJson(
     /\bsubmit\s+to\s+(?:the\s+)?bank\b|\bsend\s+(?:it|this)\s+to\s+(?:the\s+)?bank\b|\blive\s+submit\b/i.test(
       transcript,
     );
-  const askTable = replyLang === 'hi' ? HI_ASK : EN_ASK;
-  let modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
+  let rawAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
   // The model sometimes returns a bare field id ("addr_permanent_same_as_current", "dob"); never speak
   // that. A real question always has a space or punctuation.
-  if (/^[A-Za-z0-9_]+$/.test(modelAsk)) modelAsk = '';
-  let nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
-  if (isBetaSpeakLanguage(language) && nextAsk && hasNonLatinLetter(nextAsk)) {
-    nextAsk = buildNextAsk(missing, 'en', EN_ASK, null);
+  if (/^[A-Za-z0-9_]+$/.test(rawAsk)) rawAsk = '';
+  // A question in the wrong script (English for a Telugu speaker, Hindi for Marathi) is dropped.
+  const modelAsk = rawAsk && isInLanguageScript(rawAsk, spokenLang) ? rawAsk : null;
+  const nextAskEn = buildNextAsk(missing, 'en', EN_ASK, null);
+  let nextAsk: string | null;
+  let nextAskLang: SpeakLanguage = spokenLang;
+  if (spokenLang === 'en-IN' || spokenLang === 'hi-IN') {
+    nextAsk = buildNextAsk(missing, replyLang, replyLang === 'hi' ? HI_ASK : EN_ASK, modelAsk);
+  } else {
+    // No fixed table for regional languages: the model's question, else the English one.
+    nextAsk = modelAsk ? buildNextAsk(missing, 'en', {}, modelAsk) : null;
+    if (!nextAsk) {
+      nextAsk = nextAskEn;
+      nextAskLang = 'en-IN';
+    }
   }
   let message = typeof parsed.assistant_message === 'string' ? parsed.assistant_message.trim() : '';
-  if (isBetaSpeakLanguage(language) && hasNonLatinLetter(message)) message = '';
+  const messageCheck = message.replace(/Fields vary by bank\.?/g, '').trim();
+  if (messageCheck && !isInLanguageScript(messageCheck, spokenLang)) message = '';
   if (!message) message = nextAsk || 'Draft updated.';
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
   // A model that skipped intent still changed a filled value: call it a correction.
@@ -617,7 +666,8 @@ export async function fieldJson(
     typeof parsed.reply === 'string'
       ? parsed.reply.replace(/\s*Fields vary by bank\.?/g, '').trim().slice(0, MAX_REPLY_CHARS)
       : '';
-  if (isBetaSpeakLanguage(language) && hasNonLatinLetter(reply)) reply = '';
+  // Spoken in the customer's language, like next_ask; an answer in the wrong script is dropped.
+  if (reply && !isInLanguageScript(reply, spokenLang)) reply = '';
   if (intent === 'answer' || intent === 'other') reply = '';
   return {
     intent,
@@ -625,7 +675,10 @@ export async function fieldJson(
     field_updates: updates,
     field_confidence: meta,
     next_ask: nextAsk,
+    next_ask_lang: nextAskLang,
+    next_ask_en: nextAskEn,
     reply_lang: replyLang,
+    spoken_lang: spokenLang,
     refuse_live_submit: refuse,
     assistant_message: message,
   };
@@ -710,9 +763,11 @@ export const speak = onRequest(
       const command = read.parts.context === 'fill' ? null : matchVoiceCommand(transcript);
       if (command) {
         const missing = getMissingRequired(current);
+        const spokenLang = detectSpokenLanguage(transcript, read.parts.language);
         res.json({
           transcript,
-          reply_lang: read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript) ? 'hi' : 'en',
+          reply_lang: spokenLang === 'hi-IN' ? 'hi' : 'en',
+          spoken_lang: spokenLang,
           field_updates: {},
           missing_required: missing,
           next_ask: null,
@@ -728,12 +783,16 @@ export const speak = onRequest(
       }
 
       if (OUT_OF_SCOPE_RE.test(transcript)) {
-        const hindi = read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript);
+        const spokenLang = detectSpokenLanguage(transcript, read.parts.language);
+        const hindi = spokenLang === 'hi-IN';
         const missing = getMissingRequired(current);
         const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
         res.json({
           transcript,
           reply_lang: replyLang,
+          spoken_lang: spokenLang,
+          next_ask_lang: spokenLang === 'hi-IN' ? 'hi-IN' : 'en-IN',
+          next_ask_en: buildNextAsk(missing, 'en', EN_ASK, ''),
           field_updates: {},
           missing_required: missing,
           next_ask: buildNextAsk(missing, replyLang, replyLang === 'hi' ? HI_ASK : EN_ASK, ''),
@@ -765,6 +824,9 @@ export const speak = onRequest(
       res.json({
         transcript,
         reply_lang: extracted.reply_lang,
+        spoken_lang: extracted.spoken_lang,
+        next_ask_lang: extracted.next_ask_lang,
+        next_ask_en: extracted.next_ask_en,
         field_updates: extracted.field_updates,
         field_confidence: extracted.field_confidence,
         missing_required: missing,

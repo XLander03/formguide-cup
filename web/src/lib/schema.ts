@@ -4,7 +4,7 @@ import { loadPublishedFormVersions } from '../forms/loadPublished';
 import compact from '../schema/aof_kyc_demo_v1.compact.json';
 import fullSchema from '../schema/aof_kyc_demo_v1.schema.json';
 import type { FormValues, SchemaField } from './types';
-import { localizeAsk, type UtteranceLang } from './utteranceLang';
+import { EN_FIELD_ASK, localizeAsk, type UtteranceLang } from './utteranceLang';
 
 export { HDFC_V1, loadPublishedFormVersions };
 
@@ -153,7 +153,7 @@ export function getNextAsk(
   }
   const first = missing[0];
   const field = SCHEMA.fields.find((f) => f.id === first);
-  const en = field ? `Please provide: ${field.label_en}` : `Please fill: ${first}`;
+  const en = EN_FIELD_ASK[first] ?? (field ? `Next, please tell me: ${field.label_en}.` : `Please fill: ${first}`);
   return localizeAsk(lang, en, first);
 }
 

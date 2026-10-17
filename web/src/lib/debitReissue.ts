@@ -1,4 +1,6 @@
 import type { FormValues } from './types';
+import { isRegionalLanguage, regionalDebitReadback } from './readbackI18n';
+import type { ReadbackLang } from './utteranceLang';
 
 /** Researcher field list (14 Oct 2026). Not a bank form ID. */
 export const DEBIT_JOURNEY = 'debit_reissue';
@@ -181,7 +183,10 @@ export function extractDebitSlots(text: string): FormValues {
   return redactFullCardNumbers(updates);
 }
 
-export function debitReadback(values: FormValues, lang: 'en' | 'hi' | 'mixed'): string {
+export function debitReadback(values: FormValues, lang: ReadbackLang): string {
+  if (isRegionalLanguage(lang)) {
+    return regionalDebitReadback(values, lang, cardLast4(String(values.card_last4 || '')));
+  }
   const name = values.applicant_full_name || (lang === 'en' ? 'applicant' : 'आवेदक');
   const customer = values.card_customer_id || (lang === 'en' ? 'not set' : 'नहीं');
   const account = values.card_account_number || (lang === 'en' ? 'not set' : 'नहीं');

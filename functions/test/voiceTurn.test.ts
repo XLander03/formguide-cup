@@ -210,4 +210,16 @@ describe('fieldJson turn intent', () => {
     const out = await fieldJson('k', 'Why the father name?', 'en-IN', {});
     assert.equal(out.reply, 'Banks need it for KYC records.');
   });
+
+  it('answers a question in the language the customer spoke, and drops one in the wrong script', async () => {
+    const telugu = 'సీకేవైసీ అంటే ఏమిటి?';
+    stubModel({ ...base, intent: 'question', spoken_lang: 'te-IN', reply: 'సీకేవైసీ అనేది మీ కేవైసీ వివరాల కేంద్ర రికార్డు.', field_updates: {} });
+    const kept = await fieldJson('k', telugu, 'en-IN', {});
+    assert.equal(kept.spoken_lang, 'te-IN');
+    assert.match(String(kept.reply), /కేవైసీ/);
+
+    stubModel({ ...base, intent: 'question', spoken_lang: 'te-IN', reply: 'CKYC is a central KYC record.', field_updates: {} });
+    const dropped = await fieldJson('k', telugu, 'en-IN', {});
+    assert.equal(dropped.reply, null);
+  });
 });

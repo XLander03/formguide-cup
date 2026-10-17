@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BankFields } from '../components/BankFields';
 import { VoiceBar } from '../components/VoiceBar';
 import { buildReadbackScript } from '../lib/heuristicExtract';
-import { languageLabel } from '../lib/languages';
+import { languageByBcp47, languageLabel } from '../lib/languages';
 import { fieldLabel } from '../lib/schema';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
@@ -39,8 +39,12 @@ export function ReviewPage() {
   const session = useFormSession();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(String(session.values.applicant_full_name || ''));
-  const spokenLanguage = languageLabel(session.language);
-  const script = buildReadbackScript(session.values, session.readbackLang);
+  // The language the customer last spoke, else the picker's.
+  const spokenLanguage = languageLabel(languageByBcp47(session.readbackBcp47)?.id ?? session.language);
+  const script = buildReadbackScript(
+    session.values,
+    session.readbackInEnglish ? 'en' : session.readbackScriptLang,
+  );
   const blocker = readbackBlocker(session);
   const live = useRef(session);
   live.current = session;
