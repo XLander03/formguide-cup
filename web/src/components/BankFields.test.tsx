@@ -54,4 +54,21 @@ describe('BankFields voice provenance', () => {
     expect(open).toEqual([true, true, false]);
     expect(screen.getByLabelText(/Salaried/).closest('label')?.className).toContain('bg-saffron/30');
   });
+
+  it('hides bank-use sections and boxes from the customer', () => {
+    const form: FormVersion = {
+      ...FORM,
+      fields: [
+        ...FORM.fields,
+        field('custom_branch_sol_id', 'Branch Sol ID', 'text', 'Applicant Details'),
+        field('custom_place', 'Place', 'text', 'Branch Declaration - For Bank Use Only'),
+        field('custom_emp_name', 'Emp. Name', 'text', 'KYC Verification Carried Out By'),
+      ],
+    };
+    render(<BankFields form={form} values={{}} onChange={vi.fn()} />);
+    expect(screen.queryByText(/Branch Declaration/)).toBeNull();
+    expect(screen.queryByText(/KYC Verification Carried Out By/)).toBeNull();
+    expect(screen.queryByLabelText(/Branch Sol ID/)).toBeNull();
+    expect(screen.getByLabelText(/City of Birth/)).toBeTruthy();
+  });
 });

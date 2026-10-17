@@ -153,7 +153,10 @@ export function SpeakPage() {
       }
       if (result.error === 'fields_bad_json') {
         setMicNote('Heard you, but could not fill the fields. Try again in shorter parts.');
-      } else if (result.error && /_503|unavailable|_429|rate_limited/.test(result.error)) {
+      } else if (result.error === 'rate_limited') {
+        // Refused before transcription, so nothing was heard.
+        setMicNote('Too many tries from this network. Wait a minute, then tap the mic again, or type it into the field.');
+      } else if (result.error && /_503|unavailable|_429/.test(result.error)) {
         setMicNote('Heard you, but the voice service is busy right now. Tap the mic and say it again, or type it into the field.');
       } else if (result.error === 'network_error') {
         setMicNote('Could not reach the voice service. Check your connection and try again.');

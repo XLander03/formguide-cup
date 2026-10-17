@@ -1,6 +1,7 @@
 import { bankFieldSections, sharedFieldsOnForm } from '../forms/activeForm';
 import type { FieldRecord, FormVersion } from '../forms/types';
 import { isFilled } from '../lib/schema';
+import { isOfficeField } from '../lib/speakFormFields';
 import type { FormValues } from '../lib/types';
 
 const INPUT =
@@ -117,7 +118,10 @@ export function BankFields({
   said?: Record<string, string>;
   fieldSource?: Record<string, string>;
 }) {
-  const sections = bankFieldSections(form);
+  // Branch declarations, KYC verification and other bank-use boxes are not the customer's to fill.
+  const sections = bankFieldSections(form)
+    .map((section) => ({ ...section, fields: section.fields.filter((field) => !isOfficeField(field)) }))
+    .filter((section) => section.fields.length > 0);
   if (sections.length === 0) return null;
   const shared = sharedFieldsOnForm(form).length;
   return (

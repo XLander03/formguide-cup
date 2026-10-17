@@ -10,7 +10,7 @@ import {
   missingRequiredIds,
 } from './forms/hdfcV1';
 import { readSpeakRequest } from './wav';
-import { checkRateLimits, clientKey } from './rateLimit';
+import { checkRateLimit, clientKey } from './rateLimit';
 import { firestoreCounter } from './rateLimitStore';
 import {
   bankFieldsPrompt,
@@ -614,21 +614,19 @@ export const speak = onRequest(
       return;
     }
 
-    const limit = await checkRateLimits(
-      speakCounter,
-      clientKey(req.header('x-forwarded-for'), req.ip),
-    );
-    if (!limit.ok) {
-      res.set('Retry-After', String(limit.retryAfterSeconds));
-      res.status(429).json({ error: 'rate_limited' });
-      return;
-    }
-
     const raw = rawBuffer(req);
     const contentType = String(req.header('content-type') || '');
     const read = readSpeakRequest(raw, contentType);
     if (!read.ok) {
       res.status(400).json({ error: read.error });
+      return;
+    }
+
+    // Counted only once the clip is valid: empty or malformed requests never use a slot.
+    const limit = await checkRateLimit(speakCounter, clientKey(req.header('x-forwarded-for'), req.ip));
+    if (!limit.ok) {
+      res.set('Retry-After', String(limit.retryAfterSeconds));
+      res.status(429).json({ error: 'rate_limited' });
       return;
     }
 
