@@ -76,8 +76,8 @@ const flagsQueryLatched =
   (window.location.pathname.replace(/\/+$/, '') || '/') === '/speak' &&
   new URLSearchParams(window.location.search).get('flags') === '1';
 
-// Server speech (Hindi, regional) takes a few seconds to arrive the first time a line is used.
-const READBACK_NO_START_MS = 15000;
+// Server speech (Hindi, regional) can take 10-15s for a long read-back on a backup model; give it room.
+const READBACK_NO_START_MS = 30000;
 
 export interface FieldConfidence {
   confidence: number;
