@@ -11,6 +11,8 @@ import {
   toSchemaFields,
 } from './forms/hdfcV1';
 import { readSpeakRequest } from './wav';
+import { metadataToken, projectId } from './gcpAuth';
+import { transcribeChirp } from './stt';
 import { checkRateLimit, clientKey } from './rateLimit';
 import { firestoreCounter } from './rateLimitStore';
 import {
@@ -510,6 +512,50 @@ export type BankFieldsInput = {
   current: Record<string, BankFieldValue>;
 };
 
+/** Translated questions by language and English text: the same few questions repeat. */
+const translatedAsks = new Map<string, string>();
+const TRANSLATED_ASKS_MAX = 500;
+
+/**
+ * The English question in a regional language, for a turn whose own question was unusable,
+ * so a Malayalam speaker is not suddenly asked in English. Null on any failure.
+ */
+export async function translateQuestion(apiKey: string, english: string, lang: SpeakLanguage): Promise<string | null> {
+  const key = `${lang}|${english}`;
+  const cached = translatedAsks.get(key);
+  if (cached) return cached;
+  try {
+    const res = await fetch(`${API}/v1beta/interactions`, {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: FIELD_MODEL,
+        input:
+          `Translate this bank form question into ${spokenLanguageName(lang)}, written in its own script, ` +
+          'in plain everyday words a customer would hear from a bank clerk. Keep PAN, KYC, CKYC, OTP, PIN, ' +
+          'CIF, NRI, Form 60 and all digits as they are. Reply with the translation only.\n\n' +
+          english,
+        generation_config: { thinking_level: 'low', max_output_tokens: 400 },
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) {
+      console.warn('translate_ask_failed', lang, res.status);
+      return null;
+    }
+    const text = interactionText((await res.json()) as Parameters<typeof interactionText>[0])
+      .replace(/^["'“]+|["'”]+$/g, '')
+      .trim();
+    if (!text || text.length > 600 || !isInLanguageScript(text, lang)) return null;
+    if (translatedAsks.size >= TRANSLATED_ASKS_MAX) translatedAsks.clear();
+    translatedAsks.set(key, text);
+    return text;
+  } catch (err) {
+    console.warn('translate_ask_failed', lang, err instanceof Error ? err.message : 'unknown');
+    return null;
+  }
+}
+
 /** Exported for tests and the live prompt check; Firebase deploys only the onRequest exports. */
 export async function fieldJson(
   apiKey: string,
@@ -656,8 +702,12 @@ export async function fieldJson(
   if (spokenLang === 'en-IN' || spokenLang === 'hi-IN') {
     nextAsk = buildNextAsk(missing, replyLang, replyLang === 'hi' ? HI_ASK : EN_ASK, modelAsk);
   } else {
-    // No fixed table for regional languages: the model's question, else the English one.
+    // No fixed table for regional languages: the model's question, else the English one
+    // translated, and English only when that fails too. buildNextAsk's own fallback line is
+    // English, so it counts as no question here.
     nextAsk = modelAsk ? buildNextAsk(missing, 'en', {}, modelAsk) : null;
+    if (nextAsk && !isInLanguageScript(nextAsk, spokenLang)) nextAsk = null;
+    if (!nextAsk && nextAskEn) nextAsk = await translateQuestion(apiKey, nextAskEn, spokenLang);
     if (!nextAsk) {
       nextAsk = nextAskEn;
       nextAskLang = 'en-IN';
@@ -776,26 +826,49 @@ export const speak = onRequest(
     const current = asValues(read.parts.current);
     let uploadedName = '';
     let transcript = '';
+    // The page's language, or the one Chirp heard when the page asked it to detect.
+    let language: SpeakLanguage = read.parts.language;
+    let detectedLang: SpeakLanguage | null = null;
     try {
-      try {
-        const file = await uploadWav(apiKey, read.parts.audio);
-        uploadedName = file.name;
-        transcript = await transcribe(apiKey, file.uri, read.parts.language);
-      } catch (primaryErr) {
-        // No fallback configured — same failure behavior as before.
-        if (!groqKey) throw primaryErr;
-        const code = (primaryErr as SpeakFail)?.code || String(primaryErr).slice(0, 80);
-        console.warn('gemini_transcribe_failed_falling_back_to_groq', code);
-        transcript = await transcribeWithGroq(groqKey, read.parts.audio, read.parts.language);
+      // Chirp 3 detects the language and transcribes the regional ones; Gemini keeps English
+      // and Hindi, and takes over whenever Chirp cannot answer.
+      if (read.parts.detect || (language !== 'en-IN' && language !== 'hi-IN')) {
+        const token = await metadataToken();
+        const project = projectId();
+        const heard =
+          token && project
+            ? await transcribeChirp(token, project, read.parts.audio, read.parts.detect ? 'auto' : language)
+            : null;
+        if (heard) {
+          transcript = heard.transcript;
+          if (read.parts.detect && heard.language) {
+            detectedLang = heard.language;
+            language = heard.language;
+          }
+        }
+      }
+      if (!transcript) {
+        try {
+          const file = await uploadWav(apiKey, read.parts.audio);
+          uploadedName = file.name;
+          transcript = await transcribe(apiKey, file.uri, language);
+        } catch (primaryErr) {
+          // No fallback configured — same failure behavior as before.
+          if (!groqKey) throw primaryErr;
+          const code = (primaryErr as SpeakFail)?.code || String(primaryErr).slice(0, 80);
+          console.warn('gemini_transcribe_failed_falling_back_to_groq', code);
+          transcript = await transcribeWithGroq(groqKey, read.parts.audio, language);
+        }
       }
 
       // Read-back, review and confirm: a bare command ("read it again", "yes") skips the field model.
       const command = read.parts.context === 'fill' ? null : matchVoiceCommand(transcript);
       if (command) {
         const missing = getMissingRequired(current);
-        const spokenLang = detectSpokenLanguage(transcript, read.parts.language);
+        const spokenLang = detectSpokenLanguage(transcript, language);
         res.json({
           transcript,
+          detected_lang: detectedLang,
           reply_lang: spokenLang === 'hi-IN' ? 'hi' : 'en',
           spoken_lang: spokenLang,
           field_updates: {},
@@ -813,12 +886,13 @@ export const speak = onRequest(
       }
 
       if (OUT_OF_SCOPE_RE.test(transcript)) {
-        const spokenLang = detectSpokenLanguage(transcript, read.parts.language);
+        const spokenLang = detectSpokenLanguage(transcript, language);
         const hindi = spokenLang === 'hi-IN';
         const missing = getMissingRequired(current);
         const replyLang: 'hi' | 'en' = hindi ? 'hi' : 'en';
         res.json({
           transcript,
+          detected_lang: detectedLang,
           reply_lang: replyLang,
           spoken_lang: spokenLang,
           next_ask_lang: spokenLang === 'hi-IN' ? 'hi-IN' : 'en-IN',
@@ -838,7 +912,7 @@ export const speak = onRequest(
       }
 
       const formFields = read.parts.formFields;
-      const extracted = await fieldJson(apiKey, transcript, read.parts.language, current, {
+      const extracted = await fieldJson(apiKey, transcript, language, current, {
         fields: formFields,
         current: currentBankValues(read.parts.current, formFields),
       }, read.parts.context);
@@ -846,13 +920,14 @@ export const speak = onRequest(
       const missing = getMissingRequired(merged);
       // Anonymous daily counters for the admin copilot; never awaited, never fails the turn.
       void recordSpeakTurn({
-        language: read.parts.language,
+        language: language,
         missingRequired: missing,
         filled: Object.keys(extracted.field_updates).filter((id) => isFilled(extracted.field_updates[id])),
         formKey: read.parts.formId ?? (formFields.length > 0 ? 'published' : 'bundled'),
       });
       res.json({
         transcript,
+        detected_lang: detectedLang,
         reply_lang: extracted.reply_lang,
         spoken_lang: extracted.spoken_lang,
         next_ask_lang: extracted.next_ask_lang,

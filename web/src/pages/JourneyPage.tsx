@@ -8,6 +8,7 @@ import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import type { JourneyId } from '../lib/journeys';
 import { pickJourneyCard } from '../lib/journeyIntent';
+import { detectScriptLanguage, languageByBcp47, type MicLang } from '../lib/languages';
 import { PREP_LIST } from '../lib/prepList';
 import {
   planFromResponse,
@@ -142,16 +143,20 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
   }
 
   /** Picks one card at once (as before), then asks the planner for the full multi-form plan. */
-  async function applyUtterance(text: string, source: HeardSource) {
+  async function applyUtterance(text: string, source: HeardSource, heard?: MicLang | null) {
     const clean = text.trim().slice(0, MAX_PLAN_TEXT);
     setHeard(clean);
     if (!clean) return;
     setSaid({ text: clean, source });
     applyHeuristic(clean);
+    // The language the customer used becomes the session's, so nobody has to pick one: the
+    // one detected in a live clip, else the script of what was typed (Latin keeps the pick).
+    const spoken = languageByBcp47(heard ?? detectScriptLanguage(clean, micLang));
+    if (spoken && spoken.id !== language) selectLanguage(spoken.id);
     const seq = ++planSeq.current;
     setPlanning(true);
     setPlanResult(null);
-    const { plan, error } = await planRequest(clean, language ?? 'en');
+    const { plan, error } = await planRequest(clean, spoken?.id ?? language ?? 'en');
     if (seq !== planSeq.current) return;
     setPlanning(false);
     if (plan && plan.outcome !== 'no_plan') {
@@ -189,7 +194,7 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
         planning={planning}
         note={note}
         onNote={setNote}
-        onUtterance={(text, source) => void applyUtterance(text, source)}
+        onUtterance={(text, source, heard) => void applyUtterance(text, source, heard)}
       />
 
       <section className="px-5 py-8 lg:col-span-7 lg:px-8">
