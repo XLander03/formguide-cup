@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
+import { derivedNameValue, splitName } from '../../../shared/forms/nameParts';
 import { bankFieldSections, bankOnlyFields, parseStoredForm, sharedFieldsOnForm } from '../forms/activeForm';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FieldRecord, FormVersion } from '../forms/types';
@@ -104,6 +105,77 @@ describe('planBoxWrites', () => {
 
   it('writes nothing for an empty draft', () => {
     expect(planBoxWrites(AXIS, {})).toEqual([]);
+  });
+
+  const NAMES: FormVersion = {
+    ...AXIS,
+    fields: [
+      field({ id: 'custom_customer_name_prefix', type: 'text', order: 1 }),
+      field({ id: 'applicant_first_name', type: 'text', order: 2 }),
+      field({ id: 'applicant_middle_name', type: 'text', order: 3 }),
+      field({ id: 'applicant_last_name', type: 'text', order: 4 }),
+      // "Name as per PAN" repeats the same person's name in a second row.
+      field({ id: 'applicant_first_name', type: 'text', order: 5, box: { x: 100, y: 600, w: 150, h: 14 } }),
+      field({ id: 'applicant_last_name', type: 'text', order: 6, box: { x: 300, y: 600, w: 150, h: 14 } }),
+      field({ id: 'father_first_name', type: 'text', page: 2, order: 1 }),
+      field({ id: 'father_middle_name', type: 'text', page: 2, order: 2 }),
+      field({ id: 'father_last_name', type: 'text', page: 2, order: 3 }),
+    ],
+  };
+
+  it('fills name-part cells from the full names', () => {
+    const writes = planBoxWrites(NAMES, {
+      applicant_full_name: 'Priya Sharma',
+      father_or_spouse_name: 'Ramesh Kumar Sharma',
+    });
+    expect(writes.map((w) => [w.id, w.kind === 'text' ? w.text : '✓'])).toEqual([
+      ['applicant_first_name', 'Priya'],
+      ['applicant_last_name', 'Sharma'],
+      ['applicant_first_name', 'Priya'],
+      ['applicant_last_name', 'Sharma'],
+      ['father_first_name', 'Ramesh'],
+      ['father_middle_name', 'Kumar'],
+      ['father_last_name', 'Sharma'],
+    ]);
+  });
+
+  it('prefers a value typed for a name-part id', () => {
+    const writes = planBoxWrites(NAMES, { applicant_full_name: 'Priya Sharma', applicant_last_name: 'Iyer' });
+    expect(writes.filter((w) => w.id === 'applicant_last_name').map((w) => (w.kind === 'text' ? w.text : ''))).toEqual([
+      'Iyer',
+      'Iyer',
+    ]);
+  });
+
+  it('never lists name-part cells as bank-only inputs', () => {
+    expect(bankOnlyFields(NAMES).map((f) => f.id)).toEqual(['custom_customer_name_prefix']);
+  });
+});
+
+describe('splitName', () => {
+  it('cuts first, middle and last', () => {
+    expect(splitName('Priya Sharma')).toEqual({ first: 'Priya', middle: '', last: 'Sharma' });
+    expect(splitName('  Ramesh  Kumar Sharma ')).toEqual({ first: 'Ramesh', middle: 'Kumar', last: 'Sharma' });
+    expect(splitName('A B C D')).toEqual({ first: 'A', middle: 'B C', last: 'D' });
+  });
+
+  it('keeps a single name as the first name only', () => {
+    expect(splitName('Priya')).toEqual({ first: 'Priya', middle: '', last: '' });
+    expect(splitName('')).toEqual({ first: '', middle: '', last: '' });
+    expect(splitName('   ')).toEqual({ first: '', middle: '', last: '' });
+  });
+
+  it('drops a spoken salutation', () => {
+    expect(splitName('Mr. Ramesh Sharma')).toEqual({ first: 'Ramesh', middle: '', last: 'Sharma' });
+    expect(splitName('Smt Priya Devi Sharma')).toEqual({ first: 'Priya', middle: 'Devi', last: 'Sharma' });
+    expect(splitName('Dr')).toEqual({ first: 'Dr', middle: '', last: '' });
+  });
+
+  it('derives only name-part ids', () => {
+    const values = { applicant_full_name: 'Priya Sharma', father_or_spouse_name: null };
+    expect(derivedNameValue('applicant_last_name', values)).toBe('Sharma');
+    expect(derivedNameValue('father_first_name', values)).toBe('');
+    expect(derivedNameValue('dob', values)).toBeUndefined();
   });
 });
 

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { FIELD_LIBRARY } from '../src/ingest/fieldLibrary';
+import type { FieldType } from '../../shared/forms/types';
+import { FIELD_LIBRARY, libraryById } from '../src/ingest/fieldLibrary';
 import { MATCH_MIN } from '../src/ingest/errors';
 import { customId, matchLibrary } from '../src/ingest/match';
 import { normalisedTopLeftToPdfBox } from '../src/ingest/geom';
@@ -64,6 +65,173 @@ describe('library match', () => {
     const ids = new Set<string>(['custom_field']);
     assert.equal(customId('Mother maiden name', ids), 'custom_mother_maiden_name');
     assert.equal(customId('Mother maiden name', ids), 'custom_mother_maiden_name_2');
+  });
+});
+
+/** Runs labels through the matcher in page order, as draftFromPdf does. */
+function matchAll(rows: Array<[label: string, type?: FieldType]>): string[] {
+  const used = new Set<string>();
+  return rows.map(([label, type]) => {
+    const hit = matchLibrary(label, used, { type });
+    const id = hit.entry ? hit.entry.id : customId(label, used);
+    if (hit.claim) used.add(hit.claim);
+    return id;
+  });
+}
+
+describe('library match guards (labels from the live Axis forms)', () => {
+  it('keeps prefix cells off the full name and fills name parts', () => {
+    assert.deepEqual(
+      matchAll([
+        ['Customer Name Prefix', 'text'],
+        ['Customer Name First Name', 'text'],
+        ['Customer Name Middle Name', 'text'],
+        ['Customer Name Last Name', 'text'],
+        ['Name as per ID Proof Prefix', 'text'],
+        ['Name as per ID Proof First Name', 'text'],
+        ['Name as per ID Proof Last Name', 'text'],
+        ['Name as per PAN - First Name', 'text'],
+        ['Name as per PAN Card Last Name', 'text'],
+        ['Name - Middle Name', 'text'],
+      ]),
+      [
+        'custom_customer_name_prefix',
+        'applicant_first_name',
+        'applicant_middle_name',
+        'applicant_last_name',
+        'custom_name_as_per_id_proof_prefix',
+        'applicant_first_name',
+        'applicant_last_name',
+        'applicant_first_name',
+        'applicant_last_name',
+        'applicant_middle_name',
+      ],
+    );
+  });
+
+  it('keeps father, mother, spouse and maiden name parts apart', () => {
+    assert.deepEqual(
+      matchAll([
+        ["Father's Name Prefix", 'text'],
+        ["Father's Name First Name", 'text'],
+        ["Father's Name Middle Name", 'text'],
+        ["Father's Name Last Name", 'text'],
+        ["Mother's Name First Name", 'text'],
+        ["Spouse's Name Last Name", 'text'],
+        ['Maiden Name (If any) First Name', 'text'],
+      ]),
+      [
+        'custom_fathers_name_prefix',
+        'father_first_name',
+        'father_middle_name',
+        'father_last_name',
+        'custom_mothers_name_first_name',
+        'custom_spouses_name_last_name',
+        'custom_maiden_name_if_any_first_name',
+      ],
+    );
+  });
+
+  it('does not let an identical repeated label claim a name part twice', () => {
+    // FD form: the second "Name* First" belongs to the joint applicant.
+    assert.deepEqual(
+      matchAll([
+        ['Name*', 'text'],
+        ['Name* First', 'text'],
+        ['Name*', 'text'],
+        ['Name* First', 'text'],
+      ]),
+      ['applicant_full_name', 'applicant_first_name', 'custom_name', 'custom_name_first'],
+    );
+  });
+
+  it('maps only birth-date labels to dob', () => {
+    assert.deepEqual(
+      matchAll([
+        ['Date', 'date'],
+        ['Date of Birth / Date of Incorporation', 'date'],
+        ['DOB as per PAN Card', 'date'],
+        ['Place & Date', 'text'],
+        ['Date:', 'date'],
+        ['date of birth of the minor', 'date'],
+        ['DOB / DOI D', 'number'],
+      ]),
+      [
+        'custom_date',
+        'dob',
+        'dob',
+        'custom_place_date',
+        'custom_date_2',
+        'custom_date_of_birth_of_the_minor',
+        'custom_dob_doi_d',
+      ],
+    );
+  });
+
+  it('never reads bank or branch hints off a PDF', () => {
+    assert.equal(matchLibrary('Bank', undefined, { type: 'text' }).entry, null);
+    assert.equal(matchLibrary('Branch', undefined, { type: 'text' }).entry, null);
+    assert.equal(matchLibrary('bank_hint').entry, null);
+  });
+
+  it('rejects type-incompatible matches', () => {
+    assert.equal(matchLibrary('No', undefined, { type: 'checkbox' }).entry, null);
+    assert.equal(matchLibrary('Country', undefined, { type: 'checkbox' }).entry, null);
+    assert.equal(matchLibrary('Mobile No', undefined, { type: 'checkbox' }).entry, null);
+    assert.equal(matchLibrary('Tel. No. (O)', undefined, { type: 'phone' }).entry, null);
+    assert.equal(matchLibrary('Name', undefined, { type: 'phone' }).entry, null);
+    assert.equal(matchLibrary('Email Address', undefined, { type: 'date' }).entry, null);
+  });
+
+  it('needs a father or spouse word for father_or_spouse_name', () => {
+    const used = new Set(['applicant_full_name']);
+    assert.equal(matchLibrary('Name*', used, { type: 'text' }).entry, null);
+    assert.equal(matchLibrary("Father's Name", used, { type: 'text' }).entry?.id, 'father_or_spouse_name');
+    assert.equal(matchLibrary("Husband's name", used, { type: 'text' }).entry?.id, 'father_or_spouse_name');
+    assert.equal(matchLibrary("Mother's Name", used, { type: 'text' }).entry, null);
+  });
+
+  it('needs a number word for document numbers', () => {
+    assert.deepEqual(
+      matchAll([
+        ['Identity Proof Document Type', 'choice'],
+        ['ID no.', 'text'],
+        ['Identity Proof Document Type', 'text'],
+      ]),
+      ['ovd_poi_type', 'ovd_poi_number', 'custom_identity_proof_document_type'],
+    );
+  });
+
+  it('keeps genuine matches', () => {
+    const cases: Array<[string, FieldType, string]> = [
+      ['Date of Birth', 'date', 'dob'],
+      ['Date of Birth', 'text', 'dob'],
+      ['Mobile No', 'phone', 'mobile_registered'],
+      ['Mobile Number', 'text', 'mobile_registered'],
+      ['PAN', 'text', 'pan_number'],
+      ['PAN***', 'text', 'pan_number'],
+      ['Permanent Account Number (PAN)', 'text', 'pan_number'],
+      ['PAN', 'checkbox', 'pan_available'],
+      ['Customer Id', 'text', 'customer_id_cif'],
+      ['CKYC ID', 'text', 'ckyc_number'],
+      ['Email Address', 'email', 'email'],
+      ['City', 'text', 'addr_current_city'],
+      ['Pincode', 'pin', 'addr_current_pin'],
+      ['Nationality', 'text', 'nationality'],
+      ['Customer Name', 'text', 'applicant_full_name'],
+      ['Or Form 60', 'checkbox', 'form60_declared'],
+      ['I am a tax resident of India and not resident of any other country', 'checkbox', 'tax_resident_india_only'],
+      ['First Name', 'text', 'applicant_first_name'],
+    ];
+    for (const [label, type, id] of cases) {
+      assert.equal(matchLibrary(label, undefined, { type }).entry?.id, id, label);
+    }
+  });
+
+  it('exposes derived ids through libraryById', () => {
+    assert.equal(libraryById('applicant_first_name')?.derivedFrom, 'applicant_full_name');
+    assert.equal(libraryById('father_last_name')?.derivedFrom, 'father_or_spouse_name');
+    assert.equal(FIELD_LIBRARY.some((field) => field.derivedFrom), false);
   });
 });
 

@@ -104,14 +104,14 @@ export function readAcroFormFields(doc: PDFDocument): FieldRecord[] {
     const pdfName = field.getName();
     const printed = userLabel(field);
     const queries = [printed, pdfName].filter((value): value is string => Boolean(value && value.trim()));
-    let best = matchLibrary(queries[0] || pdfName, used);
+    let best = matchLibrary(queries[0] || pdfName, used, { type: kind });
     for (const query of queries.slice(1)) {
-      const hit = matchLibrary(query, used);
+      const hit = matchLibrary(query, used, { type: kind });
       if (hit.score > best.score) best = hit;
     }
     const entry = best.entry;
     const id = entry ? entry.id : customId(printed || pdfName, used);
-    if (entry) used.add(entry.id);
+    if (best.claim) used.add(best.claim);
     const library = entry ?? libraryById(id);
     const type = fieldType(kind, library ?? null);
     const widgetOptions = kind === 'choice' ? pdfOptions(field) : undefined;

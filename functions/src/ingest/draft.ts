@@ -31,10 +31,10 @@ function recordsFromOcr(
   for (const raw of found) {
     const box = normalisedTopLeftToPdfBox(raw.box, pageWidth, pageHeight);
     if (!box) continue;
-    const hit = matchLibrary(raw.label, used);
+    const hit = matchLibrary(raw.label, used, { type: raw.type });
     const entry = hit.entry;
     const id = entry ? entry.id : customId(raw.label, used);
-    if (entry) used.add(entry.id);
+    if (hit.claim) used.add(hit.claim);
     const modelType = raw.type;
     const type = entry
       ? (modelType === 'checkbox' || modelType === 'choice' ? modelType : entry.type)
