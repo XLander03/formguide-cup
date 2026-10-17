@@ -166,6 +166,15 @@ describe('planBoxWrites', () => {
     ]);
   });
 
+  it('prints a date as digits only when its cells cannot hold the slashes', () => {
+    const form = {
+      ...NAMES,
+      fields: [field({ id: 'dob', type: 'date', maxChars: 8 }), field({ id: 'custom_date', type: 'date' })],
+    };
+    const writes = planBoxWrites(form, { dob: '1994-03-12', custom_date: '2026-10-17' });
+    expect(writes.map((w) => (w.kind === 'text' ? w.text : ''))).toEqual(['12031994', '17/10/2026']);
+  });
+
   it('never lists name-part cells as bank-only inputs', () => {
     expect(bankOnlyFields(NAMES).map((f) => f.id)).toEqual(['custom_customer_name_prefix']);
   });

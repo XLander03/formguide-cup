@@ -83,10 +83,13 @@ describe('printed labels for AcroForm widgets', () => {
     assert.equal(get('pan_number').label, 'PAN number');
   });
 
-  it('never scores a printed label above its match score', async () => {
+  it('holds a shared id read off nearby page text for admin review', async () => {
     const draft = await draftFromPdf(await labelledAcroPdf(), noOcr);
     const mobile = draft.fields.find((field) => field.pdfField === 'Text1');
-    assert.equal(mobile?.confidence, 0.97, 'exact alias score, as matchLibrary gives it');
+    assert.equal(mobile?.id, 'mobile_registered');
+    // matchLibrary scores the printed "Mobile" 0.97; a layout guess never auto-accepts.
+    assert.equal(mobile?.confidence, 0.85);
+    assert.equal(mobile?.checked, false);
   });
 
   it('falls back to the internal name without page text, as before', async () => {

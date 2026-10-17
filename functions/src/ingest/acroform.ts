@@ -13,6 +13,7 @@ import {
   type PDFField,
   type PDFWidgetAnnotation,
 } from 'pdf-lib';
+import { AUTO_ACCEPT_ABOVE } from '../../../shared/forms/review';
 import type { FieldRecord } from '../../../shared/forms/types';
 import { libraryById, type LibraryField } from './fieldLibrary';
 import { roundPt } from './geom';
@@ -205,6 +206,7 @@ export function readAcroFormFields(doc: PDFDocument, pageTexts: readonly (PageTe
     // Scored on the printed label and on the internal name; the better match wins.
     const queries = [printed, named, pdfName].filter((value): value is string => Boolean(value && value.trim()));
     let best: LibraryMatch | undefined;
+    let fromPage = false;
     for (const query of queries) {
       const blocked = query === pageLabel && reserved.size
         ? new Set([...used, ...[...reserved].filter(([other]) => other !== field).map(([, claim]) => claim)])
@@ -213,7 +215,10 @@ export function readAcroFormFields(doc: PDFDocument, pageTexts: readonly (PageTe
       // A yes/no id in a text box ("PAN" -> "Do you have a PAN?") is taken on the
       // field's own name (an AcroForm "PEP" text widget), never on nearby page text.
       if (query === pageLabel && kind === 'text' && hit.entry?.type === 'checkbox') continue;
-      if (!best || hit.score > best.score) best = hit;
+      if (!best || hit.score > best.score) {
+        best = hit;
+        fromPage = query === pageLabel && query !== named && query !== pdfName;
+      }
     }
     best ??= matchLibrary(pdfName, used, { type: kind });
     const entry = best.entry;
@@ -241,7 +246,9 @@ export function readAcroFormFields(doc: PDFDocument, pageTexts: readonly (PageTe
         pii: library ? library.pii : true,
         ...(library?.section ? { section: library.section } : {}),
         order: 0,
-        confidence: best.score,
+        // A shared id read off nearby page text is a guess about layout (a second
+        // "City" may be correspondence, not permanent), so an admin always checks it.
+        confidence: fromPage && entry ? Math.min(best.score, AUTO_ACCEPT_ABOVE) : best.score,
         checked: false,
         page,
         box: {
