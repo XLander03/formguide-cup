@@ -48,6 +48,21 @@ function byLowestConfidence(a: Row, b: Row): number {
   return a.field.confidence - b.field.confidence || a.field.order - b.field.order || a.key - b.key;
 }
 
+/** The ingest agent could not confirm this field's box, and nobody has confirmed it since. */
+function agentNeedsYou(field: FieldRecord): boolean {
+  return field.agent?.status === 'unresolved' && !field.checked;
+}
+
+/** Fields the agent could not resolve come first, then lowest confidence. */
+function byReviewPriority(a: Row, b: Row): number {
+  return Number(agentNeedsYou(b.field)) - Number(agentNeedsYou(a.field)) || byLowestConfidence(a, b);
+}
+
+/** Listed for review: anything not auto-accepted, plus boxes the agent moved or could not confirm. */
+function listedForReview(field: FieldRecord): boolean {
+  return !fieldAutoAccepted(field) || field.agent?.status === 'fixed' || field.agent?.status === 'unresolved';
+}
+
 export function FieldReview({
   form,
   pages,
@@ -81,7 +96,7 @@ export function FieldReview({
     pages.map((page, index) => paperPageDataUrl(index + 1, page));
 
   // Only fields an admin has to look at are listed or drawn. Auto-accepted ones are already on the form.
-  const reviewRows = rows.filter((row) => !fieldAutoAccepted(row.field)).sort(byLowestConfidence);
+  const reviewRows = rows.filter((row) => listedForReview(row.field)).sort(byReviewPriority);
   const autoCount = rows.length - reviewRows.length;
   const remaining = reviewRows.filter((row) => needsConfidenceCheck(row.field)).length;
   const blocked = publishBlocked(rows.map((row) => row.field));
@@ -312,7 +327,7 @@ export function FieldReview({
               const onPage = rows.filter(
                 (row) =>
                   row.field.page === pageNumber &&
-                  (row.key === selectedKey || !fieldAutoAccepted(row.field)),
+                  (row.key === selectedKey || listedForReview(row.field)),
               );
               return (
                 <div
@@ -375,9 +390,10 @@ export function FieldReview({
           className="min-w-0 px-4 py-6 xl:sticky xl:top-0 xl:max-h-[calc(100vh-6.5rem)] xl:overflow-y-auto"
         >
           <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-            Lowest confidence first
+            {form.agentSummary ? 'Agent flags first, then lowest confidence' : 'Lowest confidence first'}
           </p>
           <h2 className="mt-2 font-display text-3xl leading-none">Fields to review</h2>
+          {form.agentSummary ? <AgentBanner summary={form.agentSummary} needsYou={rows.filter((row) => agentNeedsYou(row.field)).length} /> : null}
           <p className="mt-2 text-xs text-muted-foreground">
             {reviewRows.length === 0
               ? 'Nothing to review. Every field was read with high confidence.'
@@ -536,7 +552,10 @@ function FieldCells({
   if (!stacked) {
     return (
       <>
-        <td className="px-1.5 py-1.5">{label}</td>
+        <td className="px-1.5 py-1.5">
+          {label}
+          {field.agent ? <AgentBadge agent={field.agent} /> : null}
+        </td>
         <td className="px-1.5 py-1.5">{type}</td>
         <td className="px-1.5 py-1.5">{sharedId}</td>
         <td className="px-1.5 py-1.5">{required}</td>
@@ -554,6 +573,7 @@ function FieldCells({
 
   return (
     <>
+      {field.agent ? <AgentBadge agent={field.agent} /> : null}
       <label className="grid gap-1 text-xs font-semibold">
         Label
         {label}
@@ -583,6 +603,43 @@ function FieldCells({
         {removeButton}
       </div>
     </>
+  );
+}
+
+const AGENT_BADGE: Record<NonNullable<FieldRecord['agent']>['status'], { text: string; tone: string }> = {
+  verified: { text: 'Verified', tone: 'bg-primary/15 text-primary' },
+  fixed: { text: 'Fixed', tone: 'bg-primary text-primary-foreground' },
+  unresolved: { text: 'Needs you', tone: 'bg-saffron text-foreground' },
+};
+
+/** What the ingest agent found for one field: a status word and its one-line note. */
+function AgentBadge({ agent }: { agent: NonNullable<FieldRecord['agent']> }) {
+  const badge = AGENT_BADGE[agent.status];
+  return (
+    <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-snug" data-agent-status={agent.status}>
+      <span className={`shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badge.tone}`}>
+        {badge.text}
+      </span>
+      <span className="min-w-0 text-muted-foreground">{agent.note}</span>
+    </p>
+  );
+}
+
+/** One line on what the ingest agent did before the admin got here. */
+function AgentBanner({ summary, needsYou }: { summary: NonNullable<FormVersion['agentSummary']>; needsYou: number }) {
+  const failed = summary.pagesFailed ?? 0;
+  return (
+    <div role="status" aria-label="Agent check" className="mt-3 border-2 border-foreground bg-card px-3 py-2 text-sm">
+      <p className="font-semibold">
+        Agent checked {summary.checked} field{summary.checked === 1 ? '' : 's'} · fixed {summary.fixed} ·{' '}
+        {needsYou > 0 ? `needs you for ${needsYou}` : 'nothing left for you'}
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        It drew each field's box on the page and asked Gemini whether the box sits on that field's input, then
+        re-checked every box it moved. Verified and fixed fields are already confirmed.
+        {failed > 0 ? ` ${failed} page${failed === 1 ? '' : 's'} could not be checked; review those as usual.` : ''}
+      </p>
+    </div>
   );
 }
 

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { PlanProgress } from '../components/PlanProgress';
 import { languageLabel } from '../lib/languages';
 import { useRoute, type RoutePath } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
@@ -79,6 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
       )}
+      {path === '/speak' || path === '/review' || path === '/confirm' ? <PlanProgress /> : null}
       <main>{children}</main>
       <div className="flex flex-wrap justify-between gap-2 border-t-2 border-foreground bg-foreground px-4 py-3 text-[11px] text-background sm:px-6">
         <span>Fields vary by bank.</span>

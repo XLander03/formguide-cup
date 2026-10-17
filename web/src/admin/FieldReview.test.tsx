@@ -165,4 +165,46 @@ describe('FieldReview', () => {
     const card = screen.getByDisplayValue('PAN').closest('li');
     expect(card).toHaveAttribute('aria-selected', 'true');
   });
+
+  it('shows what the ingest agent did: a banner, a badge per checked field, its open cases first', async () => {
+    const user = userEvent.setup();
+    setViewport(1365);
+    const base = placeholderFormVersion({ bankId: 'Axis', journey: 'rekyc', fillable: false });
+    const agent: Record<string, FormVersion['fields'][number]['agent']> = {
+      applicant_full_name: { status: 'verified', note: 'Checked on the page: the box sits on its input.' },
+      dob: { status: 'fixed', note: 'Moved up 14pt. Sat one row low, on the State input.' },
+      mobile_registered: { status: 'verified', note: 'Checked on the page: the box sits on its input.' },
+      gender: { status: 'unresolved', note: 'Starts on the Prefix cell. Please place it.' },
+    };
+    const form: FormVersion = {
+      ...base,
+      agentSummary: { checked: 4, fixed: 1, unresolved: 1, pages: 2, pagesFailed: 0, durationMs: 9000 },
+      fields: base.fields.map((field) => (agent[field.id]
+        ? { ...field, agent: agent[field.id], checked: agent[field.id]?.status !== 'unresolved' }
+        : field)),
+    };
+    render(<FieldReview form={form} pages={pages} publish={vi.fn(async () => {})} />);
+
+    const banner = screen.getByRole('status', { name: 'Agent check' });
+    expect(banner).toHaveTextContent('Agent checked 4 fields · fixed 1 · needs you for 1');
+
+    const review = screen.getByRole('table', { name: 'Fields to review' });
+    const rows = within(review).getAllByRole('row').slice(1);
+    // The field the agent could not resolve leads, ahead of lower-confidence fields.
+    expect(within(rows[0]).getByRole('textbox', { name: 'Label' })).toHaveValue('Gender');
+    expect(rows[0]).toHaveTextContent('Needs you');
+    expect(rows[0]).toHaveTextContent('Starts on the Prefix cell. Please place it.');
+    // A moved box is listed (already confirmed) so the admin can see the move.
+    const dobRow = within(review).getByDisplayValue('Date of birth').closest('tr') as HTMLElement;
+    expect(dobRow).toHaveTextContent('Fixed');
+    expect(dobRow).toHaveTextContent('Moved up 14pt.');
+    expect(within(dobRow).getByRole('checkbox', { name: 'Confirm Date of birth' })).toBeChecked();
+    const mobileRow = within(review).getByDisplayValue('Mobile').closest('tr') as HTMLElement;
+    expect(mobileRow).toHaveTextContent('Verified');
+    // Verified with high confidence: already on the form, not listed.
+    expect(screen.queryByDisplayValue('Full name')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Confirm Gender' }));
+    expect(banner).toHaveTextContent('nothing left for you');
+  });
 });

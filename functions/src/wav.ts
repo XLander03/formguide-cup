@@ -12,6 +12,8 @@ export type SpeakParts = {
   audio: Buffer;
   /** Bank-only fields of a published form. Empty for the bundled form or a malformed part. */
   formFields: BankFormField[];
+  /** Optional `form_id` part naming the published form, for anonymous usage counts only. */
+  formId?: string;
 };
 
 export type SpeakRead =
@@ -83,6 +85,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
   let current: Record<string, unknown> = {};
   let audio: Buffer | null = null;
   let formFields: BankFormField[] = [];
+  let formId: string | undefined;
 
   for (const part of parts) {
     const sep = part.indexOf(Buffer.from('\r\n\r\n'));
@@ -108,6 +111,9 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
       }
     } else if (name === 'form_fields') {
       formFields = parseFormFields(body);
+    } else if (name === 'form_id') {
+      const value = body.toString('utf8').trim();
+      if (/^[A-Za-z0-9_-]{1,80}$/.test(value)) formId = value;
     } else if (name === 'audio') {
       audio = Buffer.from(body);
     }
@@ -118,7 +124,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
   if (!isSpeakLanguage(language)) return { ok: false, error: 'bad_language' };
   const wav = inspectWav(audio);
   if (!wav.ok) return wav;
-  return { ok: true, parts: { language, current, audio, formFields } };
+  return { ok: true, parts: { language, current, audio, formFields, ...(formId ? { formId } : {}) } };
 }
 
 export function readSpeakRequest(raw: Buffer, contentType: string): SpeakRead {

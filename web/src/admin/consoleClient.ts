@@ -4,8 +4,10 @@ import {
   type AdminFormsResponse,
   type SetFormStatusRequest,
 } from '../../../shared/forms/admin';
+import type { CopilotRequest, CopilotResponse } from '../../../shared/forms/copilot';
 import type { FormVersion } from '../../../shared/forms/types';
 import { adminGetBlob, adminGetJson, adminPost } from './adminFetch';
+import { askCopilot } from './copilotClient';
 import { mockAdminForm, mockAdminForms, mockSetStatus } from './mockConsole';
 import { mockIngestRequested } from './mockQuery';
 import { buildPlaceholderPdf } from './pdfChecks';
@@ -95,6 +97,8 @@ export interface ConsoleApi {
   publish: (row: AdminFormRow) => Promise<void>;
   setStatus: (request: SetFormStatusRequest) => Promise<void>;
   openPdf: (row: AdminFormRow) => Promise<void>;
+  /** "Ask about your forms". Optional: the console hides the panel without it. */
+  askCopilot?: (request: CopilotRequest) => Promise<CopilotResponse>;
 }
 
 export const consoleApi: ConsoleApi = {
@@ -102,4 +106,5 @@ export const consoleApi: ConsoleApi = {
   publish: publishStoredForm,
   setStatus: setFormStatus,
   openPdf: (row) => openSourcePdf(row),
+  askCopilot,
 };

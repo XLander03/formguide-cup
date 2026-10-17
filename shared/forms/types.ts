@@ -39,6 +39,34 @@ export interface FieldRecord {
   box: PdfBox;
   pdfField?: string;
   maxChars?: number;
+  /**
+   * Set at OCR ingest when the self-checking agent (functions/src/ingest/verifyAgent.ts)
+   * looked at this field's box on the page image. `verified`: the box was right.
+   * `fixed`: the agent moved it and confirmed the new place on a second look. Both are
+   * accepted (`checked: true`). `unresolved`: the agent could not confirm a place, so the
+   * field waits for an admin (confidence capped at the review line, `checked: false`).
+   * `note` is one or two short sentences for the reviewer. Absent when the field was not
+   * checked (AcroForm, bank-only optional fields, or the page's check failed).
+   */
+  agent?: FieldAgent;
+}
+
+export interface FieldAgent {
+  status: 'verified' | 'fixed' | 'unresolved';
+  note: string;
+}
+
+/** What the ingest agent did to one form version, for the admin console and review. */
+export interface AgentSummary {
+  /** Fields the agent gave a verdict on. */
+  checked: number;
+  fixed: number;
+  unresolved: number;
+  /** Pages it checked. */
+  pages: number;
+  /** Pages it tried and could not check (call failed or out of time); their fields stay as placed. */
+  pagesFailed?: number;
+  durationMs: number;
 }
 
 export type FormStatus = 'draft' | 'published' | 'retired';
@@ -53,6 +81,8 @@ export interface FormVersion {
   source: FormSource;
   pdfPath: string;
   fields: FieldRecord[];
+  /** Present on OCR versions the ingest agent checked. */
+  agentSummary?: AgentSummary;
 }
 
 /** How one logical value writes one AcroForm widget. Kept beside FieldRecord so pdfFill is data-driven. */

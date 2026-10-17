@@ -32,7 +32,9 @@ export const ingestForm = onRequest(
     // Up to MAX_PDF_PAGES (20) pages are OCR'd OCR_CONCURRENCY (4) at a time
     // (see draft.ts): 5 waves. A slow page plus its one retry (geminiOcr.ts)
     // was seen at 30-60s, so the worst case is ~5 x 60s = 300s of OCR, plus
-    // rendering and Storage writes. 600s leaves headroom; 2nd-gen HTTP
+    // rendering and Storage writes. The ingest agent (verifyAgent.ts) then checks
+    // the boxes within its own 120s budget (~20-30s for a 4-page form without
+    // quota waits). 600s leaves headroom; 2nd-gen HTTP
     // functions allow up to 3600s. The admin client calls this URL directly,
     // not through the Hosting rewrite and its 60s cap (see ingestClient.ts).
     timeoutSeconds: 600,
@@ -176,3 +178,16 @@ export const setFormStatus = onRequest(ADMIN_OPTIONS, async (req, res) => {
   const { productionSetFormStatus } = await import('./production');
   await productionSetFormStatus(req as unknown as AdminReq, res as unknown as HttpRes);
 });
+
+/**
+ * "Ask about your forms" (shared/forms/copilot.ts). Admin-only; Gemini function calling over
+ * read-only tools. It only proposes status changes; the console executes them after the admin confirms.
+ */
+export const adminCopilot = onRequest(
+  // Up to five Gemini turns plus a read of every version doc.
+  { ...ADMIN_OPTIONS, memory: '512MiB', timeoutSeconds: 60, secrets: ['GEMINI_API_KEY'] },
+  async (req, res) => {
+    const { productionAdminCopilot } = await import('./production');
+    await productionAdminCopilot(req as unknown as HttpReq, res as unknown as HttpRes);
+  },
+);

@@ -15,6 +15,7 @@ import type { FormVersion } from '../forms/types';
 import { cardLast4, debitDefaults, isDebitJourney, redactFullCardNumbers } from '../lib/debitReissue';
 import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
+import { carryPlanAnswers, parseStoredPlan, stepCardId, type ActivePlan } from '../lib/journeyPlan';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
 import { maskSensitiveFields, shouldRedactAadhaarQuote } from '../lib/pii';
 import { speakFormFields } from '../lib/speakFormFields';
@@ -88,6 +89,8 @@ interface Persisted {
   confidence?: Record<string, FieldConfidence>;
   /** Published form being filled. Absent or invalid means the bundled HDFC v1. */
   form?: FormVersion;
+  /** Multi-form plan from the journey planner, and the step being filled. */
+  plan?: ActivePlan & { step: number };
 }
 
 function parseConfidence(raw: unknown): Record<string, FieldConfidence> {
@@ -115,12 +118,14 @@ function loadPersisted(): Persisted | null {
     const journey = isJourneyId(data.journey) ? data.journey : null;
     const values =
       data.values && typeof data.values === 'object' ? (data.values as FormValues) : {};
+    const stored = parseStoredPlan(data.plan);
     return {
       language,
       journey,
       values,
       confidence: parseConfidence(data.confidence),
       form: parseStoredForm(data.form) ?? HDFC_V1,
+      ...(stored ? { plan: { ...stored.plan, step: stored.step } } : {}),
     };
   } catch {
     return null;
@@ -249,6 +254,16 @@ export interface FormSessionValue {
   form: FormVersion;
   /** Switching forms drops the previous form's bank-only answers. Shared answers stay. */
   selectForm: (form: FormVersion) => void;
+  /** Ordered forms from the journey planner, or null when the customer picked one form by hand. */
+  plan: ActivePlan | null;
+  /** Index into `plan.steps` of the form being filled. */
+  planStep: number;
+  /**
+   * Fill step `index` of `plan` on `form`. Shared answers (name, DOB, mobile, address…) carry over;
+   * the confirm gates reset so a read-back confirmed for one form never counts for the next.
+   */
+  beginPlanStep: (plan: ActivePlan, index: number, form: FormVersion) => void;
+  clearPlan: () => void;
 }
 
 const FormSessionContext = createContext<FormSessionValue | null>(null);
@@ -264,6 +279,15 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     return isJourneyId(persona.journey_mode) ? persona.journey_mode : (saved?.journey ?? 'account_opening');
   });
   const [form, setForm] = useState<FormVersion>(saved?.form ?? HDFC_V1);
+  const [plan, setPlan] = useState<ActivePlan | null>(() => {
+    if (!saved?.plan) return null;
+    const { steps, reply, trace, text } = saved.plan;
+    return { steps, reply, trace, text };
+  });
+  const [planStep, setPlanStep] = useState(saved?.plan?.step ?? 0);
+  // applyUpdates is memoized without the plan; read the planned journey here.
+  const planJourneyRef = useRef<JourneyId | null>(null);
+  planJourneyRef.current = plan?.steps[planStep]?.journey ?? null;
   // applyUpdates and onPriya are memoized without `form`; read the current one here.
   const formRef = useRef(form);
   formRef.current = form;
@@ -345,9 +369,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const payload: Persisted = { language, journey, values, confidence, form };
+    const payload: Persisted = {
+      language,
+      journey,
+      values,
+      confidence,
+      form,
+      ...(plan ? { plan: { ...plan, step: planStep } } : {}),
+    };
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [language, journey, values, confidence, form]);
+  }, [language, journey, values, confidence, form, plan, planStep]);
 
   useEffect(() => {
     // Browsers show their own fixed confirmation text on refresh/close —
@@ -432,6 +463,35 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     [form],
   );
 
+  const beginPlanStep = useCallback(
+    (next: ActivePlan, index: number, nextForm: FormVersion) => {
+      const step = next.steps[index];
+      if (!step) return;
+      stopSpeaking();
+      setSpeaking(false);
+      setReadingBack(false);
+      setPlan(next);
+      setPlanStep(index);
+      // Drops only the previous bank form's own boxes; shared answers stay.
+      selectForm(nextForm);
+      const product = step.journey === 'account_opening' ? stepCardId(step, next.text) : null;
+      setJourney(step.journey);
+      setValues((prev) => {
+        const carried = withJourney(carryPlanAnswers(prev, step.journey, next.text), step.journey);
+        return product ? { ...carried, account_product_intent: product } : carried;
+      });
+      setLast(null);
+      setRefuseMsg(null);
+      setDraftReady(false);
+    },
+    [selectForm],
+  );
+
+  const clearPlan = useCallback(() => {
+    setPlan(null);
+    setPlanStep(0);
+  }, []);
+
   const setMicLang = useCallback(
     (lang: MicLang) => {
       const option = languageByBcp47(lang);
@@ -448,7 +508,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const applyUpdates = useCallback(
     (incoming: FormValues, response: ExtractResponse, utterance?: string) => {
       // "Open an account" said while filling a bank's Re-KYC form must not retarget the draft.
-      const locked = lockedJourney(formRef.current);
+      // While a planner step is open, the draft also stays on that step's journey.
+      const locked = lockedJourney(formRef.current) ?? planJourneyRef.current;
       const updates =
         locked && incoming.journey_mode !== undefined && incoming.journey_mode !== locked
           ? Object.fromEntries(Object.entries(incoming).filter(([key]) => key !== 'journey_mode'))
@@ -607,7 +668,11 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       body.append('current_values', JSON.stringify(values));
       // A published bank form also lets voice fill its own customer boxes. Never sent for HDFC v1.
       const formFields = speakFormFields(formRef.current);
-      if (formFields) body.append('form_fields', JSON.stringify(formFields));
+      if (formFields) {
+        body.append('form_fields', JSON.stringify(formFields));
+        // Lets the anonymous usage counts say which published form customers struggle with.
+        body.append('form_id', formRef.current.formId);
+      }
       body.append('audio', wav, 'clip.wav');
       const ctrl = new AbortController();
       const timer = window.setTimeout(() => ctrl.abort(), 70000);
@@ -962,6 +1027,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     selectDraft,
     form,
     selectForm,
+    plan,
+    planStep,
+    beginPlanStep,
+    clearPlan,
   };
 
   return <FormSessionContext.Provider value={value}>{children}</FormSessionContext.Provider>;

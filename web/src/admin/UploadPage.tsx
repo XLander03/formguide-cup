@@ -176,8 +176,14 @@ export function UploadPage({
       ) : null}
 
       <button type="button" className={`${BTN_PRIMARY} ${BTN_LG} mt-6`} disabled={blocked} onClick={() => void continueIngest()}>
-        {busy ? 'Reading…' : 'Continue'}
+        {busy ? 'Reading and checking…' : 'Continue'}
       </button>
+      {busy ? (
+        <p role="status" className="mt-3 max-w-xl text-sm text-muted-foreground">
+          Reading the form's fields, then an agent checks each box against the page and fixes the ones that sit in
+          the wrong place. A long form can take a couple of minutes.
+        </p>
+      ) : null}
 
       <div className="mt-8">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">Published for this journey</p>

@@ -70,9 +70,23 @@
         }
       },
       {
+        "source": "/api/adminCopilot",
+        "function": {
+          "functionId": "adminCopilot",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/setFormStatus",
         "function": {
           "functionId": "setFormStatus",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/planJourney",
+        "function": {
+          "functionId": "planJourney",
           "region": "us-central1"
         }
       },
