@@ -4,6 +4,7 @@ import { IngestError, MAX_PDF_BYTES } from './errors';
 import { unconfirmedLowConfidence } from '../../../shared/forms/review';
 import { randomBytes } from 'node:crypto';
 import { versionDocForWrite } from './versionDoc';
+import type { VerifyPageFn } from './verifyAgent';
 
 export type HttpReq = {
   method: string;
@@ -37,6 +38,8 @@ export type IngestDeps = {
   createFormVersion: (version: FormVersion) => Promise<void>;
   allocateVersion: (formId: string, requested: string | undefined) => Promise<string>;
   ocrPage: OcrPageFn;
+  /** The ingest agent's vision check (verifyAgent.ts). Absent: OCR fields are not self-checked. */
+  verifyPage?: VerifyPageFn;
 };
 
 export type PublishDeps = {
@@ -188,7 +191,7 @@ export async function handleIngest(req: HttpReq, res: HttpRes, deps: IngestDeps)
     const version = await deps.allocateVersion(formId, incoming.version ? safeId(incoming.version) : undefined);
     const bankId = safeId(incoming.bankId, 'unspecified');
     const journey = safeId(incoming.journey, 'aof_kyc');
-    const draft = await draftFromPdf(bytes, deps.ocrPage);
+    const draft = await draftFromPdf(bytes, deps.ocrPage, deps.verifyPage ? { verifyPage: deps.verifyPage } : {});
     const pdfPath = pdfStoragePath(formId, version);
     const formVersion = buildFormVersion({
       formId,
@@ -198,6 +201,7 @@ export async function handleIngest(req: HttpReq, res: HttpRes, deps: IngestDeps)
       source: draft.source,
       pdfPath,
       fields: draft.fields,
+      agentSummary: draft.agentSummary,
     });
     if (formVersion.status !== 'draft') throw new IngestError('ingest_failed', 500);
     const pages: PageImage[] = draft.pages.map((page) => ({
@@ -213,7 +217,7 @@ export async function handleIngest(req: HttpReq, res: HttpRes, deps: IngestDeps)
       ...draft.pages.map((page, index) => deps.writeStorage(pages[index].storagePath, page.png, 'image/png')),
     ]);
     await deps.createFormVersion(formVersion);
-    res.status(200).json({ formVersion, pages });
+    res.status(200).json({ formVersion, pages, ...(draft.agentSummary ? { agentSummary: draft.agentSummary } : {}) });
   } catch (err) {
     sendError(res, err);
   }
