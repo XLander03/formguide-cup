@@ -297,14 +297,17 @@ export function JourneyPage() {
         />
 
         <div className="mt-6 grid gap-px border-2 border-foreground bg-foreground sm:grid-cols-2">
-          {OPEN_CARDS.map((card) => {
+          {OPEN_CARDS.map((card, index) => {
             const on = card.id === selected.id;
+            // The grid lines are the dark background showing through 1px gaps, so an odd card
+            // out would leave a solid dark cell beside it. Let it span both columns instead.
+            const spanRow = OPEN_CARDS.length % 2 === 1 && index === OPEN_CARDS.length - 1;
             return (
               <button
                 key={card.id}
                 type="button"
                 onClick={() => setSelectedId(card.id)}
-                className={`min-h-28 p-4 text-left ${
+                className={`min-h-28 p-4 text-left ${spanRow ? 'sm:col-span-2 ' : ''}${
                   on ? 'bg-primary text-primary-foreground' : 'bg-background text-foreground hover:bg-muted'
                 }`}
               >
