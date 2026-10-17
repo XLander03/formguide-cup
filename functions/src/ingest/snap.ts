@@ -90,6 +90,41 @@ export function applyDrift(box: UnitBox, drift: Drift): UnitBox {
   return { x: drift.ax * box.x + drift.bx, y: drift.ay * box.y + drift.by, w: drift.ax * box.w, h: drift.ay * box.h };
 }
 
+/** Points of slack when checking that an input box sits on its label's line. */
+const LINE_SLACK_PT = 2;
+/** Widest gap between a label's end and an input box that still reads as "beside" it. */
+const BESIDE_GAP_PT = 40;
+/** A repaired box is at least this many label line heights tall. */
+const MIN_ROW_LINES = 2;
+
+/**
+ * Snapping moves the input box by its label's offset, so it keeps wherever the model
+ * put the box relative to its own label. On the HDFC account opening form a reply put
+ * every left-column box one row (~14pt) under its label, and some only 1.7pt tall:
+ * City then printed on the State row with full confidence. The printed label is known
+ * exactly, so check the box against it: a box that starts just right of its label
+ * (the label-beside-input layout) must cross the label's line (its middle, for a
+ * label wrapped over lines) and be at least one text line tall. If it does not, centre
+ * it on the label, tall enough to write in, and report it moved so the field is held
+ * for review. Boxes below, above or left of their label (stacked layouts, tick boxes)
+ * are left alone.
+ */
+export function alignBesideLabel(
+  box: UnitBox,
+  label: UnitBox,
+  lineH: number,
+  text: Pick<PageText, 'width' | 'height'>,
+): { box: UnitBox; moved: boolean } {
+  const gapPt = (box.x - (label.x + label.w)) * text.width;
+  if (gapPt < -LINE_SLACK_PT || gapPt > BESIDE_GAP_PT) return { box, moved: false };
+  const centre = label.y + label.h / 2;
+  const slack = LINE_SLACK_PT / text.height;
+  const onLine = centre >= box.y - slack && centre <= box.y + box.h + slack;
+  if (onLine && box.h >= lineH) return { box, moved: false };
+  const h = Math.max(box.h, MIN_ROW_LINES * lineH);
+  return { box: { x: box.x, y: centre - h / 2, w: box.w, h }, moved: true };
+}
+
 export type Placement = {
   /** Input box on the page, unit square, top-left origin. */
   box: UnitBox;
@@ -103,7 +138,8 @@ export type Placement = {
  * Place every OCR field of one page. On a page with a text layer: undo the page-wide
  * drift, then snap each field by its own printed label. A field is doubtful when its
  * label is not found, when it was found only by guessing the label's place (no model
- * label box), or when the box had to be repaired or cut to the page. Scanned pages
+ * label box), when the box had to be moved onto its label's line (alignBesideLabel),
+ * or when the box had to be repaired or cut to the page. Scanned pages
  * keep the model's boxes, doubtful only if repaired or cut. Null entries are fields
  * with no usable box.
  */
@@ -117,13 +153,15 @@ export function placePageFields(
     const box = applyDrift(raw.box, drift);
     const labelBox = raw.labelBox ? applyDrift(raw.labelBox, drift) : undefined;
     const anchor = withText ? anchorToLabel({ label: raw.label, box, labelBox }, text) : null;
-    const kept = clampUnitBox(anchor ? anchor.box : box);
+    // A proxy anchor already centres the box on the label's line.
+    const aligned = withText && anchor && !anchor.proxy ? alignBesideLabel(anchor.box, anchor.label, anchor.lineH, text) : null;
+    const kept = clampUnitBox(aligned ? aligned.box : anchor ? anchor.box : box);
     if (!kept) return null;
     const unanchored = withText && (!anchor || anchor.proxy);
     return {
       box: kept.box,
       anchored: Boolean(anchor),
-      doubtful: Boolean(raw.repaired) || kept.clamped || unanchored,
+      doubtful: Boolean(raw.repaired) || kept.clamped || unanchored || Boolean(aligned?.moved),
     };
   });
 }
