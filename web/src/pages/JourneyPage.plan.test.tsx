@@ -44,6 +44,12 @@ function Pages({ plan }: { plan: RequestPlan }) {
   );
 }
 
+async function trySample(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  const toggle = screen.getByRole('button', { name: /No mic\? Try a sample/ });
+  if (toggle.getAttribute('aria-expanded') !== 'true') await user.click(toggle);
+  await user.click(screen.getByRole('button', { name }));
+}
+
 function mount(plan: RequestPlan) {
   window.history.pushState({}, '', '/journey');
   return render(
@@ -63,7 +69,7 @@ describe('JourneyPage planner', () => {
     const plan = vi.fn<RequestPlan>(async () => ({ plan: TWO_FORMS, error: null }));
     mount(plan);
 
-    await user.click(screen.getByRole('button', { name: new RegExp(STOLEN_AND_MOVED) }));
+    await trySample(user, new RegExp(STOLEN_AND_MOVED));
     expect(plan).toHaveBeenCalledWith(STOLEN_AND_MOVED, 'en');
     const card = await screen.findByRole('region', { name: 'Your plan' });
     expect(within(card).getByText('2 forms, in this order.')).toBeInTheDocument();
@@ -107,7 +113,7 @@ describe('JourneyPage planner', () => {
   it('falls back to the single-card pick with a gentle note when the planner fails', async () => {
     const user = userEvent.setup();
     mount(async () => ({ plan: null, error: 'plan_503' }));
-    await user.click(screen.getByRole('button', { name: /redo my KYC/ }));
+    await trySample(user, /redo my KYC/);
     expect(await screen.findByText(/could not plan this just now/)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Your plan' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Start filling Re-KYC/ })).toBeInTheDocument();
@@ -125,6 +131,7 @@ describe('JourneyPage planner', () => {
       },
       error: null,
     }));
+    await user.click(screen.getByRole('tab', { name: 'Type' }));
     await user.type(screen.getByLabelText(/Tell us what happened/), 'I want a personal loan{Enter}');
     const card = await screen.findByRole('region', { name: 'Your plan' });
     expect(within(card).getByText('Sorry, loans are not covered.')).toBeInTheDocument();
@@ -135,7 +142,7 @@ describe('JourneyPage planner', () => {
   it('sets the plan aside when a card is picked by hand', async () => {
     const user = userEvent.setup();
     mount(async () => ({ plan: TWO_FORMS, error: null }));
-    await user.click(screen.getByRole('button', { name: new RegExp(STOLEN_AND_MOVED) }));
+    await trySample(user, new RegExp(STOLEN_AND_MOVED));
     await screen.findByRole('region', { name: 'Your plan' });
     await user.click(screen.getByRole('button', { name: /Re-KYC.*Periodic/ }));
     await user.click(screen.getByRole('button', { name: /Start filling Re-KYC/ }));

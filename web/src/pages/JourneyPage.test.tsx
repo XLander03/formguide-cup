@@ -36,7 +36,8 @@ describe('JourneyPage published forms', () => {
   it('selects the form from what was said', async () => {
     const user = userEvent.setup();
     renderJourney(1365);
-    await user.click(await screen.findByRole('button', { name: /सैलरी के लिए नया अकाउंट/ }));
+    await user.click(await screen.findByRole('button', { name: /No mic\? Try a sample/ }));
+    await user.click(screen.getByRole('button', { name: /सैलरी के लिए नया अकाउंट/ }));
     expect(screen.getByRole('button', { name: /Start filling Salary account/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /redo my KYC/ }));
