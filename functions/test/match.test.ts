@@ -288,3 +288,11 @@ describe('section-aware matching (real OCR headings)', () => {
     assert.equal(matchLibrary('City', used, {}).entry?.id, 'addr_permanent_city');
   });
 });
+
+describe('current address headings banks print', () => {
+  it('maps Communication / Mailing / Correspondence Address to the current address line', () => {
+    for (const label of ['Communication Address', 'Mailing Address', 'Correspondence Address', 'Present Address']) {
+      assert.equal(matchLibrary(label, new Set(), { type: 'text' }).entry?.id, 'addr_current_line1', label);
+    }
+  });
+});

@@ -86,7 +86,10 @@ const ALIASES: Record<string, readonly string[]> = {
   pan_number: ['pan', 'pan no', 'pan number', 'permanent account number'],
   mobile_registered: ['mobile', 'mobile number', 'mobile no', 'phone', 'phone number', 'registered mobile'],
   email: ['email', 'e mail', 'email id', 'email address'],
-  addr_current_line1: ['current address', 'residential address', 'address line 1', ...LINE1],
+  addr_current_line1: [
+    'current address', 'residential address', 'address line 1', 'communication address', 'mailing address',
+    'correspondence address', 'present address', 'residence address', ...LINE1,
+  ],
   addr_current_line2: ['address line 2', ...LINE2],
   addr_current_city: ['city', 'town'],
   addr_current_state: ['state'],
