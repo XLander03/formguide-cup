@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FormVersion } from '../../shared/forms/types';
 import { AUTO_ACCEPT_ABOVE } from '../../shared/forms/review';
-import { draftFromPdf } from '../src/ingest/draft';
+import { draftFromPdf, OCR_CONCURRENCY } from '../src/ingest/draft';
+import { MAX_PDF_PAGES } from '../src/ingest/errors';
 import { handleIngest } from '../src/ingest/handlers';
 import { buildOcrPrompt, type OcrField } from '../src/ingest/geminiOcr';
 import { acroPdf, flatPdf, manyPages, SENTINEL } from './pdfSamples';
@@ -128,6 +129,51 @@ describe('ingestForm', () => {
     assert.deepEqual(draft.fields.map((field) => field.id), ['dob', 'custom_favourite_colour']);
   });
 
+  it('accepts a 20-page flat PDF and OCRs at most OCR_CONCURRENCY pages at once, in page order', async () => {
+    assert.equal(MAX_PDF_PAGES, 20);
+    const bytes = await manyPages(MAX_PDF_PAGES);
+    let inFlight = 0;
+    let peak = 0;
+    const started: number[] = [];
+    const draft = await draftFromPdf(bytes, async (input) => {
+      started.push(input.page);
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      // Earlier pages finish later, so completion order is the reverse of page order.
+      await new Promise((resolve) => setTimeout(resolve, (MAX_PDF_PAGES - input.page) * 2));
+      inFlight -= 1;
+      return [{
+        // Same label everywhere: ids are numbered in matching order, which must be page order.
+        label: 'Favourite colour',
+        type: 'text',
+        required: false,
+        box: { x: 0.1, y: 0.2, w: 0.4, h: 0.05 },
+        confidence: 0.5,
+      }];
+    });
+    assert.equal(OCR_CONCURRENCY, 4);
+    assert.equal(peak, OCR_CONCURRENCY);
+    assert.equal(started.length, MAX_PDF_PAGES);
+    assert.equal(draft.pageCount, MAX_PDF_PAGES);
+    assert.deepEqual(draft.fields.map((field) => field.page), Array.from({ length: MAX_PDF_PAGES }, (_, i) => i + 1));
+    assert.deepEqual(
+      draft.fields.map((field) => field.id),
+      Array.from({ length: MAX_PDF_PAGES }, (_, i) => (i === 0 ? 'custom_favourite_colour' : `custom_favourite_colour_${i + 1}`)),
+    );
+  });
+
+  it('fails the draft when one page OCR fails, without starting the rest', async () => {
+    const bytes = await manyPages(10);
+    const started: number[] = [];
+    await assert.rejects(draftFromPdf(bytes, async (input) => {
+      started.push(input.page);
+      if (input.page === 2) throw new Error('gemini down');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return [];
+    }), /gemini down/);
+    assert.ok(started.length <= OCR_CONCURRENCY, `started ${started.join(',')}`);
+  });
+
   it('saves a draft FormVersion and page pngs for an uploaded PDF', async () => {
     const bytes = await flatPdf();
     const deps = memoryIngest();
@@ -145,7 +191,7 @@ describe('ingestForm', () => {
       'x-form-version': 'v3',
     }), res, deps);
     assert.equal(res.statusCode, 200);
-    const body = res.body as { formVersion: FormVersion; pages: Array<{ page: number; storagePath: string; pngBase64: string }> };
+    const body = res.body as { formVersion: FormVersion; pages: Array<{ page: number; storagePath: string; pngBase64?: string }> };
     assert.equal(body.formVersion.status, 'draft');
     assert.equal(body.formVersion.source, 'ocr');
     assert.equal(body.formVersion.formId, 'hdfc_aof');
@@ -157,7 +203,9 @@ describe('ingestForm', () => {
     assert.equal(deps.files.get(body.formVersion.pdfPath)?.contentType, 'application/pdf');
     assert.equal(body.pages.length, 2);
     assert.equal(body.pages[0].storagePath, 'forms/hdfc_aof/versions/v3/pages/1.png');
-    assert.equal(Buffer.from(body.pages[0].pngBase64, 'base64')[0], 0x89);
+    // PNGs go to Storage, not into the response (the web client never read them).
+    assert.equal(body.pages[0].pngBase64, undefined);
+    assert.equal(deps.files.get(body.pages[0].storagePath)?.bytes[0], 0x89);
     assert.equal(deps.files.get(body.pages[1].storagePath)?.contentType, 'image/png');
     assert.equal(seen.length, 2);
   });
@@ -208,7 +256,7 @@ describe('ingestForm', () => {
     assert.equal(deps.docs.get('sbi_aof/v1')?.status, 'draft');
   });
 
-  it('rejects non-admins, oversized PDFs, and more than four pages', async () => {
+  it('rejects non-admins, oversized PDFs, and more than MAX_PDF_PAGES pages', async () => {
     const deps = memoryIngest();
     const unauth = mockRes();
     await handleIngest(jsonReq({ storagePath: 'uploads/a.pdf' }, ''), unauth, deps);
@@ -230,7 +278,7 @@ describe('ingestForm', () => {
     assert.deepEqual(big.body, { error: 'pdf_too_large' });
 
     const pages = mockRes();
-    await handleIngest(pdfReq(await manyPages(5)), pages, deps);
+    await handleIngest(pdfReq(await manyPages(MAX_PDF_PAGES + 1)), pages, deps);
     assert.equal(pages.statusCode, 400);
     assert.deepEqual(pages.body, { error: 'pdf_too_many_pages' });
 

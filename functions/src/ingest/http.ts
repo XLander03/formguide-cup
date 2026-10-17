@@ -17,17 +17,24 @@ export const ingestForm = onRequest(
     region: 'us-central1',
     // 256MiB was observed to exceed its limit (265MiB used) while rendering
     // PDF pages to PNG for OCR — unlike the other ingest functions, this one
-    // does real image work, not just Firestore reads/writes.
-    memory: '512MiB',
+    // does real image work, not just Firestore reads/writes. With 20-page
+    // uploads, rendering an 18-page scanned PDF locally added ~80MB RSS over
+    // a warm 1-page render (only PNGs, ~13MB, are kept), which fits 512MiB on
+    // paper; 1GiB is headroom for 4 in-flight Gemini request bodies and the
+    // untested Linux allocator, at negligible cost for an admin-only function.
+    memory: '1GiB',
     // At 512MiB a 2nd-gen function only gets a fraction of a vCPU, which
     // makes pdf.js rasterising and PNG encoding slow. A full vCPU cuts that.
     cpu: 1,
     maxInstances: 2,
     minInstances: 0,
-    // 120s was measured hitting ECONNRESET when pages were OCR'd one after
-    // another. Pages now run concurrently (see draft.ts), but a slow page plus
-    // its one retry (see geminiOcr.ts) can still take a while, so keep 300s.
-    timeoutSeconds: 300,
+    // Up to MAX_PDF_PAGES (20) pages are OCR'd OCR_CONCURRENCY (4) at a time
+    // (see draft.ts): 5 waves. A slow page plus its one retry (geminiOcr.ts)
+    // was seen at 30-60s, so the worst case is ~5 x 60s = 300s of OCR, plus
+    // rendering and Storage writes. 600s leaves headroom; 2nd-gen HTTP
+    // functions allow up to 3600s. The admin client calls this URL directly,
+    // not through the Hosting rewrite and its 60s cap (see ingestClient.ts).
+    timeoutSeconds: 600,
     concurrency: 1,
     invoker: 'public',
     cors: HOSTS,

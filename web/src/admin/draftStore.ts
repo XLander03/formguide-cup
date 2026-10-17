@@ -14,7 +14,13 @@ export function saveAdminDraft(draft: AdminDraft, bytes?: Uint8Array): void {
   if (bytes) pdfBytes.set(draft.form.formId, bytes);
   const all = readAll();
   all[draft.form.formId] = draft;
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  } catch {
+    // A long form's draft is a few hundred KB; earlier drafts can fill the
+    // ~5 MB quota. Keep just this one rather than failing the upload.
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ [draft.form.formId]: draft }));
+  }
 }
 
 export function readAdminDraft(formId: string): AdminDraft | null {

@@ -7,6 +7,7 @@ import type { FormVersion } from '../../../shared/forms/types';
 import { IngestError, MAX_PDF_BYTES } from './errors';
 import { ocrPageWithGemini } from './geminiOcr';
 import { handleIngest, handlePublish, safeStoragePath, type HttpReq, type HttpRes } from './handlers';
+import { strip, versionDocForWrite, versionFromDoc } from './versionDoc';
 
 function ensureAdmin(): void {
   if (getApps().length === 0) initializeApp();
@@ -44,19 +45,8 @@ function versions(formId: string) {
   return db().collection('forms').doc(formId).collection('versions');
 }
 
-function strip(value: FormVersion): FormVersion {
-  const clean = JSON.parse(JSON.stringify(value)) as FormVersion & { payload?: string };
-  delete clean.payload;
-  return clean;
-}
-
-function withPayload(version: FormVersion): FormVersion & { payload: string } {
-  const clean = strip(version);
-  return { ...clean, payload: JSON.stringify(clean) };
-}
-
 /** Parent `forms/{id}` is what the public catalog reads. A new draft must not hide an already published form. */
-async function writeParent(version: FormVersion, status: FormVersion['status']): Promise<void> {
+async function writeParent(version: Pick<FormVersion, 'formId' | 'bankId' | 'journey'>, status: FormVersion['status']): Promise<void> {
   const ref = db().collection('forms').doc(version.formId);
   const snap = await ref.get();
   const current = snap.exists ? String((snap.data() as { status?: string } | undefined)?.status || '') : '';
@@ -102,8 +92,10 @@ export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void
       return `v${max + 1}`;
     },
     async createFormVersion(version: FormVersion) {
+      // Throws form_too_large before any Firestore call if even the slim doc is over budget.
+      const doc = versionDocForWrite(version);
       try {
-        await versions(version.formId).doc(version.version).create(withPayload(version));
+        await versions(version.formId).doc(version.version).create(doc);
         await writeParent(version, 'draft');
       } catch (err) {
         if (isAlreadyExists(err)) throw new IngestError('version_exists', 409);
@@ -166,10 +158,10 @@ export async function productionPublish(req: HttpReq, res: HttpRes): Promise<voi
     async loadFormVersion(formId: string, version: string) {
       const snap = await versions(formId).doc(version).get();
       if (!snap.exists) return null;
-      return snap.data() as FormVersion;
+      return versionFromDoc(snap.data());
     },
     async markPublished(formId: string, version: string, next: FormVersion) {
-      const published = withPayload({ ...next, formId, version, status: 'published' });
+      const published = versionDocForWrite({ ...next, formId, version, status: 'published' });
       await versions(formId).doc(version).set(published);
       await writeParent(published, 'published');
     },

@@ -1,4 +1,4 @@
-import { IngestError } from './errors';
+import { IngestError, MAX_PDF_PAGES } from './errors';
 import { clampUnitBox } from './geom';
 
 /** Same field model the speak function uses. gemini-3.8-flash was returning 503. */
@@ -53,7 +53,7 @@ This is page {{PAGE}} of {{PAGES}}. Those numbers are page indexes supplied by t
  * the page image is a separate untrusted image part.
  */
 export function buildOcrPrompt(page: number, pageCount: number): string {
-  if (!Number.isInteger(page) || !Number.isInteger(pageCount) || page < 1 || pageCount < 1 || page > pageCount || pageCount > 4) {
+  if (!Number.isInteger(page) || !Number.isInteger(pageCount) || page < 1 || pageCount < 1 || page > pageCount || pageCount > MAX_PDF_PAGES) {
     throw new IngestError('invalid_input', 400);
   }
   return PROMPT.replace('{{PAGE}}', String(page)).replace('{{PAGES}}', String(pageCount));
