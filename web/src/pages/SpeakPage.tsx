@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { AgentTrail } from '../components/AgentTrail';
 import { BankFields } from '../components/BankFields';
 import { CorrectionDiff, CorrectionToast, useVoiceCorrections } from '../components/Corrections';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
@@ -10,7 +9,7 @@ import {
   REGISTERED_ADDRESS_COPY,
   cardLast4,
 } from '../lib/debitReissue';
-import { buildTrail, sourceChip, type ChipTone } from '../lib/agentTrail';
+import { sourceChip, type ChipTone } from '../lib/fieldChip';
 import { demoMode } from '../lib/demoMode';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
@@ -271,11 +270,6 @@ export function SpeakPage() {
   });
   const handsFree = session.handsFree;
   const corrections = useVoiceCorrections(session.values, session.fieldSource, session.said);
-  // Replays the thinking trail once per reply, not per keystroke.
-  const [trailTurn, setTrailTurn] = useState(0);
-  useEffect(() => {
-    if (session.last) setTrailTurn((n) => n + 1);
-  }, [session.last]);
   const listening = handsFree ? agent.listening : mic.listening;
 
   useEffect(() => {
@@ -365,19 +359,6 @@ export function SpeakPage() {
         ? 'ज़रूरी जानकारी पूरी हो गई।'
         : 'All required details are in.');
   const label = draftChoiceLabel(session.journey, session.values.account_product_intent);
-  const trail = buildTrail({
-    last: session.last,
-    said,
-    values: session.values,
-    missing: session.missing,
-    confidence: session.confidence,
-    label: sheetLabel,
-    nextLabel: askComplete ? null : askNextLabel,
-    rank: (id) => {
-      const at = sheetFields.findIndex((field) => field.id === id);
-      return at < 0 ? sheetFields.length : at;
-    },
-  });
   // Everything still required, including questions asked outside the panel (Still needed).
   const requiredLeft = askComplete ? 0 : Math.max(session.missing.length, requiredFields.length - requiredFilled);
   // Built on BTN, not BTN_OUTLINE: its text-foreground/bg-background win over these in the stylesheet,
@@ -470,7 +451,7 @@ export function SpeakPage() {
                   ? voicePhaseLabel(agent.phase, session.language === 'hi')
                   : 'Hands-free paused · tap to carry on'
                 : listening
-                  ? 'Recording · tap stop · 45 seconds max'
+                  ? 'Listening · tap to stop'
                   : 'Tap and speak your details'}
             </p>
             {handsFree ? (
@@ -496,11 +477,6 @@ export function SpeakPage() {
                 <SparkleIcon className="size-3" /> FormGuide
               </p>
               <p className="mt-1 text-sm">{companion}</p>
-              {started ? (
-                <div className="mt-2">
-                  <AgentTrail steps={trail} turn={trailTurn} />
-                </div>
-              ) : null}
             </div>
             <div className={`border p-3 ${askComplete && !flagLine && !formatLine ? 'border-primary' : 'border-saffron'}`}>
               <p className={`text-[10px] uppercase ${askComplete && !flagLine && !formatLine ? 'text-primary' : 'text-saffron'}`}>
@@ -530,7 +506,7 @@ export function SpeakPage() {
                   </div>
                   {session.readbackInEnglish ? (
                     <p className="mt-1 text-[11px] font-normal normal-case text-background/60">
-                      Read-back in English on this device
+                      Reading back in English
                     </p>
                   ) : null}
                 </div>
@@ -707,8 +683,7 @@ export function SpeakPage() {
             className={`${BTN_OUTLINE} ${BTN_MD} border-2 border-foreground`}
             onClick={() => setPreview(true)}
           >
-            <FileTextIcon /> Preview form{' '}
-            <span className="ml-1 bg-foreground px-1.5 text-[10px] text-background">v{shownTurns}</span>
+            <FileTextIcon /> Preview form
           </button>
         </div>
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -996,8 +971,7 @@ export function SpeakPage() {
 }
 
 const CHIP_TONE: Record<ChipTone, string> = {
-  ai: 'bg-primary/15 text-primary',
-  rules: 'bg-muted text-muted-foreground',
+  confirmed: 'bg-primary/15 text-primary',
   typed: 'bg-foreground/10 text-foreground',
   sample: 'bg-accent/50 text-accent-foreground',
   unsure: 'bg-saffron/25 text-foreground',
