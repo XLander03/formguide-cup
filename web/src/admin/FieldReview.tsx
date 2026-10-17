@@ -53,11 +53,14 @@ export function FieldReview({
   pages,
   pageImages,
   publish,
+  onPublished,
 }: {
   form: FormVersion;
   pages: PageSize[];
   pageImages?: string[];
   publish: (form: FormVersion) => Promise<void>;
+  /** Called after a successful publish, e.g. to return to the console. */
+  onPublished?: (form: FormVersion) => void;
 }) {
   const wide = useMinWidth(1280);
   const [rows, setRows] = useState<Row[]>(() =>
@@ -210,6 +213,7 @@ export function FieldReview({
       setPublished(true);
       setConfirming(false);
       setMessage('Published.');
+      onPublished?.(next);
     } catch (error) {
       setConfirming(false);
       setMessage(error instanceof Error ? error.message : 'Publish is not available yet.');

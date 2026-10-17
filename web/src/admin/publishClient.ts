@@ -1,5 +1,6 @@
 import type { FormVersion } from '../../../shared/forms/types';
 import { adminPost } from './adminFetch';
+import { mockSetStatus } from './mockConsole';
 import { mockIngestRequested } from './mockQuery';
 
 export const PUBLISH_UNAVAILABLE = 'Publish is not available yet.';
@@ -10,7 +11,10 @@ export const PUBLISH_UNAVAILABLE = 'Publish is not available yet.';
  * `?mock=1` resolves without a network call.
  */
 export async function publishForm(form: FormVersion): Promise<void> {
-  if (mockIngestRequested()) return;
+  if (mockIngestRequested()) {
+    mockSetStatus(form.formId, form.version, 'published', form);
+    return;
+  }
   await adminPost(
     '/api/publishForm',
     { formId: form.formId, version: form.version, form },
