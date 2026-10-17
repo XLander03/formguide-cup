@@ -212,6 +212,8 @@ export function ConfirmPage() {
       switch (command) {
         case 'yes':
           if (s.draftReady) return null;
+          // Already confirmed and asked to save: "yes" answers that prompt.
+          if (s.confirmGatesOk) return save() ? voiceLine('saved', hi) : voiceLine('confirmGatesFirst', hi);
           s.confirmGates();
           return voiceLine('gatesTicked', hi);
         case 'no':

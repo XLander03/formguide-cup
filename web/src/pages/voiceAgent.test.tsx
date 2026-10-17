@@ -249,4 +249,16 @@ describe('voice on Confirm', () => {
     expect(await screen.findByText('Say yes to confirm the three checks first.')).toBeInTheDocument();
     expect(session.draftReady).toBe(false);
   });
+
+  it('a second "yes", after the gates are ticked, saves the draft', async () => {
+    const user = userEvent.setup();
+    mount('/confirm');
+    act(() => session.onPriya());
+    micScript = ['clip', 'clip'];
+    replies = [command('yes', 'Yes'), command('yes', 'Yes')];
+    await user.click(screen.getByRole('button', { name: 'Speak' }));
+    await waitFor(() => expect(session.confirmGatesOk).toBe(true));
+    await user.click(screen.getByRole('button', { name: 'Speak' }));
+    expect(await screen.findByText('Your draft is ready.')).toBeInTheDocument();
+  });
 });
