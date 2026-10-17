@@ -44,3 +44,20 @@ export async function manyPages(count: number): Promise<Buffer> {
   for (let i = 0; i < count; i += 1) pdf.addPage([612, 792]);
   return Buffer.from(await pdf.save());
 }
+
+/**
+ * A flat page shaped like a bank form's contact block: the same labels twice
+ * (communication and permanent address), with input lines right of each label.
+ * Labels are real text, so the page has a text layer. A4, 595x841.
+ */
+export async function addressPdf(): Promise<Buffer> {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const page = pdf.addPage([595, 841]);
+  for (const top of [200, 400]) {
+    page.drawText('Address', { x: 20, y: 841 - top, size: 9, font });
+    page.drawText('City', { x: 35, y: 841 - top - 40, size: 9, font });
+    page.drawText('Pincode', { x: 470, y: 841 - top - 40, size: 9, font });
+  }
+  return Buffer.from(await pdf.save());
+}
