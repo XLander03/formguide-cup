@@ -325,14 +325,18 @@ async function ocrPageWithGeminiOnce(input: OcrPageInput & { apiKey: string; fet
     throw new IngestError('ocr_failed', 502);
   }
   if (!res.ok) {
-    let bodySnippet = '';
+    let body: unknown = null;
     try {
-      bodySnippet = JSON.stringify(await res.json()).slice(0, 300);
+      body = await res.json();
     } catch {
-      bodySnippet = '';
+      body = null;
     }
-    console.error('ocr_failed_http', res.status, bodySnippet);
-    throw new IngestError('ocr_failed', 502);
+    const text = JSON.stringify(body ?? '');
+    // Name the quota that ran out (per-minute vs per-day), which the 300-char snippet used to cut off.
+    const metric = /Quota exceeded for metric: ([^,"\\]+)/.exec(text)?.[1] ?? '';
+    console.error('ocr_failed_http', res.status, metric || text.slice(0, 300));
+    const retryAfterMs = res.status === 429 || res.status === 503 ? retryDelayMs(body) : undefined;
+    throw new IngestError('ocr_failed', 502, retryAfterMs === undefined ? undefined : { retryAfterMs });
   }
   let data: unknown;
   try {
@@ -373,13 +377,43 @@ async function ocrPageWithGeminiOnce(input: OcrPageInput & { apiKey: string; fet
  * Not retried for a missing key — that won't change on a second attempt.
  * `fetchImpl` is injectable so tests never reach Gemini.
  */
-export async function ocrPageWithGemini(input: OcrPageInput & { apiKey: string; fetchImpl?: FetchLike }): Promise<OcrField[]> {
-  try {
-    return await ocrPageWithGeminiOnce(input);
-  } catch (err) {
-    if (err instanceof IngestError && (err.code === 'ocr_bad_json' || err.code === 'ocr_failed')) {
-      return ocrPageWithGeminiOnce(input);
+export async function ocrPageWithGemini(
+  input: OcrPageInput & { apiKey: string; fetchImpl?: FetchLike; sleep?: (ms: number) => Promise<void> },
+): Promise<OcrField[]> {
+  const sleep = input.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let waited = 0;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await ocrPageWithGeminiOnce(input);
+    } catch (err) {
+      if (!(err instanceof IngestError) || (err.code !== 'ocr_bad_json' && err.code !== 'ocr_failed')) throw err;
+      const retryAfterMs = (err.details as { retryAfterMs?: number } | undefined)?.retryAfterMs;
+      // A rate limit (429/503) waits for the delay Gemini asks for and tries again, so a burst
+      // of pages on a small quota slows the upload instead of failing it. Anything else
+      // keeps the single immediate retry it always had.
+      if (retryAfterMs !== undefined) {
+        const wait = Math.min(retryAfterMs, RATE_LIMIT_MAX_WAIT_MS);
+        if (attempt > RATE_LIMIT_RETRIES || waited + wait > RATE_LIMIT_BUDGET_MS) throw err;
+        waited += wait;
+        await sleep(wait);
+        continue;
+      }
+      if (attempt >= 2) throw err;
     }
-    throw err;
   }
+}
+
+const RATE_LIMIT_RETRIES = 4;
+const RATE_LIMIT_MAX_WAIT_MS = 30_000;
+/** Per page; ingest allows 600s overall. */
+const RATE_LIMIT_BUDGET_MS = 90_000;
+
+/** Gemini's 429 carries RetryInfo.retryDelay like "13s"; without one, back off 10s. */
+export function retryDelayMs(body: unknown): number {
+  const details = (body as { error?: { details?: Array<{ retryDelay?: unknown }> } } | null)?.error?.details ?? [];
+  for (const detail of details) {
+    const match = typeof detail?.retryDelay === 'string' ? /^(\d+(?:\.\d+)?)s$/.exec(detail.retryDelay) : null;
+    if (match) return Math.max(1000, Math.ceil(Number(match[1]) * 1000));
+  }
+  return 10_000;
 }
