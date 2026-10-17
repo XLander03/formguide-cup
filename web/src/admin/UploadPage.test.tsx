@@ -50,4 +50,21 @@ describe('UploadPage', () => {
     expect(form.status).toBe('draft');
     expect(onReady.mock.calls[0][1]).toHaveLength(2);
   });
+
+  it('says the agent is checking the form while ingest runs', async () => {
+    const user = userEvent.setup();
+    let finish: (form: FormVersion) => void = () => undefined;
+    const ingest = vi.fn(() => new Promise<FormVersion>((resolve) => {
+      finish = resolve;
+    }));
+    const onReady = vi.fn();
+    render(<UploadPage mock ingest={ingest} onReady={onReady} />);
+    await user.click(screen.getByRole('button', { name: 'Use a 2-page placeholder PDF' }));
+    await screen.findByText('Fillable');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByRole('button', { name: 'Reading and checking…' })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent(/an agent checks each box against the page/);
+    finish({ formId: 'f', version: 'v1', bankId: 'b', journey: 'j', status: 'draft', source: 'ocr', pdfPath: 'p', fields: [] });
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+  });
 });

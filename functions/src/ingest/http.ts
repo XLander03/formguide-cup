@@ -32,7 +32,9 @@ export const ingestForm = onRequest(
     // Up to MAX_PDF_PAGES (20) pages are OCR'd OCR_CONCURRENCY (4) at a time
     // (see draft.ts): 5 waves. A slow page plus its one retry (geminiOcr.ts)
     // was seen at 30-60s, so the worst case is ~5 x 60s = 300s of OCR, plus
-    // rendering and Storage writes. 600s leaves headroom; 2nd-gen HTTP
+    // rendering and Storage writes. The ingest agent (verifyAgent.ts) then checks
+    // the boxes within its own 120s budget (~20-30s for a 4-page form without
+    // quota waits). 600s leaves headroom; 2nd-gen HTTP
     // functions allow up to 3600s. The admin client calls this URL directly,
     // not through the Hosting rewrite and its 60s cap (see ingestClient.ts).
     timeoutSeconds: 600,

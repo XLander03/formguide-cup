@@ -1,5 +1,5 @@
 import { AUTO_ACCEPT_ABOVE, withAutoAccept } from '../../../shared/forms/review';
-import type { FieldRecord, FormVersion } from '../../../shared/forms/types';
+import type { AgentSummary, FieldRecord, FormVersion } from '../../../shared/forms/types';
 import { readAcroFormFields, loadPdf } from './acroform';
 import { IngestError, MAX_PDF_BYTES, MAX_PDF_PAGES } from './errors';
 import type { OcrField, OcrPageInput } from './geminiOcr';
@@ -9,6 +9,7 @@ import { renderPdfPages, type RenderedPage } from './render';
 import { mapPool } from './pool';
 import { placePageFields } from './snap';
 import type { PageText } from './textLayer';
+import { runVerifyAgent, type VerifyPageFn } from './verifyAgent';
 
 export type OcrPageFn = (input: OcrPageInput) => Promise<OcrField[]>;
 
@@ -20,6 +21,18 @@ export type IngestDraft = {
   fields: FieldRecord[];
   pageCount: number;
   pages: RenderedPage[];
+  /** Present when the self-checking agent ran (OCR sources with a verifier only). */
+  agentSummary?: AgentSummary;
+};
+
+export type DraftOptions = {
+  /**
+   * The ingest agent's vision call (verifyAgent.ts). When given, OCR fields that voice
+   * fills are checked on the page image after placement and matching. Never used for AcroForm.
+   */
+  verifyPage?: VerifyPageFn;
+  /** Overrides AGENT_BUDGET_MS (tests). */
+  agentBudgetMs?: number;
 };
 
 function clampConfidence(value: number): number {
@@ -81,7 +94,7 @@ function recordsFromOcr(
  * Parse a PDF and produce draft fields. Fields above AUTO_ACCEPT_ABOVE come back checked. AcroForm PDFs never call `ocrPage`.
  * Flat PDFs call it once per page, up to OCR_CONCURRENCY at a time; results are merged in page order.
  */
-export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promise<IngestDraft> {
+export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn, options: DraftOptions = {}): Promise<IngestDraft> {
   if (bytes.byteLength === 0) throw new IngestError('pdf_empty', 400);
   if (bytes.byteLength > MAX_PDF_BYTES) throw new IngestError('pdf_too_large', 400);
   let loaded: Awaited<ReturnType<typeof loadPdf>>;
@@ -129,11 +142,29 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
     const size = loaded.pageSize(page.page);
     fields.push(...recordsFromOcr(found[index], page.page, size.width, size.height, used, page.text));
   });
+  // Observe → act → verify on the page images (verifyAgent.ts). Its own failures never
+  // fail the ingest: a page it cannot check keeps its fields as placed.
+  let checked = fields;
+  let agentSummary: AgentSummary | undefined;
+  if (options.verifyPage) {
+    const result = await runVerifyAgent({
+      fields,
+      pages,
+      pageCount: loaded.pageCount,
+      pageSize: (page) => loaded.pageSize(page),
+      ask: options.verifyPage,
+      ...(options.agentBudgetMs !== undefined ? { budgetMs: options.agentBudgetMs } : {}),
+      log: (event, detail) => console.warn(event, JSON.stringify(detail)),
+    });
+    checked = result.fields;
+    agentSummary = result.summary;
+  }
   return {
     source: 'ocr',
-    fields: withAutoAccept(assignOrder(fields)),
+    fields: withAutoAccept(assignOrder(checked)),
     pageCount: loaded.pageCount,
     pages,
+    ...(agentSummary ? { agentSummary } : {}),
   };
 }
 
@@ -145,6 +176,7 @@ export function buildFormVersion(input: {
   source: FormVersion['source'];
   pdfPath: string;
   fields: FieldRecord[];
+  agentSummary?: AgentSummary;
 }): FormVersion {
   return {
     formId: input.formId,
@@ -155,5 +187,6 @@ export function buildFormVersion(input: {
     source: input.source,
     pdfPath: input.pdfPath,
     fields: input.fields,
+    ...(input.agentSummary ? { agentSummary: input.agentSummary } : {}),
   };
 }

@@ -18,6 +18,7 @@ import {
 } from './admin';
 import { IngestError, MAX_PDF_BYTES } from './errors';
 import { ocrPageWithGemini } from './geminiOcr';
+import { verifyMarksWithGemini } from './verifyAgent';
 import { handleIngest, handlePublish, safeStoragePath, type HttpReq, type HttpRes } from './handlers';
 import { strip, versionDocWithTime, versionFromDoc } from './versionDoc';
 
@@ -119,6 +120,16 @@ export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void
       if (!apiKey) throw new IngestError('gemini_key_missing', 500);
       return ocrPageWithGemini({ ...input, apiKey });
     },
+    // INGEST_AGENT=off turns the self-check off without a deploy of new code.
+    ...(process.env.INGEST_AGENT === 'off' ? {} : {
+      verifyPage(input) {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) throw new IngestError('gemini_key_missing', 500);
+        // INGEST_AGENT_MODELS (comma-separated) replaces the strong verifier models, e.g. on a paid key.
+        const models = (process.env.INGEST_AGENT_MODELS || '').split(',').map((model) => model.trim()).filter(Boolean);
+        return verifyMarksWithGemini({ ...input, apiKey, ...(models.length ? { models } : {}) });
+      },
+    }),
   });
 }
 
