@@ -97,7 +97,24 @@
   animation: 0.28s cubic-bezier(0.32, 0.72, 0, 1) both fg-sheet;
 }
 
+/* Review: the scan line sweeping down the draft while checks run. */
+@keyframes fg-scan {
+  0% {
+    top: -4rem;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+.fg-scan {
+  animation: 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite fg-scan;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .fg-scan {
+    display: none;
+  }
   .fg-wave,
   .fg-rise,
   .fg-in,

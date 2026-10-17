@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BankFields } from '../components/BankFields';
+import { CorrectionToast, useVoiceCorrections } from '../components/Corrections';
+import { DraftScan } from '../components/DraftScan';
 import { VoiceBar } from '../components/VoiceBar';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { languageByBcp47, languageLabel } from '../lib/languages';
@@ -46,6 +48,7 @@ export function ReviewPage() {
     session.readbackInEnglish ? 'en' : session.readbackScriptLang,
   );
   const blocker = readbackBlocker(session);
+  const corrections = useVoiceCorrections(session.values, session.fieldSource, session.said);
   const live = useRef(session);
   live.current = session;
   const agent = useVoiceAgent({
@@ -189,7 +192,18 @@ export function ReviewPage() {
           </div>
           <span className="border border-saffron px-2 py-1 text-[10px] font-semibold text-saffron">NOT SUBMITTED</span>
         </div>
-        <div className="mt-6">
+        <DraftScan
+          values={session.values}
+          onFix={(field) => {
+            go('/speak');
+            // Speak renders on the next frame; then land the cursor in the field to fix.
+            window.setTimeout(() => {
+              const el = document.getElementById(`speak-field-${field}`) as HTMLInputElement | null;
+              el?.scrollIntoView({ block: 'center' });
+              el?.focus();
+            }, 60);
+          }}
+        >
           <FieldGroups values={session.values} flashIds={session.flashIds} hindi={session.language === 'hi'} />
           <BankFields
             form={session.form}
@@ -199,7 +213,7 @@ export function ReviewPage() {
             said={session.said}
             fieldSource={session.fieldSource}
           />
-        </div>
+        </DraftScan>
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
           <p className={`max-w-md text-xs ${blocker ? 'text-destructive' : 'text-muted-foreground'}`}>
             {blocker ? `${blocker} Fields vary by bank.` : 'Ready for the gates. Fields vary by bank.'}
@@ -214,6 +228,7 @@ export function ReviewPage() {
           </button>
         </div>
       </section>
+      <CorrectionToast corrections={corrections} />
     </div>
   );
 }

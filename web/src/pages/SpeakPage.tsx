@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BankFields } from '../components/BankFields';
+import { CorrectionDiff, CorrectionToast, useVoiceCorrections } from '../components/Corrections';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
 import { languageByBcp47, languageLabel } from '../lib/languages';
 import {
@@ -258,6 +259,7 @@ export function SpeakPage() {
     },
   });
   const handsFree = session.handsFree;
+  const corrections = useVoiceCorrections(session.values, session.fieldSource, session.said);
   const listening = handsFree ? agent.listening : mic.listening;
 
   useEffect(() => {
@@ -297,6 +299,8 @@ export function SpeakPage() {
     (!askComplete &&
       requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
     null;
+  // Off-panel questions (asked from the schema, like "Same OVD for address proof?") still get replies.
+  const replyField = asked ?? (session.missing[0] ? schemaReplyField(session.missing[0]) : null);
   const flagged = session.flaggedIds;
   const flagCount = flagged.length;
   const invalid = session.invalidIds;
@@ -504,12 +508,21 @@ export function SpeakPage() {
                   </span>
                 </p>
               ) : (
-                <p className="mt-1 text-sm font-semibold">
-                  {askNextLabel}
-                  {askNextHint ? (
-                    <span className="font-normal text-background/60"> · {askNextHint}</span>
+                <>
+                  <p className="mt-1 text-sm font-semibold">
+                    {askNextLabel}
+                    {askNextHint ? (
+                      <span className="font-normal text-background/60"> · {askNextHint}</span>
+                    ) : null}
+                  </p>
+                  {!askComplete && replyField?.id ? (
+                    <SuggestedReplies
+                      field={replyField}
+                      canType={panelIds.has(replyField.id) && replyField.input !== 'boolean'}
+                      onPick={(value) => session.onChange(replyField.id as string, value)}
+                    />
                   ) : null}
-                </p>
+                </>
               )}
               {!askComplete && flagLine ? (
                 <p className="mt-1 text-xs font-semibold text-saffron">{flagLine}</p>
@@ -703,10 +716,13 @@ export function SpeakPage() {
                     const issue = field.id ? fieldIssue(field.id, session.values[field.id]) : null;
                     const conf = field.id ? session.confidence[field.id] : undefined;
                     const open = isFlagged && checking === field.id;
+                    const corrected = field.id ? corrections[field.id] : undefined;
                     const inputId = field.id ? `speak-field-${field.id}` : undefined;
                     const status = issue
                       ? 'fix format'
-                      : filling
+                      : corrected
+                        ? '✎ corrected'
+                        : filling
                         ? '● filling'
                         : filled
                           ? '✓ heard'
@@ -727,7 +743,7 @@ export function SpeakPage() {
                             : undefined
                         }
                         className={`${isFlagged ? 'cursor-pointer ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
-                          filling ? 'bg-saffron/30' : asking ? 'bg-primary/10' : ''
+                          filling ? 'bg-saffron/30' : corrected ? 'bg-primary/10' : asking ? 'bg-primary/10' : ''
                         }`}
                       >
                         <div className="flex items-center justify-between text-[10px] uppercase">
@@ -846,6 +862,12 @@ export function SpeakPage() {
                           </div>
                         ) : null}
                         {issue ? <p className="mt-1 text-[10px] font-semibold text-destructive">{issue}</p> : null}
+                        {corrected ? (
+                          <p className="mt-1 flex items-center gap-1.5 text-[11px]">
+                            <CorrectionDiff correction={corrected} />
+                            <span className="text-[10px] uppercase text-primary">by voice</span>
+                          </p>
+                        ) : null}
                         {heard ? (
                           <p className="mt-0.5 truncate text-[10px] italic text-muted-foreground">“{heard}”</p>
                         ) : null}
@@ -913,6 +935,7 @@ export function SpeakPage() {
           </div>
         </div>
       </section>
+      <CorrectionToast corrections={corrections} label={sheetLabel} />
       {preview ? (
         <FormPreview
           version={shownTurns}
@@ -926,6 +949,64 @@ export function SpeakPage() {
           onClose={() => setPreview(false)}
         />
       ) : null}
+    </div>
+  );
+}
+
+const REPLY_CHIP =
+  'border border-background/40 px-2.5 py-1 text-[11px] font-semibold hover:border-primary hover:bg-primary hover:text-primary-foreground';
+
+/** A schema field that is not on the panel, shaped for SuggestedReplies. Null when it takes free text. */
+function schemaReplyField(id: string): PreviewField | null {
+  const field = SCHEMA.fields.find((f) => f.id === id) as { type?: string; enum_ref?: string } | undefined;
+  if (!field) return null;
+  if (field.type === 'boolean') return { id, label: fieldLabel(id), hint: '', required: true, section: '', input: 'boolean' };
+  if (field.enum_ref) return { id, label: fieldLabel(id), hint: '', required: true, section: '', enumRef: field.enum_ref };
+  return null;
+}
+
+/** One-tap answers under "Asks next": the field's options, or a jump to its input. */
+function SuggestedReplies({
+  field,
+  canType,
+  onPick,
+}: {
+  field: PreviewField;
+  canType: boolean;
+  onPick: (value: string | boolean) => void;
+}) {
+  const options = field.enumRef ? (SCHEMA.enums[field.enumRef] ?? []).slice(0, 4) : [];
+  const choices: { label: string; value: string | boolean }[] =
+    field.input === 'boolean'
+      ? [
+          { label: 'Yes', value: true },
+          { label: 'No', value: false },
+        ]
+      : options.map((option) => ({ label: pretty(option), value: option }));
+  if (choices.length === 0 && !canType) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-[10px] uppercase text-background/50">Say it, or tap a reply</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {choices.map((choice) => (
+          <button key={choice.label} type="button" className={REPLY_CHIP} onClick={() => onPick(choice.value)}>
+            {choice.label}
+          </button>
+        ))}
+        {canType ? (
+          <button
+            type="button"
+            className={`${REPLY_CHIP} border-dashed text-background/70`}
+            onClick={() => {
+              const el = document.getElementById(`speak-field-${field.id}`) as HTMLInputElement | null;
+              el?.scrollIntoView({ block: 'center' });
+              el?.focus();
+            }}
+          >
+            ⌨ Type it instead
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
