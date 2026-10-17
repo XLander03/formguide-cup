@@ -245,3 +245,46 @@ describe('box conversion', () => {
     assert.deepEqual(box, { x: 61.2, y: 594, w: 244.8, h: 39.6 });
   });
 });
+
+describe('section-aware matching (real OCR headings)', () => {
+  const id = (label: string, section?: string, type?: FieldType, used = new Set<string>()) =>
+    matchLibrary(label, used, { type, section }).entry?.id ?? null;
+
+  it('reads a one-word SURNAME as the last name', () => {
+    assert.equal(id('SURNAME', '(A) PERSONAL DETAILS: APPLICANT NAME'), 'applicant_last_name');
+    assert.equal(id('Given Name'), 'applicant_first_name');
+  });
+
+  it('keeps a second applicant, nominee or bank-use box off the shared ids', () => {
+    assert.equal(id('City', 'MAILING ADDRESS - 2nd APPLICANT'), null);
+    assert.equal(id('Name', '(M) NOMINATION (DA1)'), null);
+    assert.equal(id('Mobile', 'FOR BRANCH USE ONLY'), null);
+    assert.equal(id('City', '(D) MAILING ADDRESS - 1st APPLICANT'), 'addr_current_city');
+  });
+
+  it('puts a bare City or Flat No under its printed address heading', () => {
+    assert.equal(id('City', 'PERMANENT ADDRESS 1st APPLICANT'), 'addr_permanent_city');
+    assert.equal(id('State', 'PERMANENT ADDRESS 1st APPLICANT'), 'addr_permanent_state');
+    assert.equal(id('PIN Code', 'Permanent Address'), 'addr_permanent_pin');
+    assert.equal(id('Flat No & Bldg Name', 'PERMANENT ADDRESS 1st APPLICANT'), 'addr_permanent_line1');
+    assert.equal(id('Company name / Flat No & Bldg Name', '(D) MAILING ADDRESS - 1st APPLICANT'), 'addr_current_line1');
+    assert.equal(id('Road No./Name', '(D) MAILING ADDRESS - 1st APPLICANT'), 'addr_current_line2');
+  });
+
+  it('trusts the label over the heading, and a "same as" tick decides no block', () => {
+    assert.equal(id('Permanent Address Line 1', 'address'), 'addr_permanent_line1');
+    assert.equal(id('Residence Address Line 1', 'Permanent Address'), 'addr_current_line1');
+    assert.equal(
+      id('Residence Address Same as Permanent Address', 'Permanent Address', 'checkbox'),
+      'addr_permanent_same_as_current',
+    );
+  });
+
+  it('still lets an unlabelled second City block fall to permanent when no heading says otherwise', () => {
+    const used = new Set<string>();
+    const first = matchLibrary('City', used, {});
+    if (first.claim) used.add(first.claim);
+    assert.equal(first.entry?.id, 'addr_current_city');
+    assert.equal(matchLibrary('City', used, {}).entry?.id, 'addr_permanent_city');
+  });
+});

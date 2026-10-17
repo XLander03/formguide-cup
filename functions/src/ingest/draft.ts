@@ -42,7 +42,7 @@ function recordsFromOcr(
     if (!placed) continue;
     const box = normalisedTopLeftToPdfBox(placed.box, pageWidth, pageHeight);
     if (!box) continue;
-    const hit = matchLibrary(raw.label, used, { type: raw.type });
+    const hit = matchLibrary(raw.label, used, { type: raw.type, section: raw.section ?? undefined });
     const entry = hit.entry;
     const id = entry ? entry.id : customId(raw.label, used);
     if (hit.claim) used.add(hit.claim);
