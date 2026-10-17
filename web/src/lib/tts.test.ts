@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveReadbackVoice } from './languages';
-import { isSpeaking, speak, speakForUtterance, stopSpeaking } from './tts';
+import { isSpeaking, speak, speakForUtterance, speechChunks, stopSpeaking } from './tts';
 
 const voice = (name: string, lang: string, isDefault = false) =>
   ({ name, lang, default: isDefault, localService: true, voiceURI: name }) as SpeechSynthesisVoice;
@@ -151,6 +151,41 @@ describe('speak', () => {
     await pending;
     expect(played).toEqual([]);
     expect(deviceSpoken).toEqual([]);
+  });
+
+  const READBACK =
+    'कृपया इस रीड-बैक की पुष्टि करें। नाम: Priya Sharma। जन्म तिथि: 12 मार्च 1994। मोबाइल नंबर जिसके अंत में 3210 है। ' +
+    'पहचान का प्रमाण: पैन कार्ड। उत्पाद: बचत खाता। यह केवल एक ड्राफ्ट है। Fields vary by bank. बैंक को कुछ भी जमा नहीं किया गया है।';
+
+  it('splits a long line at sentence ends, with a short first piece, and keeps a short line whole', () => {
+    const chunks = speechChunks(READBACK);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join(' ')).toBe(READBACK);
+    expect(chunks[0]).toBe('कृपया इस रीड-बैक की पुष्टि करें। नाम: Priya Sharma।');
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(160);
+    expect(speechChunks('आपकी जन्म तिथि क्या है? जैसे 12 मार्च 1994।')).toHaveLength(1);
+  });
+
+  it('a long read-back plays piece by piece, in order, starting and ending once', async () => {
+    const onStart = vi.fn();
+    const onEnd = vi.fn();
+    await speak(READBACK, 'hi-IN', { onStart, onEnd });
+    const chunks = speechChunks(READBACK);
+    expect(ttsRequests.map((url) => url.split('&text=')[1])).toEqual(chunks);
+    expect(played).toHaveLength(chunks.length);
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('is still speaking between pieces, and a stop ends the rest', async () => {
+    holdAudio = true;
+    const pending = speak(READBACK, 'hi-IN');
+    await vi.waitFor(() => expect(played).toHaveLength(1));
+    expect(isSpeaking()).toBe(true);
+    stopSpeaking();
+    await pending;
+    expect(played).toHaveLength(1);
+    expect(isSpeaking()).toBe(false);
   });
 
   it('reports speaking while server audio plays, and a stop ends it', async () => {
