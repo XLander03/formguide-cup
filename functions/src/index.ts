@@ -709,4 +709,13 @@ export const speak = onRequest(
   },
 );
 
-export { ingestForm, publishForm, publishedFormPdf, publishedForms } from './ingest/http';
+export {
+  adminForm,
+  adminFormPdf,
+  adminForms,
+  ingestForm,
+  publishForm,
+  publishedFormPdf,
+  publishedForms,
+  setFormStatus,
+} from './ingest/http';

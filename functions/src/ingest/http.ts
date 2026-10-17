@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import type { AdminPdfRes, AdminReq } from './admin';
 import type { HttpReq, HttpRes } from './handlers';
 
 const HOSTS = [
@@ -139,3 +140,39 @@ export const publishForm = onRequest(
     await productionPublish(req as unknown as HttpReq, res as unknown as HttpRes);
   },
 );
+
+/** Admin console (shared/forms/admin.ts). Each handler verifies a Cup admin token first. */
+const ADMIN_OPTIONS = {
+  region: 'us-central1',
+  memory: '256MiB' as const,
+  maxInstances: 2,
+  minInstances: 0,
+  timeoutSeconds: 30,
+  concurrency: 1,
+  invoker: 'public' as const,
+  cors: HOSTS,
+};
+
+export const adminForms = onRequest(
+  // Reads every version doc of every form (payload copies included), so more headroom than the others.
+  { ...ADMIN_OPTIONS, memory: '512MiB' },
+  async (req, res) => {
+    const { productionAdminForms } = await import('./production');
+    await productionAdminForms(req as unknown as AdminReq, res as unknown as HttpRes);
+  },
+);
+
+export const adminForm = onRequest(ADMIN_OPTIONS, async (req, res) => {
+  const { productionAdminForm } = await import('./production');
+  await productionAdminForm(req as unknown as AdminReq, res as unknown as HttpRes);
+});
+
+export const adminFormPdf = onRequest(ADMIN_OPTIONS, async (req, res) => {
+  const { productionAdminFormPdf } = await import('./production');
+  await productionAdminFormPdf(req as unknown as AdminReq, res as unknown as AdminPdfRes);
+});
+
+export const setFormStatus = onRequest(ADMIN_OPTIONS, async (req, res) => {
+  const { productionSetFormStatus } = await import('./production');
+  await productionSetFormStatus(req as unknown as AdminReq, res as unknown as HttpRes);
+});

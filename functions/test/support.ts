@@ -1,6 +1,8 @@
 import { IngestError } from '../src/ingest/errors';
 import type { FormVersion } from '../../shared/forms/types';
 import type { HttpReq, HttpRes, IngestDeps, PublishDeps } from '../src/ingest/handlers';
+import { recordFromDoc, type AdminDeps, type StatusChange } from '../src/ingest/admin';
+import { strip, versionDocWithTime, versionFromDoc } from '../src/ingest/versionDoc';
 
 const networkDenied = () => {
   throw new Error('network disabled in tests');
@@ -45,6 +47,87 @@ export function memoryPublish(seed: FormVersion[] = []): PublishDeps & { docs: M
       docs.set(`${formId}/${version}`, { ...next, formId, version, status: 'published' });
     },
   };
+}
+
+type ParentDoc = { formId: string; bankId: string; journey: string; status: FormVersion['status'] };
+
+/**
+ * In-memory stand-in for forms/{id} and forms/{id}/versions/{v}, holding raw version docs
+ * written the way production writes them (versionDocWithTime). It serves the admin and
+ * publish handlers, and `listPublished` applies the same two status filters as
+ * listPublishedFormVersions (parent published, then version published).
+ */
+export function memoryForms(seed: Array<{ doc: Record<string, unknown>; parent?: FormVersion['status'] }> = []): AdminDeps &
+  PublishDeps & {
+    docs: Map<string, Record<string, unknown>>;
+    parents: Map<string, ParentDoc>;
+    files: Map<string, Buffer>;
+    voice: number | null | Error;
+    listPublished(): FormVersion[];
+  } {
+  const docs = new Map<string, Record<string, unknown>>();
+  const parents = new Map<string, ParentDoc>();
+  const files = new Map<string, Buffer>();
+  for (const { doc, parent } of seed) {
+    const formId = String(doc.formId);
+    docs.set(`${formId}/${String(doc.version)}`, JSON.parse(JSON.stringify(doc)) as Record<string, unknown>);
+    const current = parents.get(formId);
+    const status = parent ?? (current?.status === 'published' ? 'published' : (doc.status as FormVersion['status']));
+    parents.set(formId, { formId, bankId: String(doc.bankId), journey: String(doc.journey), status });
+  }
+  const records = (formId?: string) =>
+    [...docs.entries()]
+      .filter(([key]) => !formId || key.startsWith(`${formId}/`))
+      .map(([key, doc]) => recordFromDoc(doc, key.split('/')[0], key.split('/')[1]))
+      .filter((record): record is NonNullable<typeof record> => record !== null);
+  const store = {
+    docs,
+    parents,
+    files,
+    voice: 0 as number | null | Error,
+    verifyAdmin: adminAuth,
+    async listAllVersions() {
+      return records();
+    },
+    async loadVersion(formId: string, version: string) {
+      const doc = docs.get(`${formId}/${version}`);
+      return doc ? recordFromDoc(doc, formId, version) : null;
+    },
+    async readStorage(path: string) {
+      return files.get(path) ?? null;
+    },
+    async voiceRequests24h() {
+      if (store.voice instanceof Error) throw store.voice;
+      return store.voice;
+    },
+    async updateForm(formId: string, decide: (versions: FormVersion[]) => StatusChange) {
+      const change = decide(records(formId).map((record) => record.formVersion));
+      const next = change.formVersion;
+      docs.set(`${formId}/${next.version}`, { ...versionDocWithTime(next, new Date().toISOString()) });
+      parents.set(formId, { formId, bankId: next.bankId, journey: next.journey, status: change.parentStatus });
+      return next;
+    },
+    async loadFormVersion(formId: string, version: string) {
+      return versionFromDoc(docs.get(`${formId}/${version}`));
+    },
+    async markPublished(formId: string, version: string, next: FormVersion) {
+      if (!docs.has(`${formId}/${version}`)) throw new IngestError('not_found', 404);
+      docs.set(`${formId}/${version}`, { ...versionDocWithTime({ ...next, formId, version, status: 'published' }, new Date().toISOString()) });
+      parents.set(formId, { formId, bankId: next.bankId, journey: next.journey, status: 'published' });
+    },
+    listPublished() {
+      const out: FormVersion[] = [];
+      for (const parent of parents.values()) {
+        if (parent.status !== 'published') continue;
+        for (const [key, doc] of docs) {
+          if (!key.startsWith(`${parent.formId}/`) || doc.status !== 'published') continue;
+          out.push(strip(JSON.parse(String(doc.payload)) as FormVersion));
+        }
+      }
+      return out;
+    },
+  };
+  return store;
 }
 
 export function memoryIngest(): IngestDeps & {
