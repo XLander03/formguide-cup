@@ -634,7 +634,9 @@ export async function fieldJson(
     /\bsubmit\s+to\s+(?:the\s+)?bank\b|\bsend\s+(?:it|this)\s+to\s+(?:the\s+)?bank\b|\blive\s+submit\b/i.test(
       transcript,
     );
-  let rawAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
+  // next_ask is spoken; the on-screen "Fields vary by bank." line is not read out after every question.
+  let rawAsk =
+    typeof parsed.next_ask === 'string' ? parsed.next_ask.replace(/\s*Fields vary by bank\.?/g, '').trim() : '';
   // The model sometimes returns a bare field id ("addr_permanent_same_as_current", "dob"); never speak
   // that. A real question always has a space or punctuation.
   if (/^[A-Za-z0-9_]+$/.test(rawAsk)) rawAsk = '';
