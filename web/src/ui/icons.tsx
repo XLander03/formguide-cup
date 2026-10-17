@@ -470,3 +470,7 @@ export function EyeIcon({ className }: IconProps) {
 export function ChevronDownIcon({ className }: IconProps) {
   return svg('m6 9 6 6 6-6', className);
 }
+
+export function CloseIcon({ className }: IconProps) {
+  return svg('M18 6 6 18M6 6l12 12', className);
+}
