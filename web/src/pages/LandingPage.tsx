@@ -1,5 +1,7 @@
 import { LandingDemo } from '../components/LandingDemo';
+import { JOURNEYS } from '../lib/journeys';
 import { LANGUAGES } from '../lib/languages';
+import { PREP_LIST } from '../lib/prepList';
 import { useRoute } from '../routing/router';
 import { BTN_LG, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import {
@@ -16,12 +18,9 @@ import {
   VolumeIcon,
 } from '../ui/icons';
 
-/** Languages that work but whose speech recognition is still less reliable. */
-const PREVIEW_LANGUAGES = new Set(['ml', 'or', 'as', 'sd']);
-
 const FACTS = [
-  ['4', 'journeys today', 'Account opening, KYC update, Re-KYC, debit card reissue'],
-  ['~45', 'fields, grouped', 'Identity, contact, address and proof of identity'],
+  [String(JOURNEYS.length), 'journeys today', JOURNEYS.map((journey) => journey.title).join(', ')],
+  ['3', 'checks before saving', 'Hear every detail read back, then confirm it yourself'],
   [String(LANGUAGES.length), 'Indian languages', 'Answer in yours, mix in English any time'],
   ['0', 'forms sent to a bank', 'Every result is a draft you check and keep'],
 ] as const;
@@ -30,12 +29,12 @@ const STEPS = [
   {
     icon: LanguagesIcon,
     title: 'Choose a language and a journey',
-    body: `Pick from ${LANGUAGES.length} languages, including English and Hindi, then account opening, KYC update, Re-KYC or debit card reissue. FormGuide shows the bank's own form when one is published.`,
+    body: `Pick the language you are most comfortable in, out of ${LANGUAGES.length}, then the form you need: account opening, KYC update, Re-KYC or debit card reissue. FormGuide uses the bank's own form when one is published.`,
   },
   {
     icon: MicIcon,
     title: 'Speak. Fields fill.',
-    body: 'Say several details in one go. About 45 fields stay grouped into identity, address and proof of identity, and FormGuide asks only for what is still missing.',
+    body: 'Say several details in one go: name, date of birth and mobile in a single sentence. FormGuide fills each field, groups them into identity, contact, address and proof of identity, and asks only for what is still missing.',
   },
   {
     icon: VolumeIcon,
@@ -45,36 +44,9 @@ const STEPS = [
 ] as const;
 
 const READY = [
-  {
-    journey: 'Account opening',
-    items: [
-      'Full name, exactly as on your ID',
-      'Date of birth',
-      '10-digit mobile number',
-      'PAN card, or say you will fill Form 60 if you have none',
-      'One ID proof and its number: Aadhaar, passport, driving licence, voter ID, NREGA job card or NPR letter',
-      'Current address with its 6-digit PIN code',
-      "Father's or spouse's full name, and your occupation",
-    ],
-  },
-  {
-    journey: 'KYC update or Re-KYC',
-    items: [
-      'Customer ID (CIF), if you have it: it is on your passbook or cheque book',
-      'The ID proof you will show at the branch, and its number',
-      'Your current address with PIN code, if it has changed',
-      'Your registered mobile number',
-    ],
-  },
-  {
-    journey: 'Debit card reissue',
-    items: [
-      'Customer ID and the account number the card is linked to',
-      'The last 4 digits of the card only',
-      'What happened: lost, stolen, damaged or something else',
-      'Block the old card with your bank first',
-    ],
-  },
+  { journey: 'Account opening', items: PREP_LIST.account_opening },
+  { journey: 'KYC update or Re-KYC', items: PREP_LIST.kyc_update },
+  { journey: 'Debit card reissue', items: PREP_LIST.debit_reissue },
 ] as const;
 
 const NEVER = ['OTP', 'ATM or UPI PIN', 'CVV', 'Full card number', 'Passwords', 'Full Aadhaar number (only the last 4 digits are kept)'];
@@ -129,7 +101,8 @@ export function LandingPage() {
             Say it once. Watch the form fill itself.
           </h1>
           <p className="mt-6 max-w-[56ch] text-base leading-relaxed text-foreground/70 sm:text-lg">
-            Speak naturally in English, Hindi or {LANGUAGES.length - 2} other Indian languages. FormGuide fills your
+            Speak naturally in any of {LANGUAGES.length} languages, from Hindi, Bengali and Marathi to Telugu, Kannada
+            and Gujarati, and mix in English whenever you like. FormGuide fills your
             bank form, asks only for what is missing, reads every detail back, and saves a draft you can take to the
             branch.
           </p>
@@ -252,15 +225,9 @@ export function LandingPage() {
               {lang.pickerLabel !== lang.englishName ? (
                 <span className="text-xs text-muted-foreground">{lang.englishName}</span>
               ) : null}
-              {PREVIEW_LANGUAGES.has(lang.id) ? (
-                <span className="text-[10px] font-semibold uppercase text-saffron">preview</span>
-              ) : null}
             </li>
           ))}
         </ul>
-        <p className="mt-4 text-xs text-muted-foreground">
-          Preview languages work, but speech recognition is less reliable for them today. Check those drafts closely.
-        </p>
       </section>
 
       <section className="border-b-2 border-foreground px-5 py-14 sm:px-8 lg:px-12">
