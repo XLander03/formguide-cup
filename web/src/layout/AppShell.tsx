@@ -3,7 +3,8 @@ import { PlanProgress } from '../components/PlanProgress';
 import { languageLabel } from '../lib/languages';
 import { useRoute, type RoutePath } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
-import { FileTextIcon, LockIcon } from '../ui/icons';
+import { BTN_PRIMARY } from '../ui/buttons';
+import { ArrowRightIcon, FileTextIcon, LanguagesIcon, UserCheckIcon } from '../ui/icons';
 
 const STEPS: { to: RoutePath; number: string; label: string }[] = [
   { to: '/journey', number: '01', label: 'Language & journey' },
@@ -12,6 +13,14 @@ const STEPS: { to: RoutePath; number: string; label: string }[] = [
   { to: '/review', number: '04', label: 'Review' },
   { to: '/confirm', number: '05', label: 'Confirm draft' },
 ];
+
+/** In-page sections of the landing page, linked from the header there. */
+const LANDING_LINKS = [
+  ['#how', 'How it works'],
+  ['#ready', 'What you need'],
+  ['#languages', 'Languages'],
+  ['#trust', 'Privacy'],
+] as const;
 
 const TITLES: Record<RoutePath, string> = {
   '/': 'FormGuide — Speak your bank form',
@@ -33,10 +42,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="flex min-h-16 items-center justify-between border-b-2 border-foreground px-4 py-3 sm:px-6">
+      <header className="sticky top-0 z-40 flex min-h-16 items-center justify-between gap-4 border-b-2 border-foreground bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
         <button
           type="button"
-          className="flex items-center gap-3"
+          className="flex shrink-0 items-center gap-3"
           aria-label="FormGuide home"
           onClick={() => go('/')}
         >
@@ -44,15 +53,36 @@ export function AppShell({ children }: { children: ReactNode }) {
             <FileTextIcon className="size-4" />
           </span>
           <span className="font-display text-2xl leading-none">FormGuide</span>
-          <span className="hidden text-[10px] uppercase text-muted-foreground sm:inline">
-            voice drafting · draft only
-          </span>
         </button>
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="hidden border border-foreground/20 px-2 py-1 sm:inline">{shellLanguage}</span>
-          <span className="flex items-center gap-1 border border-saffron bg-saffron/10 px-2 py-1 font-semibold text-saffron">
-            <LockIcon className="size-3" /> DRAFT ONLY
+        {path === '/' ? (
+          <nav aria-label="On this page" className="hidden items-center gap-6 text-sm text-foreground/70 lg:flex">
+            {LANDING_LINKS.map(([href, label]) => (
+              <a key={href} href={href} className="hover:text-foreground">
+                {label}
+              </a>
+            ))}
+          </nav>
+        ) : null}
+        <div className="flex items-center gap-2 text-sm">
+          <span
+            className="hidden items-center gap-1.5 border border-foreground/20 px-2.5 py-1.5 text-xs sm:flex"
+            title="Language for questions and read-back"
+          >
+            <LanguagesIcon className="size-3.5" /> {shellLanguage}
           </span>
+          {/* The admin console is a separate app chosen by URL at load, so this is a real page load. */}
+          <a
+            href="/admin"
+            className="flex items-center gap-1.5 border border-foreground/30 px-3 py-1.5 text-xs font-semibold hover:border-foreground hover:bg-foreground hover:text-background"
+          >
+            <UserCheckIcon className="size-3.5" />
+            <span>Admin login</span>
+          </a>
+          {path === '/' ? (
+            <button type="button" className={`${BTN_PRIMARY} hidden h-9 px-4 text-xs sm:inline-flex`} onClick={() => go('/journey')}>
+              Start <ArrowRightIcon />
+            </button>
+          ) : null}
         </div>
       </header>
       {path !== '/' && (
@@ -82,11 +112,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
       {path === '/speak' || path === '/review' || path === '/confirm' ? <PlanProgress /> : null}
       <main>{children}</main>
-      <div className="flex flex-wrap justify-between gap-2 border-t-2 border-foreground bg-foreground px-4 py-3 text-[11px] text-background sm:px-6">
-        <span>Fields vary by bank.</span>
-        <span>Saved as a draft. Never submitted to a bank.</span>
-        <span>No bank form IDs are generated.</span>
-      </div>
     </div>
   );
 }
