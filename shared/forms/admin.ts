@@ -1,4 +1,4 @@
-import { fieldAutoAccepted } from './review';
+import { unconfirmedLowConfidence } from './review';
 import type { FieldRecord, FormStatus, FormVersion } from './types';
 
 /**
@@ -58,9 +58,9 @@ export interface SetFormStatusRequest {
   status: Extract<FormStatus, 'draft' | 'retired'>;
 }
 
-/** Fields that would block publish: neither accepted at ingest nor checked by an admin. */
+/** Fields that would block publish, by the same rule the publish function enforces. */
 export function fieldsNeedingReview(fields: readonly FieldRecord[]): number {
-  return fields.filter((field) => !field.checked && !fieldAutoAccepted(field)).length;
+  return unconfirmedLowConfidence([...fields]).length;
 }
 
 export function adminFormRow(version: FormVersion, updatedAt: string | null): AdminFormRow {
