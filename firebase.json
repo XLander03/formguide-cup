@@ -91,6 +91,13 @@
         }
       },
       {
+        "source": "/api/tts",
+        "function": {
+          "functionId": "tts",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -93,23 +93,21 @@ export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
 }
 
 export interface ReadbackVoicePlan {
-  /** True when a beta language has no installed voice, so speech uses English. */
+  /** True only when the read-back must be spoken in English instead. */
   fellBackToEnglish: boolean;
-  /** Set only when a matching regional voice should speak the read-back. */
-  speech?: { lang: string; voice: SpeechSynthesisVoice };
+  /** Set for every language but English: speak() sends these to the server voice, with the device voice as backup. */
+  speech?: { lang: string; voice?: SpeechSynthesisVoice };
 }
 
 /**
- * English keeps the default path. Hindi and the regional languages use a matching Web Speech
- * voice, or English when the device has none: an English voice reading Devanagari says only
- * the digits.
+ * English keeps the default device path. Hindi and the regional languages are spoken by the
+ * server voice (see tts.ts), so the read-back stays in the customer's language even on a
+ * device with no voice for it; a matching device voice is kept as the backup.
  */
 export async function resolveReadbackVoice(bcp47: string): Promise<ReadbackVoicePlan> {
   if (bcp47 === 'en-IN') return { fellBackToEnglish: false };
-  const voices = await loadVoices();
-  const voice = findVoice(voices, bcp47);
-  if (!voice) return { fellBackToEnglish: true };
-  return { fellBackToEnglish: false, speech: { lang: bcp47, voice } };
+  const voice = findVoice(await loadVoices(), bcp47) ?? undefined;
+  return { fellBackToEnglish: false, speech: voice ? { lang: bcp47, voice } : { lang: bcp47 } };
 }
 
 const SCRIPT_LANGS: Array<{ re: RegExp; codes: readonly MicLang[] }> = [

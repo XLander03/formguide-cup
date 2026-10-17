@@ -25,6 +25,7 @@ export default defineConfig({
       '/api/publishedForms': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
       '/api/publishedFormPdf': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
       '/api/planJourney': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
+      '/api/tts': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
       // Admin console (shared/forms/admin.ts ADMIN_API); `?mock=1` serves these in-browser instead.
       '/api/adminForm': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },
       '/api/setFormStatus': { target: 'https://faceapp-5397b.web.app', changeOrigin: true },

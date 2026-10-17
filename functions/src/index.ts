@@ -876,3 +876,4 @@ export {
 } from './ingest/http';
 
 export { planJourney } from './planner/http';
+export { tts } from './tts';

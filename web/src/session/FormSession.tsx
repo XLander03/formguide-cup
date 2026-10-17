@@ -28,7 +28,7 @@ import {
   priyaDemoValues,
   updateApplies,
 } from '../lib/schema';
-import { speak, speakForUtterance, stopSpeaking } from '../lib/tts';
+import { isSpeaking, speak, speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
 import { invalidFieldIds, normalizeInput } from '../lib/validate';
 import { readbackFollowup, type ReadbackLang, type UtteranceLang } from '../lib/utteranceLang';
@@ -76,7 +76,8 @@ const flagsQueryLatched =
   (window.location.pathname.replace(/\/+$/, '') || '/') === '/speak' &&
   new URLSearchParams(window.location.search).get('flags') === '1';
 
-const READBACK_NO_START_MS = 5000;
+// Server speech (Hindi, regional) takes a few seconds to arrive the first time a line is used.
+const READBACK_NO_START_MS = 15000;
 
 export interface FieldConfidence {
   confidence: number;
@@ -795,7 +796,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
    * start or never end an utterance. Same no-start wait as the read-back, plus a length cap.
    */
   const say = useCallback(
-    async (text: string, lang?: UtteranceLang, speech?: { lang: string; voice: SpeechSynthesisVoice }) => {
+    async (text: string, lang?: UtteranceLang, speech?: { lang: string; voice?: SpeechSynthesisVoice }) => {
       if (!text.trim()) return;
       setSpeaking(true);
       let noStart = 0;
@@ -1044,12 +1045,11 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       id: number,
       text: string,
       lang: UtteranceLang,
-      speech?: { lang: string; voice: SpeechSynthesisVoice },
+      speech?: { lang: string; voice?: SpeechSynthesisVoice },
     ): Promise<void> =>
       new Promise<void>((resolve) => {
         let settled = false;
         let started = false;
-        const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
         const startedAt = Date.now();
         const log = (msg: string, ...rest: unknown[]) =>
           console.info(`[readback #${id}] +${Date.now() - startedAt}ms ${msg}`, ...rest);
@@ -1070,8 +1070,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
             log(`no-start timeout (no onstart within ${READBACK_NO_START_MS}ms) → cancel`);
             stopSpeaking();
             finish();
-          } else if (!synth || (!synth.speaking && !synth.pending)) {
-            log('poll: speaking/pending false', { speaking: synth?.speaking, pending: synth?.pending });
+          } else if (!isSpeaking()) {
+            // Covers server audio as well as the device voice.
+            log('poll: nothing playing');
             finish();
           }
         }, 500);
