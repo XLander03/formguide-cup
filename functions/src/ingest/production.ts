@@ -1,6 +1,6 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { AggregateField, getFirestore } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { isCupAdmin } from '../../../shared/forms/cupAdmin';
 import type { FormVersion } from '../../../shared/forms/types';
@@ -185,13 +185,13 @@ async function voiceRequests24h(now = Date.now()): Promise<number | null> {
   try {
     // A window that started in the last 24 hours expires after now - 24h + one window.
     const since = new Date(now - 24 * 60 * 60 * 1000 + SPEAK_PER_CLIENT.windowMs);
-    const snap = await db()
-      .collection('rateLimits')
-      .where('expiresAt', '>', since)
-      .aggregate({ total: AggregateField.sum('count') })
-      .get();
-    const total = Number(snap.data().total);
-    return Number.isFinite(total) ? total : null;
+    // A sum() aggregate over a range filter needs a composite index (expiresAt, count) that the
+    // project does not have, so read just `count` and add it up. One doc per caller per
+    // 10 minutes stays small at this scale, and it needs only the automatic expiresAt index.
+    const snap = await db().collection('rateLimits').where('expiresAt', '>', since).select('count').get();
+    let total = 0;
+    for (const doc of snap.docs) total += Number(doc.get('count')) || 0;
+    return total;
   } catch (err) {
     console.error('voice_requests_failed', err instanceof Error ? err.message.slice(0, 80) : 'unknown');
     return null;
