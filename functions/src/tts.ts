@@ -2,6 +2,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { isSpeakLanguage } from './languages';
 import { checkRateLimit, clientKey, type CounterStore, type RateLimitRule } from './rateLimit';
 import { firestoreCounter } from './rateLimitStore';
+import { metadataToken } from './gcpAuth';
 
 /**
  * Spoken Hindi and regional-language lines, generated on the server.
@@ -57,8 +58,6 @@ export const CHIRP_LANGUAGES: ReadonlySet<string> = new Set([
 ]);
 const CLOUD_TTS = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const CHIRP_TIMEOUT_MS = 8000;
-const METADATA_TOKEN =
-  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
 
 export interface TtsReq {
   method: string;
@@ -84,27 +83,6 @@ export interface TtsDeps {
 export interface Speech {
   audio: Buffer;
   contentType: string;
-}
-
-let cachedToken: { token: string; expiresAt: number } | null = null;
-
-/** The function's service-account token from the metadata server, reused until near expiry. */
-export async function metadataToken(): Promise<string | undefined> {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.token;
-  try {
-    const res = await fetch(METADATA_TOKEN, {
-      headers: { 'Metadata-Flavor': 'Google' },
-      signal: AbortSignal.timeout(2000),
-    });
-    if (!res.ok) return undefined;
-    const data = (await res.json()) as { access_token?: string; expires_in?: number };
-    if (!data.access_token) return undefined;
-    cachedToken = { token: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 300) * 1000 };
-    return data.access_token;
-  } catch {
-    // Not on Google Cloud (emulator, tests): Gemini speaks instead.
-    return undefined;
-  }
 }
 
 /** One line from Chirp 3 HD as MP3, or null so Gemini can try. */

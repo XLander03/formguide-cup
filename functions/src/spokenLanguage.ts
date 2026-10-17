@@ -51,6 +51,12 @@ export function detectSpokenLanguage(
   }
   if (best) {
     if (best.langs.includes(hint)) return hint;
+    // Nobody speaks two Indian scripts in one breath, so a transcript that mixes them is
+    // garbled (clean Malayalam came back mostly in Gurmukhi letters, 6 of 62 still Malayalam).
+    // With any of the picked language's own script left, keep that language rather than
+    // answer in one the customer never spoke.
+    const own = scriptOf(hint);
+    if (own && countScript(transcript, own) >= 3) return hint;
     if (guess && best.langs.includes(guess)) return guess;
     return best.langs[0];
   }

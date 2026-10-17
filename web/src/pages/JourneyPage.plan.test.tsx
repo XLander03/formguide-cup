@@ -64,13 +64,33 @@ function mount(plan: RequestPlan) {
 describe('JourneyPage planner', () => {
   beforeEach(() => sessionStorage.clear());
 
+  it('takes the session language from what the customer typed, with no picker', async () => {
+    const user = userEvent.setup();
+    const plan = vi.fn<RequestPlan>(async () => ({ plan: null, error: 'planner_failed' }));
+    mount(plan);
+    await user.click(screen.getByRole('tab', { name: 'Type' }));
+    await user.type(screen.getByLabelText(/Tell us what happened/), 'నాకు కొత్త సేవింగ్స్ ఖాతా కావాలి{Enter}');
+    expect(plan).toHaveBeenCalledWith('నాకు కొత్త సేవింగ్స్ ఖాతా కావాలి', 'te');
+    expect(session.language).toBe('te');
+    expect(session.micLang).toBe('te-IN');
+    expect(screen.getByRole('button', { name: /Speaking in Telugu/ })).toBeInTheDocument();
+
+    // English typed afterwards keeps the language the customer already used.
+    await user.clear(screen.getByLabelText(/Tell us what happened/));
+    await user.type(screen.getByLabelText(/Tell us what happened/), 'savings account please{Enter}');
+    expect(session.language).toBe('te');
+  });
+
   it('plans two forms from one Hindi sentence and carries answers from the first to the second', async () => {
     const user = userEvent.setup();
     const plan = vi.fn<RequestPlan>(async () => ({ plan: TWO_FORMS, error: null }));
     mount(plan);
 
     await trySample(user, new RegExp(STOLEN_AND_MOVED));
-    expect(plan).toHaveBeenCalledWith(STOLEN_AND_MOVED, 'en');
+    // Hindi words make it a Hindi session, with no language picked.
+    expect(plan).toHaveBeenCalledWith(STOLEN_AND_MOVED, 'hi');
+    expect(session.language).toBe('hi');
+    expect(session.micLang).toBe('hi-IN');
     const card = await screen.findByRole('region', { name: 'Your plan' });
     expect(within(card).getByText('2 forms, in this order.')).toBeInTheDocument();
     expect(within(card).getByText('चोरी हुआ कार्ड पहले ब्लॉक करें।')).toBeInTheDocument();

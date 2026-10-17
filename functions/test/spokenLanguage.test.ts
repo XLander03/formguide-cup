@@ -27,6 +27,14 @@ describe('detectSpokenLanguage', () => {
     assert.equal(detectSpokenLanguage('আমার নাম প্রিয়া', 'en-IN'), 'bn-IN');
   });
 
+  it('keeps the picked language when a garbled transcript mixes in another script', () => {
+    // Live Malayalam clip, transcribed half in Gurmukhi letters by gemini-3.5-transcribe.
+    const garbled = 'ਇതਿ ਪੋਲ্ ਕੁਮਾਰ੍ ਇതਿ ਜੇਨਨ ਤੀਯਦੀ ਪਦੀਨ੍ਨੁ ਓਗുൽਸਟ ਹਾਯਰੁത੍ ਤੁ ਤੋਲਾਯਰੁതੁ ਤੋਣੋਰੁ';
+    assert.equal(detectSpokenLanguage(garbled, 'ml-IN', 'pa-IN'), 'ml-IN');
+    // A real switch, with none of the picked script left, still switches.
+    assert.equal(detectSpokenLanguage('ਮੇਰਾ ਨਾਮ ਪ੍ਰਿਆ ਹੈ', 'ml-IN'), 'pa-IN');
+  });
+
   it('uses the script with the most letters in a code-mixed transcript', () => {
     assert.equal(detectSpokenLanguage('My PAN is ABCDE1234F, నా పేరు ప్రియ', 'en-IN'), 'te-IN');
   });
@@ -105,6 +113,31 @@ describe('fieldJson answers in the spoken language', () => {
     assert.equal(out.spoken_lang, 'kn-IN');
     assert.equal(out.next_ask_lang, 'en-IN');
     assert.equal(out.next_ask, out.next_ask_en);
+  });
+
+  it('translates the English question when the regional model question was unusable', async () => {
+    const replies = [
+      {
+        field_updates: {},
+        spoken_lang: 'kn-IN',
+        next_ask: 'What is your date of birth?',
+        reply_lang: 'en',
+        refuse_live_submit: false,
+        assistant_message: 'Fields vary by bank.',
+      },
+    ];
+    const prompts: string[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+      prompts.push((JSON.parse(String(init?.body)) as { input: string }).input);
+      const reply = replies.shift();
+      const text = reply ? JSON.stringify(reply) : 'ನಿಮ್ಮ ಹುಟ್ಟಿದ ದಿನಾಂಕ ಯಾವುದು?';
+      return new Response(JSON.stringify({ output_text: text }), { status: 200 });
+    }) as typeof fetch;
+    const out = await fieldJson('k', 'ನನ್ನ ಹೆಸರು ಪ್ರಿಯಾ', 'kn-IN', { journey_mode: 'account_opening' });
+    assert.equal(out.next_ask_lang, 'kn-IN');
+    assert.equal(out.next_ask, 'ನಿಮ್ಮ ಹುಟ್ಟಿದ ದಿನಾಂಕ ಯಾವುದು?');
+    assert.match(prompts[1], /into Kannada/);
+    assert.match(prompts[1], new RegExp(String(out.next_ask_en).slice(0, 20).replace(/[?.]/g, '.')));
   });
 
   it('Hindi on an English pick uses the Hindi question table', async () => {

@@ -17,6 +17,8 @@ export type SpeakParts = {
   formId?: string;
   /** Optional `context` part: where the turn was spoken. Missing or unknown means `fill`. */
   context: VoiceContext;
+  /** Optional `detect_language` part ("1"): find the spoken language rather than trust `language`. */
+  detect?: boolean;
 };
 
 export type SpeakRead =
@@ -90,6 +92,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
   let formFields: BankFormField[] = [];
   let formId: string | undefined;
   let context: VoiceContext = 'fill';
+  let detect = false;
 
   for (const part of parts) {
     const sep = part.indexOf(Buffer.from('\r\n\r\n'));
@@ -121,6 +124,8 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
     } else if (name === 'context') {
       const value = body.toString('utf8').trim();
       if (isVoiceContext(value)) context = value;
+    } else if (name === 'detect_language') {
+      detect = body.toString('utf8').trim() === '1';
     } else if (name === 'audio') {
       audio = Buffer.from(body);
     }
@@ -131,7 +136,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
   if (!isSpeakLanguage(language)) return { ok: false, error: 'bad_language' };
   const wav = inspectWav(audio);
   if (!wav.ok) return wav;
-  return { ok: true, parts: { language, current, audio, formFields, context, ...(formId ? { formId } : {}) } };
+  return { ok: true, parts: { language, current, audio, formFields, context, ...(formId ? { formId } : {}), ...(detect ? { detect } : {}) } };
 }
 
 export function readSpeakRequest(raw: Buffer, contentType: string): SpeakRead {

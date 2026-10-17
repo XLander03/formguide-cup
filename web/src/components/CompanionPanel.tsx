@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { MAX_PLAN_TEXT } from '../../../shared/journeyPlan';
-import { LANGUAGES, languageById, type ShellLanguage } from '../lib/languages';
+import { LANGUAGES, languageById, type MicLang, type ShellLanguage } from '../lib/languages';
 import { transcribeClip } from '../lib/transcribeClip';
 import { ArrowRightIcon, CheckIcon, ChevronDownIcon, LanguagesIcon, MicIcon, StopIcon } from '../ui/icons';
 import { useSpeakMic } from '../ui/useMic';
@@ -32,7 +32,8 @@ export interface CompanionPanelProps {
   planning: boolean;
   note: string | null;
   onNote: (note: string | null) => void;
-  onUtterance: (text: string, source: HeardSource) => void;
+  /** `heard` is the language the speak function detected in a live clip. */
+  onUtterance: (text: string, source: HeardSource, heard?: MicLang | null) => void;
 }
 
 const SOURCE_LABEL: Record<HeardSource, string> = {
@@ -66,7 +67,7 @@ export function CompanionPanel({
     onNote(null);
     void transcribeClip(wav, micLang).then((result) => {
       setBusy(false);
-      if (result.transcript) onUtterance(result.transcript, 'live');
+      if (result.transcript) onUtterance(result.transcript, 'live', result.detected);
       else onNote(result.error);
     });
   });
