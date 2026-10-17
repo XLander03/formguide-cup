@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AUTO_ACCEPT_ABOVE } from '../../shared/forms/review';
 import { draftFromPdf } from '../src/ingest/draft';
-import { fitAxis, placePageFields } from '../src/ingest/snap';
+import { alignBesideLabel, fitAxis, placePageFields } from '../src/ingest/snap';
 import { parseBox2d, parseOcrFields, type OcrField } from '../src/ingest/geminiOcr';
 import { clampUnitBox, normalisedTopLeftToPdfBox } from '../src/ingest/geom';
 import { anchorToLabel, pageTextFromItems, type PageText, type TextWord } from '../src/ingest/textLayer';
@@ -267,6 +267,77 @@ describe('page drift', () => {
       assert.ok(Math.abs(got.y + got.h / 2 - (input[1] + input[3] / 2)) < 3, `${label} y ${got.y}`);
       assert.equal(p.doubtful, true, label);
     }
+  });
+});
+
+describe('repeated address blocks', () => {
+  // HDFC account opening form page 1: the same labels in every address block, rows
+  // ~14-17pt apart, input cells starting just right of each label (from its text layer).
+  const blocks = [0, 92];
+  const rows = [
+    { label: 'Flat No & Bldg Name', lines: [['flat', 'no', 'bldg'], ['name']], x: 25.4, top: 446.9 - 92 },
+    { label: 'Landmark', lines: [['landmark']], x: 36, top: 390.4 },
+    { label: 'City', lines: [['city']], x: 51.9, top: 401.2 },
+    { label: 'State', lines: [['state']], x: 50.6, top: 418.1 },
+  ];
+  const LINE = 6.3;
+  const text: PageText = {
+    width: W,
+    height: H,
+    words: blocks.flatMap((dy) => rows.flatMap(({ lines, x, top }) => lines.flatMap((line, li) => line.map((part, i) =>
+      word(part, x + i * 11, top + dy + li * 7.9, 10, LINE))))),
+  };
+  /** Each printed label, and its true input row: cells from x=70, centred on the label. */
+  const truth = blocks.flatMap((dy, block) => rows.map(({ label, lines, x, top }) => {
+    const h = LINE + (lines.length - 1) * 7.9;
+    const centre = top + dy + h / 2;
+    return { label, block, labelAt: pt(x, top + dy, 45, h), centre, input: pt(70, centre - 7, 252, 14) };
+  }));
+  const centrePt = (box: { y: number; h: number }) => (box.y + box.h / 2) * H;
+
+  it('leaves a box that sits beside its label alone and trusts it', () => {
+    const placed = placePageFields(truth.map(({ label, labelAt, input }) => ({ label, labelBox: labelAt, box: input })), text);
+    for (const [i, { label, block, centre }] of truth.entries()) {
+      const p = placed[i];
+      assert.ok(p, label);
+      assert.equal(p.doubtful, false, `${label} ${block}`);
+      assert.ok(Math.abs(centrePt(p.box) - centre) < 0.5, `${label} ${block}: ${centrePt(p.box)} vs ${centre}`);
+    }
+  });
+
+  it('puts a box the model drew a row under its own label back on the label row, and holds it', () => {
+    // The live HDFC reply: label boxes right, input boxes ~14pt low, one State box 1.7pt tall.
+    const found = truth.map(({ label, block, labelAt, input }) => {
+      const low = { ...input, y: input.y + 14.5 / H };
+      return {
+        label,
+        labelBox: labelAt,
+        box: label === 'Flat No & Bldg Name' ? input : label === 'State' && block === 1 ? { ...low, h: 1.7 / H } : low,
+      };
+    });
+    const placed = placePageFields(found, text);
+    for (const [i, { label, block, centre }] of truth.entries()) {
+      const p = placed[i];
+      assert.ok(p, label);
+      assert.equal(p.anchored, true, label);
+      assert.ok(Math.abs(centrePt(p.box) - centre) < 0.5, `${label} ${block}: ${centrePt(p.box)} vs ${centre}`);
+      assert.ok(p.box.h * H >= 2 * LINE - 0.01, `${label} ${block} tall enough to write in: ${p.box.h * H}`);
+      // A wrapped label taller than its input row is not a reason to move the box.
+      assert.equal(p.doubtful, label !== 'Flat No & Bldg Name', `${label} ${block}`);
+    }
+    for (const block of blocks.keys()) {
+      const city = placed[truth.findIndex((t) => t.label === 'City' && t.block === block)]!;
+      const state = placed[truth.findIndex((t) => t.label === 'State' && t.block === block)]!;
+      // City's box ends above where State's row starts: the two never share a row.
+      assert.ok(city.box.y + city.box.h <= state.box.y + 0.5 / H, `block ${block}`);
+    }
+  });
+
+  it('does not move a box stacked under its label or a tick box left of it', () => {
+    const under = alignBesideLabel(pt(20, 412, 200, 14), pt(20, 401, 30, LINE), LINE / H, text);
+    assert.equal(under.moved, false);
+    const tick = alignBesideLabel(pt(8, 420, 8, 8), pt(20, 401, 30, LINE), LINE / H, text);
+    assert.equal(tick.moved, false);
   });
 });
 
