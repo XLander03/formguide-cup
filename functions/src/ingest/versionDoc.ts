@@ -44,6 +44,27 @@ export function firestoreDocBytes(data: Record<string, unknown>, docPath: string
   return name + valueBytes(data) + 32;
 }
 
+/**
+ * Firestore also caps a document at 40,000 index entries, and every value inside the
+ * `fields` array is indexed (ascending and descending). A dense 20-page form can pass
+ * that while still under the byte budget, so the `fields` copy is dropped then as well.
+ * The JSON `payload` string adds a handful of entries however long it is.
+ */
+export const INDEX_ENTRY_BUDGET = 30_000;
+
+function leafValues(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((sum: number, item) => sum + leafValues(item), 0);
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).reduce((sum: number, item) => sum + leafValues(item), 0);
+  }
+  return value === undefined ? 0 : 1;
+}
+
+/** Index entries the `fields` array would cost: two single-field entries per leaf value. */
+export function fieldsIndexEntries(fields: FormVersion['fields']): number {
+  return leafValues(fields) * 2;
+}
+
 export function versionDocPath(version: Pick<FormVersion, 'formId' | 'version'>): string {
   return `forms/${version.formId}/versions/${version.version}`;
 }
@@ -59,7 +80,7 @@ export function versionDocForWrite(version: FormVersion, budget = VERSION_DOC_BU
   const clean = strip(version);
   const doc: VersionDoc = { ...clean, payload: JSON.stringify(clean) };
   const path = versionDocPath(clean);
-  if (firestoreDocBytes(doc, path) <= budget) return doc;
+  if (firestoreDocBytes(doc, path) <= budget && fieldsIndexEntries(clean.fields) <= INDEX_ENTRY_BUDGET) return doc;
   const slim: VersionDoc = { ...doc };
   delete slim.fields;
   const size = firestoreDocBytes(slim, path);

@@ -5,7 +5,9 @@ import { IngestError } from '../src/ingest/errors';
 import { buildOcrPrompt } from '../src/ingest/geminiOcr';
 import { mapPool } from '../src/ingest/pool';
 import {
+  INDEX_ENTRY_BUDGET,
   VERSION_DOC_BUDGET,
+  fieldsIndexEntries,
   firestoreDocBytes,
   versionDocForWrite,
   versionDocPath,
@@ -62,6 +64,17 @@ describe('version doc size', () => {
     assert.ok(firestoreDocBytes(doc as unknown as Record<string, unknown>, versionDocPath(form)) <= VERSION_DOC_BUDGET);
     // loadPublished reads only `payload`; the admin publish path reads via versionFromDoc.
     assert.equal(JSON.parse(doc.payload).fields.length, 2000);
+    assert.deepEqual(versionFromDoc(doc as unknown as Record<string, unknown>), form);
+  });
+
+  it('also drops the fields array when it would pass the index-entry limit under the byte budget', () => {
+    const short = (index: number): FieldRecord => ({ ...field(index), id: `f${index}`, label: 'L', section: 'S' });
+    const form = { ...version(0), fields: Array.from({ length: 1100 }, (_, index) => short(index)) };
+    assert.ok(fieldsIndexEntries(form.fields) > INDEX_ENTRY_BUDGET);
+    const full = { ...form, payload: JSON.stringify(form) };
+    assert.ok(firestoreDocBytes(full, versionDocPath(form)) < VERSION_DOC_BUDGET);
+    const doc = versionDocForWrite(form);
+    assert.equal('fields' in doc, false);
     assert.deepEqual(versionFromDoc(doc as unknown as Record<string, unknown>), form);
   });
 
