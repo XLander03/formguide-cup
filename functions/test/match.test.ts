@@ -13,14 +13,18 @@ describe('field library seed', () => {
   const schema = JSON.parse(
     readFileSync(path.resolve(__dirname, '../../web/src/schema/aof_kyc_demo_v1.schema.json'), 'utf8'),
   ) as {
-    fields: Array<{ id: string; label_en: string; required: boolean; group: string }>;
+    fields: Array<{ id: string; label_en: string; required: boolean; group: string; journey_modes?: string[] }>;
   };
+  // The ingest library matches AOF/KYC bank forms. Debit card reissue fields are not part of it.
+  const aofFields = schema.fields.filter(
+    (field) => !field.journey_modes || field.journey_modes.some((mode) => mode !== 'debit_reissue'),
+  );
 
   it('matches aof_kyc_demo_v1 ids and labels', () => {
-    assert.equal(FIELD_LIBRARY.length, schema.fields.length);
+    assert.equal(FIELD_LIBRARY.length, aofFields.length);
     assert.equal(FIELD_LIBRARY.length, 45);
-    for (let i = 0; i < schema.fields.length; i += 1) {
-      const expected = schema.fields[i];
+    for (let i = 0; i < aofFields.length; i += 1) {
+      const expected = aofFields[i];
       const got = FIELD_LIBRARY[i];
       assert.equal(got.id, expected.id);
       assert.equal(got.label, expected.label_en);

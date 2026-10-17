@@ -43,7 +43,7 @@ export function enumPromptClause(form: FormVersion = HDFC_V1): string {
   return (
     `journey_mode=${opt('journey_mode')}; gender=${opt('gender')}; residential_status=${opt('residential_status')}; ` +
     `ovd_poi_type/ovd_poa_type=${opt('ovd_poi_type')}; account_product_intent=${opt('account_product_intent')}; ` +
-    `occupation_bucket=${opt('occupation_bucket')}`
+    `occupation_bucket=${opt('occupation_bucket')}; card_reason=${opt('card_reason')}`
   );
 }
 
@@ -59,7 +59,22 @@ function isFilled(value: unknown): boolean {
   return false;
 }
 
+const AOF_JOURNEYS = ['account_opening', 'kyc_update', 'rekyc'];
+
+/** Journeys a schema field belongs to. Fields without a list are AOF/KYC only. */
+export function fieldJourneyModes(field: SchemaFieldSnapshot): string[] {
+  if (field.journey_modes?.length) return field.journey_modes;
+  if (field.group === 'confirm_gates') return [...AOF_JOURNEYS, 'debit_reissue'];
+  return AOF_JOURNEYS;
+}
+
+export function fieldOnJourney(field: SchemaFieldSnapshot, values: Record<string, unknown>): boolean {
+  const journey = typeof values.journey_mode === 'string' && values.journey_mode ? values.journey_mode : 'account_opening';
+  return fieldJourneyModes(field).includes(journey);
+}
+
 function effectivelyRequired(field: SchemaFieldSnapshot, values: Record<string, unknown>): boolean {
+  if (!fieldOnJourney(field, values)) return false;
   if (field.required) return true;
   if (!field.required_if) return false;
   return Object.entries(field.required_if).every(([key, expect]) => values[key] === expect);

@@ -715,7 +715,9 @@ export function extractHindiSlots(text: string): Record<string, SlotValue> {
   const out: Record<string, SlotValue> = {};
   const t = text.toLowerCase();
 
-  if (/री[-\s]?के(?:वाई|वाइ)सी|रीकेवाईसी/.test(text)) {
+  if (/डेबिट\s*कार्ड|एटीएम\s*कार्ड|debit\s*card|atm\s*card/.test(text) || /कार्ड\s*(खो|चोरी|गुम)/.test(text)) {
+    out.journey_mode = 'debit_reissue';
+  } else if (/री[-\s]?के(?:वाई|वाइ)सी|रीकेवाईसी/.test(text)) {
     out.journey_mode = 'rekyc';
   } else if (/केवाईसी|केवाइसी/.test(text) || /केवाईसी\s*अपडेट/.test(text)) {
     out.journey_mode = 'kyc_update';

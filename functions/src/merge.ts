@@ -20,6 +20,13 @@ const ALIASES: Record<string, string> = {
   husband_name: 'father_or_spouse_name',
   wife_name: 'father_or_spouse_name',
   parent_name: 'father_or_spouse_name',
+  customer_id: 'card_customer_id',
+  account_number: 'card_account_number',
+  card_number: 'card_last4',
+  debit_card_number: 'card_last4',
+  card_last_4: 'card_last4',
+  last4: 'card_last4',
+  reissue_reason: 'card_reason',
 };
 
 const FATHER_CUE =

@@ -66,6 +66,12 @@ const EN_ASK: Record<string, string> = {
   form60_declared: 'No PAN — should Form 60 be noted?',
   account_product_intent: 'Is this a regular savings, salary, basic savings, or individual current account?',
   customer_id_cif: 'What is your customer ID or CIF, if you have one?',
+  card_customer_id: 'What is your customer ID?',
+  card_account_number: 'What is the account number?',
+  card_last4: 'What are the last 4 digits of the card?',
+  card_reason: 'Was the card lost or misplaced, stolen, damaged, or something else?',
+  card_reason_other: 'What should we write for the other reason?',
+  card_reissue_new: 'Should we reissue a new card?',
 };
 
 const HI_ASK: Record<string, string> = {
@@ -93,6 +99,12 @@ const HI_ASK: Record<string, string> = {
   form60_declared: 'पैन नहीं है — क्या फॉर्म 60 दर्ज करें?',
   account_product_intent: 'यह रेगुलर सेविंग्स, सैलरी, बेसिक सेविंग्स, या व्यक्तिगत करंट खाता है?',
   customer_id_cif: 'ग्राहक आईडी या CIF बताएं, अगर पास हो।',
+  card_customer_id: 'ग्राहक आईडी बताएं।',
+  card_account_number: 'खाता संख्या बताएं।',
+  card_last4: 'कार्ड के आखिरी चार अंक बताएं।',
+  card_reason: 'कार्ड खोया, चोरी, खराब, या कोई और कारण?',
+  card_reason_other: 'अन्य कारण क्या लिखें?',
+  card_reissue_new: 'क्या नया कार्ड चाहिए?',
 };
 
 type FieldValue = string | boolean | null;
@@ -115,7 +127,10 @@ function completeness(values: FormValues, missing: string[]): 'empty' | 'partial
   const any = Object.values(values).some(isFilled);
   if (!any) return 'empty';
   if (missing.length === 0) return 'demo_ready';
-  const core = ['journey_mode', 'applicant_full_name', 'dob', 'mobile_registered', 'pan_available'];
+  const core =
+    values.journey_mode === 'debit_reissue'
+      ? ['journey_mode', 'applicant_full_name', 'card_customer_id', 'card_account_number', 'card_last4', 'card_reason']
+      : ['journey_mode', 'applicant_full_name', 'dob', 'mobile_registered', 'pan_available'];
   return core.every((id) => isFilled(values[id])) ? 'partial_core' : 'empty';
 }
 
@@ -159,6 +174,34 @@ function sanitizeUpdates(raw: unknown): FormValues {
       const digits = text.replace(/\D/g, '');
       if (digits) text = digits.slice(0, 6);
     }
+    if (key === 'card_last4') {
+      const digits = text.replace(/\D/g, '');
+      if (digits.length < 4) continue;
+      out[key] = digits.slice(-4);
+      continue;
+    }
+    if (key === 'card_confirm_mobile') {
+      const digits = text.replace(/\D/g, '');
+      text = digits.length > 10 ? digits.slice(-10) : digits;
+    }
+    if (key === 'card_account_number') {
+      const digits = text.replace(/\D/g, '');
+      if (digits.length >= 16) {
+        out.card_last4 = digits.slice(-4);
+        continue;
+      }
+      text = digits.slice(0, 18);
+    }
+    if (key.startsWith('card_')) text = text.replace(/\b(?:pin|cvv|otp)\b[:\s-]*\d{3,8}/gi, '').trim();
+    const embedded = text.match(/\d[\d\s-]{14,}\d/);
+    if (embedded) {
+      const digits = embedded[0].replace(/\D/g, '');
+      if (digits.length >= 16) {
+        out.card_last4 = digits.slice(-4);
+        text = text.replace(embedded[0], '').trim();
+      }
+    }
+    if (!text) continue;
     out[key] = text;
   }
   return out;
@@ -370,6 +413,15 @@ MULTI-FIELD EXTRACTION:
 
 NORMALIZATION:
 - Enums: ${enumPromptClause(HDFC_V1)}.
+
+DEBIT CARD REISSUE — when the user asks to reissue, replace, or block a debit or ATM card, or journey_mode is already debit_reissue:
+- Set journey_mode to debit_reissue.
+- Fill only applicant_full_name, card_customer_id, card_account_number, card_last4, card_reason, card_reason_other (only if reason is other), card_reissue_new (boolean, default true), card_charges_account (default "same account"), card_remarks, card_confirm_mobile, card_old_blocked_ack.
+- card_last4 is EXACTLY 4 digits. If they speak a full card number, store only the last 4. Never put the full card number in any field.
+- There is no PIN, CVV, or OTP field. Never output one.
+- Do not fill an address. Delivery is the registered address and is not a field.
+- Do not fill AOF or KYC fields (dob, pan, ovd, address) on this journey.
+- One spoken dump may fill name, customer ID, account number, last 4, and reason together. Then ask only what is still missing.
 - DOB → YYYY-MM-DD (English or Hindi spoken dates).
 - City/state as place names (बेंगलुरु→Bengaluru, मुंबई→Mumbai).
 - Spoken numbers → digits (mobile 10 digits, PIN 6 digits).
