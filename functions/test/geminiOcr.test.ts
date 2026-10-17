@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { FIELD_MODEL, OCR_RESPONSE_SCHEMA, buildOcrPrompt, ocrPageWithGemini, parseOcrFields } from '../src/ingest/geminiOcr';
+import { FIELD_MODEL, OCR_RESPONSE_SCHEMA, buildOcrPrompt, ocrPageWithGemini, parseOcrFields, retryDelayMs } from '../src/ingest/geminiOcr';
 import './support';
 
 describe('gemini ocr client', () => {
@@ -109,5 +109,106 @@ describe('gemini ocr client', () => {
       JSON.stringify({ fields: [{ label: 'City', type: 'text', required: false, box: { x: 0.1, y: 0.2, w: 0.3, h: 0.1 }, confidence: 0.9 }] }),
     );
     assert.deepEqual(fields[0].box, { x: 0.1, y: 0.2, w: 0.3, h: 0.1 });
+  });
+});
+
+describe('gemini ocr rate limits', () => {
+  const page = { apiKey: 'k', png: Buffer.from([1]), page: 1, pageCount: 1, width: 10, height: 10 };
+  const ok = {
+    ok: true,
+    status: 200,
+    async json() {
+      return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"fields":[]}' }] } }] };
+    },
+  };
+  const limited = (retryDelay?: string) => ({
+    ok: false,
+    status: 429,
+    async json() {
+      return {
+        error: {
+          code: 429,
+          message: 'Quota exceeded for metric: generate_content_free_tier_requests, limit: 15',
+          details: retryDelay ? [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay }] : [],
+        },
+      };
+    },
+  });
+
+  it('waits the delay Gemini asks for on a 429 and then succeeds', async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const fields = await ocrPageWithGemini({
+        ...page,
+        sleep: async (ms) => {
+          waits.push(ms);
+        },
+        fetchImpl: async () => {
+          calls += 1;
+          return calls <= 2 ? limited('13s') : ok;
+        },
+      });
+      assert.deepEqual(fields, []);
+      assert.equal(calls, 3);
+      assert.deepEqual(waits, [13000, 13000]);
+    } finally {
+      console.error = original;
+    }
+  });
+
+  it('gives up once the per-page wait budget is spent', async () => {
+    const waits: number[] = [];
+    const original = console.error;
+    console.error = () => {};
+    try {
+      await assert.rejects(
+        ocrPageWithGemini({
+          ...page,
+          sleep: async (ms) => {
+            waits.push(ms);
+          },
+          fetchImpl: async () => limited('45s'),
+        }),
+        (err: unknown) => err instanceof Error && (err as { code?: string }).code === 'ocr_failed',
+      );
+      // Each wait is capped at 30s and the page stops before passing 90s in total.
+      assert.deepEqual(waits, [30000, 30000, 30000]);
+    } finally {
+      console.error = original;
+    }
+  });
+
+  it('keeps a single immediate retry for errors that are not rate limits', async () => {
+    let calls = 0;
+    const waits: number[] = [];
+    const original = console.error;
+    console.error = () => {};
+    try {
+      await assert.rejects(
+        ocrPageWithGemini({
+          ...page,
+          sleep: async (ms) => {
+            waits.push(ms);
+          },
+          fetchImpl: async () => {
+            calls += 1;
+            return { ok: false, status: 400, async json() { return { error: { code: 400 } }; } };
+          },
+        }),
+      );
+      assert.equal(calls, 2);
+      assert.deepEqual(waits, []);
+    } finally {
+      console.error = original;
+    }
+  });
+
+  it('reads RetryInfo delays and falls back to 10s', () => {
+    assert.equal(retryDelayMs({ error: { details: [{ retryDelay: '13.4s' }] } }), 13400);
+    assert.equal(retryDelayMs({ error: { details: [] } }), 10000);
+    assert.equal(retryDelayMs(null), 10000);
   });
 });
