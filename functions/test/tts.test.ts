@@ -119,6 +119,79 @@ describe('tts', () => {
     assert.equal(blocked.out.statusCode, 429);
   });
 
+  /** Cloud TTS answers with `chirp` (a status, or 200 with MP3); Gemini answers 200. */
+  function stubBoth(chirp: number | 'throw'): { urls: string[]; bodies: unknown[] } {
+    const urls: string[] = [];
+    const bodies: unknown[] = [];
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      urls.push(String(url));
+      if (String(url).startsWith('https://texttospeech.googleapis.com/')) {
+        bodies.push(JSON.parse(String(init?.body)));
+        if (chirp === 'throw') throw new Error('timeout');
+        if (chirp !== 200) return new Response('{"error":{"status":"PERMISSION_DENIED"}}', { status: chirp });
+        return new Response(JSON.stringify({ audioContent: Buffer.from('ID3mp3').toString('base64') }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;rate=24000', data: pcm.toString('base64') } }] } }],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    return { urls, bodies };
+  }
+
+  const withCloud = { ...allow, cloudToken: async () => 'tok' };
+  const isGemini = (url: string) => url.startsWith('https://generativelanguage.googleapis.com/');
+
+  it('speaks a Chirp language with Cloud Text-to-Speech as MP3', async () => {
+    const { urls, bodies } = stubBoth(200);
+    const { r, out } = res();
+    await handleTts(req({ lang: 'te-IN', text: 'పేరు చెప్పండి' }), r, withCloud);
+    assert.equal(out.statusCode, 200);
+    assert.equal(out.headers['content-type'], 'audio/mpeg');
+    assert.equal((out.body as Buffer).toString(), 'ID3mp3');
+    assert.equal(urls.filter(isGemini).length, 0);
+    assert.deepEqual((bodies[0] as { voice: unknown }).voice, { languageCode: 'te-IN', name: 'te-IN-Chirp3-HD-Kore' });
+  });
+
+  it('falls back to Gemini when Cloud Text-to-Speech fails or times out', async () => {
+    for (const failure of [403, 500, 'throw'] as const) {
+      const { urls } = stubBoth(failure);
+      const { r, out } = res();
+      await handleTts(req({ lang: 'hi-IN', text: 'नमस्ते' }), r, withCloud);
+      assert.equal(out.statusCode, 200, String(failure));
+      assert.equal(out.headers['content-type'], 'audio/wav');
+      assert.equal(urls.filter(isGemini).length, 1);
+    }
+  });
+
+  it('sends languages with no Chirp voice, or no token, straight to Gemini', async () => {
+    for (const [lang, deps] of [
+      ['or-IN', withCloud],
+      ['as-IN', withCloud],
+      ['sd-Arab-IN', withCloud],
+      ['hi-IN', { ...allow, cloudToken: async () => undefined }],
+    ] as const) {
+      const { urls } = stubBoth(200);
+      const { r, out } = res();
+      await handleTts(req({ lang, text: 'نالو' }), r, deps);
+      assert.equal(out.headers['content-type'], 'audio/wav', lang);
+      assert.deepEqual(urls.filter((u) => !isGemini(u)), [], lang);
+    }
+  });
+
+  it('still speaks with Chirp when the Gemini key is missing', async () => {
+    stubBoth(200);
+    const { r, out } = res();
+    await handleTts(req({ lang: 'mr-IN', text: 'नाव सांगा' }), r, { ...withCloud, apiKey: () => undefined });
+    assert.equal(out.statusCode, 200);
+    const noKey = res();
+    stubBoth(403);
+    await handleTts(req({ lang: 'mr-IN', text: 'नाव सांगा' }), noKey.r, { ...withCloud, apiKey: () => undefined });
+    assert.deepEqual(noKey.out.body, { error: 'gemini_key_missing' });
+  });
+
   it('wraps raw PCM in a WAV header and leaves a WAV alone', () => {
     const wav = asWav(pcm, 'audio/L16;rate=24000');
     assert.equal(wav.length, pcm.length + 44);

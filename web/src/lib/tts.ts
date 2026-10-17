@@ -48,7 +48,8 @@ async function serverAudio(text: string, lang: string, stops: number): Promise<s
 
 async function fetchAudio(key: string, text: string, lang: string): Promise<string | null | 'retry'> {
   try {
-    const res = await fetch(`/api/tts?lang=${encodeURIComponent(lang)}&text=${encodeURIComponent(text)}`);
+    // v names the server voice: a new one gets new CDN entries instead of a week of the old audio.
+    const res = await fetch(`/api/tts?v=chirp3&lang=${encodeURIComponent(lang)}&text=${encodeURIComponent(text)}`);
     if (res.status === 429 || res.status >= 500) return 'retry';
     if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('audio/')) return null;
     const url = URL.createObjectURL(await res.blob());

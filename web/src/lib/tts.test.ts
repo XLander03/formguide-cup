@@ -98,7 +98,7 @@ describe('speak', () => {
   it('Hindi is spoken by the server voice, never handed to a device voice', async () => {
     await speak('आपकी जन्म तिथि क्या है? जैसे 12 मार्च 1994।', 'hi-IN');
     expect(ttsRequests).toHaveLength(1);
-    expect(ttsRequests[0]).toContain('/api/tts?lang=hi-IN&text=आपकी जन्म तिथि');
+    expect(ttsRequests[0]).toContain('/api/tts?v=chirp3&lang=hi-IN&text=आपकी जन्म तिथि');
     expect(played).toHaveLength(1);
     expect(deviceSpoken).toEqual([]);
   });
