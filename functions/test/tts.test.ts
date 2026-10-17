@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
-import { asWav, handleTts, MAX_TTS_CHARS, type TtsReq, type TtsRes } from '../src/tts';
+import { asWav, handleTts, MAX_TTS_CHARS, resetExhaustedModels, synthesize, type TtsReq, type TtsRes } from '../src/tts';
 import './support';
 
 function res() {
@@ -34,6 +34,7 @@ describe('tts', () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = realFetch;
+    resetExhaustedModels();
   });
 
   function stubGemini(statuses: number[]): string[] {
@@ -68,6 +69,21 @@ describe('tts', () => {
     await handleTts(req({ lang: 'te-IN', text: 'పేరు చెప్పండి' }), r, allow);
     assert.equal(out.statusCode, 200);
     assert.deepEqual(models, ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts']);
+  });
+
+  it('skips a model that ran out of quota for a while, then tries it again', async () => {
+    let clock = 1_000_000;
+    const now = () => clock;
+    const first = stubGemini([429]);
+    await synthesize('k', 'नमस्ते', now);
+    assert.deepEqual(first, ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts']);
+    const second = stubGemini([]);
+    await synthesize('k', 'नमस्ते', now);
+    assert.deepEqual(second, ['gemini-3.8-flash-tts']);
+    clock += 11 * 60 * 1000;
+    const later = stubGemini([]);
+    await synthesize('k', 'नमस्ते', now);
+    assert.deepEqual(later, ['gemini-3.8-flash-lite-tts']);
   });
 
   it('refuses English, unknown languages, empty and over-long text, and POST', async () => {

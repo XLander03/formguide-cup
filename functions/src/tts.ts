@@ -16,7 +16,17 @@ import { firestoreCounter } from './rateLimitStore';
  * copy are generated once, and cache hits never reach this function or its rate limit.
  */
 
-export const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'] as const;
+/**
+ * Tried in order. Each model has its own quota on the key, so when the fast one is out
+ * (429) the next one still speaks; preview TTS quotas are small and ran out in testing.
+ */
+export const TTS_MODELS = [
+  'gemini-3.8-flash-lite-tts',
+  'gemini-3.8-flash-tts',
+  'gemini-3.1-flash-tts-preview',
+  'gemini-2.5-flash-preview-tts',
+  'gemini-2.5-pro-preview-tts',
+] as const;
 export const MAX_TTS_CHARS = 700;
 /**
  * Its own bucket, apart from speak's: every Hindi turn speaks one or two lines, and sharing
@@ -67,10 +77,21 @@ export function asWav(audio: Buffer, mimeType: string): Buffer {
   return Buffer.concat([head, audio]);
 }
 
-/** One line of speech. Tries the fast model, then the full one on a quota or capacity error. */
-export async function synthesize(apiKey: string, text: string): Promise<Buffer> {
+/** Models that just ran out of quota, skipped until this time so each line does not wait on them. */
+const exhaustedUntil = new Map<string, number>();
+const EXHAUSTED_MS = 10 * 60 * 1000;
+
+/** For tests. */
+export function resetExhaustedModels(): void {
+  exhaustedUntil.clear();
+}
+
+/** One line of speech: the first model in TTS_MODELS that still has quota. */
+export async function synthesize(apiKey: string, text: string, now: () => number = Date.now): Promise<Buffer> {
   let lastStatus = 0;
-  for (const model of TTS_MODELS) {
+  const ready = TTS_MODELS.filter((model) => (exhaustedUntil.get(model) ?? 0) <= now());
+  // All out: try them all anyway rather than refuse outright.
+  for (const model of ready.length > 0 ? ready : TTS_MODELS) {
     const res = await fetch(`${API}/${model}:generateContent`, {
       method: 'POST',
       headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
@@ -84,6 +105,10 @@ export async function synthesize(apiKey: string, text: string): Promise<Buffer> 
     });
     if (!res.ok) {
       lastStatus = res.status;
+      // Google's own message says which quota ran out (per minute or per day).
+      const detail = await res.text().catch(() => '');
+      console.warn('tts_model_failed', model, res.status, detail.replace(/\s+/g, ' ').slice(0, 900));
+      if (res.status === 429) exhaustedUntil.set(model, now() + EXHAUSTED_MS);
       // A bad request will not get better on the other model.
       if (res.status === 429 || res.status >= 500) continue;
       break;
