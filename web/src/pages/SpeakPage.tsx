@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BankFields } from '../components/BankFields';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
-import { languageLabel } from '../lib/languages';
+import { languageByBcp47, languageLabel } from '../lib/languages';
 import {
   HELPLINE_COPY,
   OLD_CARD_BLOCKED_ACK,
@@ -257,6 +257,12 @@ export function SpeakPage() {
           <span className="flex items-center gap-2">
             <span className={`size-2 bg-primary ${listening ? 'bg-saffron' : ''}`} />
             Voice companion · {languageLabel(session.language)}
+            {session.spokenLang && session.spokenLang !== session.micLang ? (
+              <span className="normal-case text-background/50">
+                {' '}
+                · heard {languageLabel(languageByBcp47(session.spokenLang)?.id)}
+              </span>
+            ) : null}
           </span>
           <span>Turn {turns}</span>
         </div>

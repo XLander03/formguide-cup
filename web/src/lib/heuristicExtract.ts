@@ -30,8 +30,10 @@ import {
   hindiEnumLabel,
   liveNext,
   liveRefuse,
+  type ReadbackLang,
   type UtteranceLang,
 } from './utteranceLang';
+import { isRegionalLanguage, regionalReadback } from './readbackI18n';
 
 const MOBILE_RE = /\b(?:\+?91[\s-]?)?([6-9]\d{9})\b/;
 const PIN_RE = /\b(\d{6})\b/;
@@ -697,10 +699,14 @@ function formValue(form: FormVersion, values: FormValues, id: string): FormValue
 
 export function buildReadbackScript(
   values: FormValues,
-  lang: UtteranceLang = 'en',
+  lang: ReadbackLang = 'en',
   form: FormVersion = HDFC_V1,
 ): string {
   if (isDebitJourney(values.journey_mode)) return debitReadback(values, lang);
+  if (isRegionalLanguage(lang)) {
+    const ids = ['applicant_full_name', 'dob', 'mobile_registered', 'ovd_poi_type', 'account_product_intent', 'journey_mode'];
+    return regionalReadback(Object.fromEntries(ids.map((id) => [id, formValue(form, values, id)])), lang);
+  }
   const name = formValue(form, values, 'applicant_full_name') || (lang === 'en' ? 'applicant' : 'आवेदक');
   const dob = formValue(form, values, 'dob') || (lang === 'en' ? 'date of birth not set' : 'जन्म तिथि नहीं');
   const mobile = String(formValue(form, values, 'mobile_registered') || '');

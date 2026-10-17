@@ -80,6 +80,5 @@ Page language hint is ${language} (${name}). The transcript may be ${name}.
 Every string stored in field_updates must be English or Latin script so the form and PDF stay readable. Transliterate names, cities, and addresses. Do not copy ${name} script into values.
 Enums stay the English codes above. Booleans stay true/false.
 Set confidence from how clearly the value was heard. Do not skip a field, a confidence flag, or the confirm step because the language is ${name}.
-next_ask stays English. reply_lang stays "en" unless the transcript is Hindi.
-assistant_message stays English and must include the exact sentence "Fields vary by bank."`;
+Only the stored values are Latin. next_ask and assistant_message follow spoken_lang, in that language's own script.`;
 }

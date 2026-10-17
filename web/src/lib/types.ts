@@ -36,6 +36,12 @@ export interface ExtractResponse {
   assistant_message?: string;
   /** Language of this utterance. English path omits nothing required — default en. */
   reply_lang?: 'en' | 'hi' | 'mixed';
+  /** BCP-47 code of the language the speak function heard (auto-detected). */
+  spoken_lang?: string;
+  /** BCP-47 code next_ask is written in; English when no question in spoken_lang was usable. */
+  next_ask_lang?: string;
+  /** next_ask in English, spoken when the device has no voice for next_ask_lang. */
+  next_ask_en?: string | null;
 }
 
 export interface SchemaField {

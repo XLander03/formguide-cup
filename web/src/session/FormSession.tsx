@@ -31,9 +31,10 @@ import {
 import { speak, speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
 import { invalidFieldIds, normalizeInput } from '../lib/validate';
-import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
+import { readbackFollowup, type ReadbackLang, type UtteranceLang } from '../lib/utteranceLang';
 import {
   hasNonLatinLetter,
+  detectScriptLanguage,
   languageByBcp47,
   languageById,
   resolveReadbackVoice,
@@ -207,8 +208,17 @@ export interface FormSessionValue {
   language: ShellLanguage | null;
   journey: JourneyId | null;
   micLang: MicLang;
-  /** Language passed into the existing read-back script and TTS. Follows the mic. */
+  /**
+   * en/hi for page copy around the read-back. Follows the language the customer last
+   * spoke, else the mic.
+   */
   readbackLang: UtteranceLang;
+  /** Language the customer last spoke, auto-detected per voice or typed turn. Null until one. */
+  spokenLang: MicLang | null;
+  /** Language the read-back and questions are spoken in: spokenLang, else the mic. */
+  readbackBcp47: MicLang;
+  /** Script language for buildReadbackScript: en, hi, or a regional language id. */
+  readbackScriptLang: ReadbackLang;
   detectedLang: UtteranceLang;
   values: FormValues;
   busy: boolean;
@@ -295,6 +305,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   const journeyRef = useRef(journey);
   journeyRef.current = journey;
   const [micLang, setMicLangState] = useState<MicLang>(languageById(saved?.language)?.bcp47 ?? 'en-IN');
+  const [spokenLang, setSpokenLang] = useState<MicLang | null>(null);
   const [values, setValues] = useState<FormValues>(() =>
     bootFlags.current ? priyaDemoValues() : seedValues(saved),
   );
@@ -317,7 +328,12 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
    * the readback flow; this is a categorical label for display/export. */
   const [fieldSource, setFieldSource] = useState<Record<string, string>>({});
 
-  const readbackLang: UtteranceLang = micLang === 'hi-IN' ? 'hi' : 'en';
+  const readbackBcp47: MicLang = spokenLang ?? micLang;
+  const readbackLang: UtteranceLang = readbackBcp47 === 'hi-IN' ? 'hi' : 'en';
+  const readbackScriptLang: ReadbackLang =
+    readbackBcp47 === 'en-IN' || readbackBcp47 === 'hi-IN'
+      ? readbackLang
+      : (languageByBcp47(readbackBcp47)?.id as ReadbackLang | undefined) ?? 'en';
   const detectedLang: UtteranceLang = last?.reply_lang ?? readbackLang;
 
   const missing = useMemo(() => getMissingRequired(values), [values]);
@@ -413,6 +429,8 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     if (!option) return;
     setLanguage(option.id);
     setMicLangState(option.bcp47);
+    // A new pick starts fresh; the next turn detects again.
+    setSpokenLang(null);
     setValues((prev) => ({
       ...prev,
       preferred_language: option.englishName,
@@ -650,11 +668,14 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       try {
         const res = await extractFields(text, values);
         applyUpdates(res.field_updates, res, text);
+        const typed = detectScriptLanguage(text, micLang);
+        if (typed) setSpokenLang(typed);
+        else if (text.trim()) setSpokenLang('en-IN');
       } finally {
         setBusy(false);
       }
     },
-    [values, applyUpdates],
+    [values, applyUpdates, micLang],
   );
 
 
@@ -695,11 +716,21 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           return { transcript: null, error: 'bad_response' };
         }
         applyUpdates(data.field_updates, data, data.transcript);
+        const heard = languageByBcp47(data.spoken_lang)?.bcp47 ?? detectScriptLanguage(data.transcript, micLang);
+        if (heard) setSpokenLang(heard);
         const ask = data.next_ask?.trim() || '';
         const hindi = data.reply_lang === 'hi' || /[\u0900-\u097F]/.test(data.transcript);
+        const askLang = languageByBcp47(data.next_ask_lang)?.bcp47 ?? (hindi ? 'hi-IN' : 'en-IN');
         if (ask) {
           setSpeaking(true);
-          await speakForUtterance(ask, hindi ? 'hi' : 'en');
+          if (askLang === 'en-IN' || askLang === 'hi-IN') {
+            await speakForUtterance(ask, askLang === 'hi-IN' ? 'hi' : 'en');
+          } else {
+            // A regional question needs a matching device voice; without one, say it in English.
+            const voice = await resolveReadbackVoice(askLang);
+            if (voice.speech) await speak(ask, voice.speech.lang, undefined, voice.speech.voice);
+            else await speakForUtterance(data.next_ask_en?.trim() || ask, 'en');
+          }
         }
         return { transcript: data.transcript, error: null };
       } catch {
@@ -838,6 +869,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     setSpeaking(false);
     setReadingBack(false);
     setReadbackInEnglish(false);
+    setSpokenLang(null);
     const next = emptyValues();
     if (journey) next.journey_mode = journey;
     if (language) next.preferred_language = storedLanguageName(language);
@@ -939,14 +971,17 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       readbackRun.current.finish();
     }
     const id = ++readbackSeq.current;
-    const script = buildReadbackScript(values, readbackLang);
-    const plan = await resolveReadbackVoice(micLang);
+    // Read back in the language the customer spoke. With no device voice for it, the whole
+    // script switches to English rather than an English voice reading Telugu letters.
+    const plan = await resolveReadbackVoice(readbackBcp47);
     if (readbackSeq.current !== id) return;
+    const scriptLang: ReadbackLang = plan.fellBackToEnglish ? 'en' : readbackScriptLang;
+    const script = buildReadbackScript(values, scriptLang);
     setReadbackInEnglish(plan.fellBackToEnglish);
     setLast((prev) => ({
       field_updates: {},
       missing_required: missing,
-      next_ask: readbackFollowup(readbackLang),
+      next_ask: readbackFollowup(scriptLang),
       reply_lang: readbackLang,
       gates: prev?.gates ?? { answers: {} },
       completeness,
@@ -966,7 +1001,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         setReadbackInEnglish(false);
       }
     }
-  }, [values, missing, completeness, readbackLang, micLang, watchReadback, canReadback]);
+  }, [values, missing, completeness, readbackLang, readbackBcp47, readbackScriptLang, watchReadback, canReadback]);
 
   const onStopReadback = useCallback(() => {
     readbackSeq.current += 1;
@@ -992,6 +1027,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     journey,
     micLang,
     readbackLang,
+    spokenLang,
+    readbackBcp47,
+    readbackScriptLang,
     detectedLang,
     values,
     busy,

@@ -108,3 +108,35 @@ export async function resolveReadbackVoice(bcp47: string): Promise<ReadbackVoice
   if (!voice) return { fellBackToEnglish: true };
   return { fellBackToEnglish: false, speech: { lang: bcp47, voice } };
 }
+
+const SCRIPT_LANGS: Array<{ re: RegExp; codes: readonly MicLang[] }> = [
+  { re: /\p{Script=Devanagari}/u, codes: ['hi-IN', 'mr-IN'] },
+  { re: /\p{Script=Bengali}/u, codes: ['bn-IN', 'as-IN'] },
+  { re: /\p{Script=Telugu}/u, codes: ['te-IN'] },
+  { re: /\p{Script=Gujarati}/u, codes: ['gu-IN'] },
+  { re: /\p{Script=Kannada}/u, codes: ['kn-IN'] },
+  { re: /\p{Script=Malayalam}/u, codes: ['ml-IN'] },
+  { re: /\p{Script=Oriya}/u, codes: ['or-IN'] },
+  { re: /\p{Script=Gurmukhi}/u, codes: ['pa-IN'] },
+  { re: /\p{Script=Arabic}/u, codes: ['sd-Arab-IN'] },
+];
+
+/**
+ * Language of typed or transcribed text from its script, or null for Latin-only text.
+ * Devanagari and Bengali script are shared, so the mic hint picks between them.
+ * The speak function does the same with the model's guess; this covers typed turns.
+ */
+export function detectScriptLanguage(text: string, hint: MicLang): MicLang | null {
+  let best: (typeof SCRIPT_LANGS)[number] | null = null;
+  let bestCount = 0;
+  for (const row of SCRIPT_LANGS) {
+    let count = 0;
+    for (const ch of text) if (row.re.test(ch)) count++;
+    if (count > bestCount) {
+      best = row;
+      bestCount = count;
+    }
+  }
+  if (!best) return null;
+  return best.codes.includes(hint) ? hint : best.codes[0];
+}
