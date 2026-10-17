@@ -668,7 +668,11 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       body.append('current_values', JSON.stringify(values));
       // A published bank form also lets voice fill its own customer boxes. Never sent for HDFC v1.
       const formFields = speakFormFields(formRef.current);
-      if (formFields) body.append('form_fields', JSON.stringify(formFields));
+      if (formFields) {
+        body.append('form_fields', JSON.stringify(formFields));
+        // Lets the anonymous usage counts say which published form customers struggle with.
+        body.append('form_id', formRef.current.formId);
+      }
       body.append('audio', wav, 'clip.wav');
       const ctrl = new AbortController();
       const timer = window.setTimeout(() => ctrl.abort(), 70000);
