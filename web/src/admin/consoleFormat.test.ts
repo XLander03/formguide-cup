@@ -1,0 +1,23 @@
+import { describe, expect, it } from 'vitest';
+import { journeyLabel, relativeTime, sourceLabel } from './consoleFormat';
+
+const NOW = Date.parse('2026-10-17T12:00:00Z');
+
+describe('console formatting', () => {
+  it('shows relative time, or a dash when unknown', () => {
+    expect(relativeTime(null, NOW)).toBe('—');
+    expect(relativeTime('not a date', NOW)).toBe('—');
+    expect(relativeTime('2026-10-17T11:59:30Z', NOW)).toBe('just now');
+    expect(relativeTime('2026-10-17T11:45:00Z', NOW)).toBe('15 min ago');
+    expect(relativeTime('2026-10-17T09:00:00Z', NOW)).toBe('3 h ago');
+    expect(relativeTime('2026-10-16T12:00:00Z', NOW)).toBe('1 day ago');
+    expect(relativeTime('2026-10-12T12:00:00Z', NOW)).toBe('5 days ago');
+  });
+
+  it('labels journeys and sources for people', () => {
+    expect(journeyLabel('kyc_update')).toBe('KYC update');
+    expect(journeyLabel('nominee_change')).toBe('Nominee change');
+    expect(sourceLabel('acroform')).toBe('Fillable PDF');
+    expect(sourceLabel('ocr')).toBe('OCR');
+  });
+});

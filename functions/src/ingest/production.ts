@@ -1,13 +1,25 @@
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { AggregateField, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { isCupAdmin } from '../../../shared/forms/cupAdmin';
 import type { FormVersion } from '../../../shared/forms/types';
+import { SPEAK_PER_CLIENT } from '../rateLimit';
+import {
+  handleAdminForm,
+  handleAdminFormPdf,
+  handleAdminForms,
+  handleSetFormStatus,
+  recordFromDoc,
+  type AdminDeps,
+  type AdminPdfRes,
+  type AdminReq,
+  type VersionRecord,
+} from './admin';
 import { IngestError, MAX_PDF_BYTES } from './errors';
 import { ocrPageWithGemini } from './geminiOcr';
 import { handleIngest, handlePublish, safeStoragePath, type HttpReq, type HttpRes } from './handlers';
-import { strip, versionDocForWrite, versionFromDoc } from './versionDoc';
+import { strip, versionDocWithTime, versionFromDoc } from './versionDoc';
 
 function ensureAdmin(): void {
   if (getApps().length === 0) initializeApp();
@@ -93,7 +105,7 @@ export async function productionIngest(req: HttpReq, res: HttpRes): Promise<void
     },
     async createFormVersion(version: FormVersion) {
       // Throws form_too_large before any Firestore call if even the slim doc is over budget.
-      const doc = versionDocForWrite(version);
+      const doc = versionDocWithTime(version, new Date().toISOString());
       try {
         await versions(version.formId).doc(version.version).create(doc);
         await writeParent(version, 'draft');
@@ -161,9 +173,101 @@ export async function productionPublish(req: HttpReq, res: HttpRes): Promise<voi
       return versionFromDoc(snap.data());
     },
     async markPublished(formId: string, version: string, next: FormVersion) {
-      const published = versionDocForWrite({ ...next, formId, version, status: 'published' });
+      const published = versionDocWithTime({ ...next, formId, version, status: 'published' }, new Date().toISOString());
       await versions(formId).doc(version).set(published);
       await writeParent(published, 'published');
     },
   });
+}
+
+/** The speak limiter's windows: rateLimits/{ip_<hash>_<windowStart>} with expiresAt = start + one window. */
+async function voiceRequests24h(now = Date.now()): Promise<number | null> {
+  try {
+    // A window that started in the last 24 hours expires after now - 24h + one window.
+    const since = new Date(now - 24 * 60 * 60 * 1000 + SPEAK_PER_CLIENT.windowMs);
+    const snap = await db()
+      .collection('rateLimits')
+      .where('expiresAt', '>', since)
+      .aggregate({ total: AggregateField.sum('count') })
+      .get();
+    const total = Number(snap.data().total);
+    return Number.isFinite(total) ? total : null;
+  } catch (err) {
+    console.error('voice_requests_failed', err instanceof Error ? err.message.slice(0, 80) : 'unknown');
+    return null;
+  }
+}
+
+function adminDeps(): AdminDeps {
+  return {
+    verifyAdmin,
+    async listAllVersions() {
+      // One collection-group read instead of a query per form. Only forms/{id}/versions docs count.
+      const snap = await db().collectionGroup('versions').get();
+      const out: VersionRecord[] = [];
+      for (const doc of snap.docs) {
+        const parent = doc.ref.parent.parent;
+        if (!parent || parent.parent.id !== 'forms') continue;
+        const record = recordFromDoc(doc.data(), parent.id, doc.id);
+        if (record) out.push(record);
+      }
+      return out;
+    },
+    async loadVersion(formId, version) {
+      const snap = await versions(formId).doc(version).get();
+      return snap.exists ? recordFromDoc(snap.data(), formId, version) : null;
+    },
+    async readStorage(path) {
+      const file = getStorage().bucket().file(safeStoragePath(path));
+      const [exists] = await file.exists();
+      if (!exists) return null;
+      const [buf] = await file.download();
+      return buf;
+    },
+    voiceRequests24h: () => voiceRequests24h(),
+    async updateForm(formId, decide) {
+      const store = db();
+      const col = versions(formId);
+      const parentRef = store.collection('forms').doc(formId);
+      return store.runTransaction(async (tx) => {
+        const snap = await tx.get(col);
+        const all: FormVersion[] = [];
+        for (const doc of snap.docs) {
+          const record = recordFromDoc(doc.data(), formId, doc.id);
+          if (record) all.push(record.formVersion);
+        }
+        const change = decide(all);
+        const next = change.formVersion;
+        tx.set(col.doc(next.version), versionDocWithTime(next, new Date().toISOString()));
+        // Deliberately not writeParent: it keeps a published parent published, which is right
+        // for a re-ingest but would leave an unpublished form in the customer catalog.
+        tx.set(
+          parentRef,
+          { formId, bankId: next.bankId, journey: next.journey, status: change.parentStatus },
+          { merge: true },
+        );
+        return strip(next);
+      });
+    },
+  };
+}
+
+export async function productionAdminForms(req: AdminReq, res: HttpRes): Promise<void> {
+  ensureAdmin();
+  await handleAdminForms(req, res, adminDeps());
+}
+
+export async function productionAdminForm(req: AdminReq, res: HttpRes): Promise<void> {
+  ensureAdmin();
+  await handleAdminForm(req, res, adminDeps());
+}
+
+export async function productionAdminFormPdf(req: AdminReq, res: AdminPdfRes): Promise<void> {
+  ensureAdmin();
+  await handleAdminFormPdf(req, res, adminDeps());
+}
+
+export async function productionSetFormStatus(req: AdminReq, res: HttpRes): Promise<void> {
+  ensureAdmin();
+  await handleSetFormStatus(req, res, adminDeps());
 }

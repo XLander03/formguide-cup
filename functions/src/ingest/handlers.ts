@@ -46,7 +46,7 @@ export type PublishDeps = {
   markPublished: (formId: string, version: string, next: FormVersion) => Promise<void>;
 };
 
-function header(req: HttpReq, name: string): string | undefined {
+export function header(req: HttpReq, name: string): string | undefined {
   if (req.header) {
     const value = req.header(name);
     if (value) return value;
@@ -145,7 +145,7 @@ function pageStoragePath(formId: string, version: string, page: number): string 
   return `forms/${formId}/versions/${version}/pages/${page}.png`;
 }
 
-function sendError(res: HttpRes, err: unknown): void {
+export function sendError(res: HttpRes, err: unknown): void {
   if (err instanceof IngestError) {
     res.status(err.httpStatus).json({ error: err.code, ...(err.details || {}) });
     return;
