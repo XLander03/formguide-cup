@@ -1,5 +1,6 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useRef, useState } from 'react';
 import { MAX_PLAN_TEXT } from '../../../shared/journeyPlan';
+import { CompanionPanel, type HeardSource } from '../components/CompanionPanel';
 import { PlanCard } from '../components/PlanCard';
 import { PublishedFormRows } from '../components/PublishedFormRows';
 import { formKey } from '../forms/activeForm';
@@ -15,14 +16,11 @@ import {
   type PlanResponse,
   type RequestPlan,
 } from '../lib/journeyPlan';
-import { LANGUAGES } from '../lib/languages';
 import { appliesToJourney } from '../lib/publishedForms';
-import { transcribeClip } from '../lib/transcribeClip';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
-import { ArrowRightIcon, CheckIcon, MicIcon, StopIcon } from '../ui/icons';
-import { useSpeakMic } from '../ui/useMic';
+import { ArrowRightIcon, CheckIcon } from '../ui/icons';
 
 type OpenCard = {
   id: string;
@@ -131,39 +129,10 @@ const OPEN_CARDS: OpenCard[] = [
 
 const LATER = ['Nomination', 'Personal loan', 'Fixed deposit', 'NEFT transfer'];
 
-const SAMPLES = [
-  'मेरा डेबिट कार्ड चोरी हो गया और मैंने घर बदल लिया है',
-  'मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है',
-  'My bank sent a letter saying I need to redo my KYC',
-] as const;
-
-type HeardSource = 'live' | 'sample' | 'typed';
-
 /** Planner failed or did not finish: keep the single-card pick, say so gently. */
 function fallbackNote(error: string | null): string {
   if (error === 'rate_limited') return 'Too many tries from this network. I picked the closest form below instead.';
   return 'I could not plan this just now, so I picked the closest form below. You can change it.';
-}
-
-function WaveMark() {
-  const bars = [6, 10, 14, 8, 12];
-  return (
-    <span className="flex h-4 items-end gap-0.5" aria-hidden="true">
-      {bars.map((height, index) => (
-        <span key={index} className="w-0.5 bg-current" style={{ height }} />
-      ))}
-    </span>
-  );
-}
-
-function GreenDots() {
-  return (
-    <div className="mt-3 flex items-center gap-1" aria-hidden="true">
-      {Array.from({ length: 28 }, (_, index) => (
-        <span key={index} className="size-1 rounded-full bg-primary" />
-      ))}
-    </div>
-  );
 }
 
 export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: RequestPlan } = {}) {
@@ -182,8 +151,7 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
   } = useFormSession();
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
-  const [heardSource, setHeardSource] = useState<HeardSource>('typed');
-  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ text: string; source: HeardSource } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
   const [planResult, setPlanResult] = useState<{ result: PlanResponse; text: string } | null>(null);
@@ -212,8 +180,8 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
   async function applyUtterance(text: string, source: HeardSource) {
     const clean = text.trim().slice(0, MAX_PLAN_TEXT);
     setHeard(clean);
-    setHeardSource(source);
     if (!clean) return;
+    setSaid({ text: clean, source });
     applyHeuristic(clean);
     const seq = ++planSeq.current;
     setPlanning(true);
@@ -244,142 +212,20 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
     }
   }
 
-  function onTyped(event: FormEvent) {
-    event.preventDefault();
-    void applyUtterance(heard, heardSource);
-  }
-
-  const mic = useSpeakMic(micLang, (wav) => {
-    setBusy(true);
-    setNote(null);
-    void transcribeClip(wav, micLang).then((result) => {
-      setBusy(false);
-      if (result.transcript) void applyUtterance(result.transcript, 'live');
-      else setNote(result.error);
-    });
-  });
-
   return (
-    <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
-      <section className="border-b-2 border-foreground bg-foreground px-5 py-8 text-background lg:col-span-5 lg:border-b-0 lg:border-r-2 lg:px-8">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-          01 · Talk to your companion
-        </p>
-        <h1 className="mt-3 max-w-[11ch] font-display text-5xl leading-[0.95] sm:text-6xl">
-          Just tell me what you need.
-        </h1>
-        <p className="mt-4 max-w-sm text-sm leading-relaxed text-background/80">
-          Speak in your language, or mix in English.
-        </p>
-
-        <div className="mt-10 flex flex-col items-center">
-          <button
-            type="button"
-            aria-label={mic.listening ? 'Stop and choose a form' : 'Tap and say what you need'}
-            aria-pressed={mic.listening}
-            disabled={busy && !mic.listening}
-            onClick={() => {
-              if (mic.listening) mic.stop();
-              else if (!busy) void mic.start();
-            }}
-            className="grid size-40 place-items-center rounded-full bg-primary text-primary-foreground"
-          >
-            {mic.listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
-          </button>
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide">
-            {mic.listening ? 'Listening' : busy ? 'Choosing a form' : planning ? 'Planning your forms' : 'Tap · say your need'}
-          </p>
-          {mic.error ? <p className="mt-2 text-center text-xs text-saffron">{mic.error}</p> : null}
-          {note ? <p className="mt-2 max-w-xs text-center text-xs text-saffron">{note}</p> : null}
-          <GreenDots />
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px]" role="group" aria-label="Language">
-            <span className="flex items-center gap-1.5 text-background/80">
-              <WaveMark /> Language:
-            </span>
-            {LANGUAGES.map((option) => {
-              const selectedLang = language === null ? option.id === 'en' : language === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  aria-pressed={selectedLang}
-                  aria-label={option.beta ? `${option.englishName}, Beta` : option.englishName}
-                  onClick={() => selectLanguage(option.id)}
-                  className={`whitespace-nowrap border px-3 py-1 font-semibold ${
-                    selectedLang
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-background/40 bg-transparent text-background/80'
-                  }`}
-                >
-                  {option.pickerLabel}
-                  {option.beta ? (
-                    <span className="ml-1.5 inline-block rounded-full border border-current px-1 py-px text-[9px] font-semibold uppercase leading-none">
-                      Beta
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-3 text-center text-[11px] text-background/70">
-            Tested in English and Hindi, more languages in Beta
-          </p>
-        </div>
-
-        <form className="mt-8 border-t border-background/20 pt-4" onSubmit={onTyped}>
-          <label htmlFor="journey-what-happened" className="flex items-baseline justify-between gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">Tell us what happened</span>
-            {heard && heardSource !== 'typed' ? (
-              <span className="text-[10px] uppercase text-background/50">
-                {heardSource === 'live' ? 'Heard' : 'Sample · not a live transcript'}
-              </span>
-            ) : null}
-          </label>
-          <textarea
-            id="journey-what-happened"
-            value={heard}
-            maxLength={MAX_PLAN_TEXT}
-            rows={3}
-            placeholder="e.g. My card was stolen and I moved house"
-            onChange={(event) => {
-              setHeard(event.target.value);
-              setHeardSource('typed');
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void applyUtterance(heard, heardSource);
-              }
-            }}
-            className="mt-2 w-full resize-none border border-background/30 bg-transparent p-3 text-sm text-background placeholder:text-background/40 focus:border-primary focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={planning || !heard.trim()}
-            className="mt-2 flex w-full items-center justify-center gap-2 border border-primary bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
-          >
-            {planning ? 'Planning your forms…' : 'Plan my forms'} <ArrowRightIcon className="size-4" />
-          </button>
-        </form>
-
-        <div className="mt-6">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-background/50">
-            No mic? Try a sample voice
-          </p>
-          <div className="mt-3 flex flex-col gap-2">
-            {SAMPLES.map((sample) => (
-              <button
-                key={sample}
-                type="button"
-                onClick={() => void applyUtterance(sample, 'sample')}
-                className="border border-background/30 px-3 py-2 text-left text-xs hover:border-primary"
-              >
-                ▶ {sample}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+    <div className="grid min-h-[calc(100vh-150px)] grid-cols-1 lg:grid-cols-12">
+      <CompanionPanel
+        language={language}
+        micLang={micLang}
+        selectLanguage={selectLanguage}
+        draft={heard}
+        onDraftChange={setHeard}
+        said={said}
+        planning={planning}
+        note={note}
+        onNote={setNote}
+        onUtterance={(text, source) => void applyUtterance(text, source)}
+      />
 
       <section className="px-5 py-8 lg:col-span-7 lg:px-8">
         {planning ? (
