@@ -13,7 +13,7 @@ import { fieldIssue } from '../lib/validate';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
 import { useRoute } from '../routing/router';
 import { flagsDemoRequested, useFormSession } from '../session/FormSession';
-import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
+import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
 import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
 import { useSpeakMic } from '../ui/useMic';
@@ -342,7 +342,9 @@ export function SpeakPage() {
         ? 'ज़रूरी जानकारी पूरी हो गई।'
         : 'All required details are in.');
   const label = draftChoiceLabel(session.journey, session.values.account_product_intent);
-  const lightBtn = `${BTN_OUTLINE} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
+  // Built on BTN, not BTN_OUTLINE: its text-foreground/bg-background win over these in the stylesheet,
+  // which left dark text on the dark panel.
+  const lightBtn = `${BTN} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
 
   const sectionStats = sheetSections.map((name) => {
     const rows = sheetFields.filter((field) => field.section === name);
