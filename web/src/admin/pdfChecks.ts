@@ -7,7 +7,7 @@ export const PDF_MAX_PAGES = MAX_PDF_PAGES;
 
 export const PDF_CHOOSE = 'Choose a PDF.';
 export const PDF_TOO_LARGE = 'This PDF is too large.';
-export const PDF_TOO_MANY_PAGES = 'This PDF has too many pages.';
+export const PDF_TOO_MANY_PAGES = `This PDF has more than ${PDF_MAX_PAGES} pages.`;
 export const PDF_NO_PAGES = 'This PDF has no pages.';
 export const PDF_NOT_READABLE = 'This file is not a readable PDF.';
 
