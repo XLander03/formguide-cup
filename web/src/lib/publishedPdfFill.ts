@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFForm } from 'pdf-lib';
+import { derivedNameValue } from '../../../shared/forms/nameParts';
 import { isBundledForm } from '../forms/activeForm';
 import type { FieldRecord, FormVersion, PdfBox } from '../forms/types';
 import { buildFilledKycPdf, drawDraftWatermark } from './pdfFill';
@@ -34,12 +35,28 @@ function hasBox(field: FieldRecord): boolean {
   return field.page >= 1 && field.box.w > 0 && field.box.h > 0;
 }
 
+/**
+ * The value printed for a field. Name-part cells (applicant_first_name...) are cut
+ * from the full name unless a value was typed for that id. A permanent-address cell
+ * repeats the current address when the user said the two are the same.
+ */
+function fieldValue(id: string, values: FormValues): FormValues[string] {
+  const own = values[id];
+  if (typeof own === 'string' && own.trim()) return own;
+  if (id.startsWith('addr_permanent_') && values.addr_permanent_same_as_current === true) {
+    const current = values[id.replace('addr_permanent_', 'addr_current_')];
+    if (typeof current === 'string' && current.trim()) return current;
+  }
+  const derived = derivedNameValue(id, values);
+  return derived === undefined ? own : derived;
+}
+
 /** Writes implied by the current values. A checkbox is only ever ticked, never written into. */
 export function planBoxWrites(form: FormVersion, values: FormValues): BoxWrite[] {
   const writes: BoxWrite[] = [];
   for (const field of form.fields) {
     if (!hasBox(field) && !field.pdfField) continue;
-    const value = values[field.id];
+    const value = fieldValue(field.id, values);
     const base = { id: field.id, page: field.page, box: field.box, pdfField: field.pdfField };
     if (field.type === 'checkbox') {
       if (value === true) writes.push({ ...base, kind: 'check' });

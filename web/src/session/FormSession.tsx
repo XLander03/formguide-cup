@@ -17,6 +17,7 @@ import { extractFields } from '../lib/extractClient';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { isJourneyId, type JourneyId } from '../lib/journeys';
 import { maskSensitiveFields, shouldRedactAadhaarQuote } from '../lib/pii';
+import { speakFormFields } from '../lib/speakFormFields';
 import {
   completenessLevel,
   emptyValues,
@@ -506,7 +507,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
             // The masked *value* is useless if the full Aadhaar number is
             // still sitting unmasked in the quoted "said" transcript right
             // next to it — redact the quote itself for this field too.
-            if (shouldRedactAadhaarQuote(key, resolvedPoiType, resolvedPoaType, AADHAAR_PARTIAL_IDS)) {
+            // A bank box the server masked (an Aadhaar-like number) gets the same treatment.
+            const maskedBankBox = key.startsWith('custom_') && typeof value === 'string' && value.includes('••••');
+            if (maskedBankBox || shouldRedactAadhaarQuote(key, resolvedPoiType, resolvedPoaType, AADHAAR_PARTIAL_IDS)) {
               next[key] = 'Aadhaar number redacted from transcript.';
               continue;
             }
@@ -602,6 +605,9 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
       const body = new FormData();
       body.append('language', micLang);
       body.append('current_values', JSON.stringify(values));
+      // A published bank form also lets voice fill its own customer boxes. Never sent for HDFC v1.
+      const formFields = speakFormFields(formRef.current);
+      if (formFields) body.append('form_fields', JSON.stringify(formFields));
       body.append('audio', wav, 'clip.wav');
       const ctrl = new AbortController();
       const timer = window.setTimeout(() => ctrl.abort(), 70000);

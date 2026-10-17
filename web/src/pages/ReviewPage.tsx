@@ -146,7 +146,14 @@ export function ReviewPage() {
         </div>
         <div className="mt-6">
           <FieldGroups values={session.values} flashIds={session.flashIds} hindi={session.language === 'hi'} />
-          <BankFields form={session.form} values={session.values} onChange={session.onChange} />
+          <BankFields
+            form={session.form}
+            values={session.values}
+            onChange={session.onChange}
+            flashIds={session.flashIds}
+            said={session.said}
+            fieldSource={session.fieldSource}
+          />
         </div>
         <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t-2 border-foreground pt-5">
           <p className={`max-w-md text-xs ${blocker ? 'text-destructive' : 'text-muted-foreground'}`}>

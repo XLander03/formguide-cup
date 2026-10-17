@@ -1,3 +1,4 @@
+import { isDerivedNameId } from '../../../shared/forms/nameParts';
 import { HDFC_V1, schemaFieldIdSet } from './hdfcV1';
 import type { FieldRecord, FormVersion } from './types';
 
@@ -23,11 +24,14 @@ export function sharedFieldsOnForm(form: FormVersion): FieldRecord[] {
   return form.fields.filter((field) => SHARED_IDS.has(field.id));
 }
 
-/** Fields only this bank's form has. The bundled form has none. */
+/**
+ * Fields only this bank's form has. The bundled form has none. Name-part cells
+ * (applicant_first_name...) are filled from the full name, so they are not asked.
+ */
 export function bankOnlyFields(form: FormVersion): FieldRecord[] {
   if (isBundledForm(form)) return [];
   return form.fields
-    .filter((field) => !SHARED_IDS.has(field.id))
+    .filter((field) => !SHARED_IDS.has(field.id) && !isDerivedNameId(field.id))
     .sort((a, b) => a.page - b.page || a.order - b.order);
 }
 

@@ -1,3 +1,10 @@
+/** Plain words for the speak function's error codes. The journey page never shows a raw code. */
+export function journeyMicMessage(code: string | null | undefined): string {
+  if (code && /rate_limited|_429/.test(code)) return 'Too many tries from this network. Wait a minute, then try again.';
+  if (code && /_503|unavailable/.test(code)) return 'The voice service is busy right now. Try again, or tap a card.';
+  return 'Could not hear that. Try again, or tap a card.';
+}
+
 /** Same speak function the fill page uses. Only the transcript is needed to choose a journey. */
 export async function transcribeClip(
   wav: Blob,
@@ -14,10 +21,7 @@ export async function transcribeClip(
     const data = (await res.json()) as { transcript?: unknown; error?: unknown };
     const transcript = typeof data.transcript === 'string' ? data.transcript.trim() : '';
     if (!transcript) {
-      return {
-        transcript: null,
-        error: typeof data.error === 'string' ? data.error : 'Could not hear that. Try again.',
-      };
+      return { transcript: null, error: journeyMicMessage(typeof data.error === 'string' ? data.error : null) };
     }
     return { transcript, error: null };
   } catch {

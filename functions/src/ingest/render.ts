@@ -2,12 +2,15 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createCanvas } from '@napi-rs/canvas';
+import { pageTextFromItems, type PageText } from './textLayer';
 
 export type RenderedPage = {
   page: number;
   png: Buffer;
   width: number;
   height: number;
+  /** The page's own text layer, when it has one (empty words for scanned pages). */
+  text?: PageText;
 };
 
 const nodeRequire = createRequire(__filename);
@@ -18,10 +21,27 @@ function standardFontDataUrl(): string {
   return pathToFileURL(dir).href;
 }
 
-type PdfjsPage = {
-  getViewport: (params: { scale: number }) => { width: number; height: number };
-  render: (params: { canvasContext: unknown; viewport: unknown }) => { promise: Promise<void> };
+type PdfjsViewport = {
+  width: number;
+  height: number;
+  convertToViewportPoint: (x: number, y: number) => number[];
 };
+
+type PdfjsPage = {
+  getViewport: (params: { scale: number }) => PdfjsViewport;
+  render: (params: { canvasContext: unknown; viewport: unknown }) => { promise: Promise<void> };
+  getTextContent: () => Promise<{ items: unknown[] }>;
+};
+
+/** A page whose text cannot be read is treated like a scan: no text layer. */
+async function readPageText(page: PdfjsPage, viewport: PdfjsViewport): Promise<PageText> {
+  try {
+    const content = await page.getTextContent();
+    return pageTextFromItems(content.items, viewport);
+  } catch {
+    return { width: viewport.width, height: viewport.height, words: [] };
+  }
+}
 
 type PdfjsDoc = {
   numPages: number;
@@ -79,6 +99,7 @@ export async function renderPdfPages(bytes: Uint8Array): Promise<RenderedPage[]>
         png: canvas.toBuffer('image/png'),
         width,
         height,
+        text: await readPageText(page, base),
       });
     }
   } finally {

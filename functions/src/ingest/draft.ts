@@ -1,4 +1,4 @@
-import { withAutoAccept } from '../../../shared/forms/review';
+import { AUTO_ACCEPT_ABOVE, withAutoAccept } from '../../../shared/forms/review';
 import type { FieldRecord, FormVersion } from '../../../shared/forms/types';
 import { readAcroFormFields, loadPdf } from './acroform';
 import { IngestError, MAX_PDF_BYTES, MAX_PDF_PAGES } from './errors';
@@ -6,6 +6,8 @@ import type { OcrField, OcrPageInput } from './geminiOcr';
 import { assignOrder, normalisedTopLeftToPdfBox, roundPt } from './geom';
 import { customId, matchLibrary, roundScore } from './match';
 import { renderPdfPages, type RenderedPage } from './render';
+import { placePageFields } from './snap';
+import type { PageText } from './textLayer';
 
 export type OcrPageFn = (input: OcrPageInput) => Promise<OcrField[]>;
 
@@ -26,15 +28,20 @@ function recordsFromOcr(
   pageWidth: number,
   pageHeight: number,
   used: Set<string>,
+  text?: PageText,
 ): FieldRecord[] {
   const records: FieldRecord[] = [];
-  for (const raw of found) {
-    const box = normalisedTopLeftToPdfBox(raw.box, pageWidth, pageHeight);
+  // Snapped to the page's own text layer when it has one (see snap.ts).
+  const placements = placePageFields(found, text);
+  for (const [index, raw] of found.entries()) {
+    const placed = placements[index];
+    if (!placed) continue;
+    const box = normalisedTopLeftToPdfBox(placed.box, pageWidth, pageHeight);
     if (!box) continue;
-    const hit = matchLibrary(raw.label, used);
+    const hit = matchLibrary(raw.label, used, { type: raw.type });
     const entry = hit.entry;
     const id = entry ? entry.id : customId(raw.label, used);
-    if (entry) used.add(entry.id);
+    if (hit.claim) used.add(hit.claim);
     const modelType = raw.type;
     const type = entry
       ? (modelType === 'checkbox' || modelType === 'choice' ? modelType : entry.type)
@@ -50,7 +57,8 @@ function recordsFromOcr(
       pii: entry ? entry.pii : true,
       ...(entry?.section ? { section: entry.section } : raw.section ? { section: raw.section } : {}),
       order: 0,
-      confidence: clampConfidence(raw.confidence),
+      // A doubtful placement never auto-accepts: it waits at or below the review line.
+      confidence: clampConfidence(placed.doubtful ? Math.min(raw.confidence, AUTO_ACCEPT_ABOVE) : raw.confidence),
       checked: false,
       page,
       box: {
@@ -113,7 +121,7 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
   const fields: FieldRecord[] = [];
   pages.forEach((page, index) => {
     const size = loaded.pageSize(page.page);
-    fields.push(...recordsFromOcr(found[index], page.page, size.width, size.height, used));
+    fields.push(...recordsFromOcr(found[index], page.page, size.width, size.height, used, page.text));
   });
   return {
     source: 'ocr',

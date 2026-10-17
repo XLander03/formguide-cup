@@ -15,6 +15,8 @@ function ocrFor(page: number): OcrField[] {
       type: 'text',
       required: false,
       box: { x: 0.1, y: 0.2, w: 0.4, h: 0.05 },
+      // Printed "Date of birth" is drawn at x=72pt; the model put it 10.8pt left.
+      labelBox: { x: 0.1, y: 0.1, w: 0.15, h: 0.02 },
       confidence: 0.91,
     }];
   }
@@ -93,7 +95,12 @@ describe('ingestForm', () => {
     assert.equal(dob?.checked, true);
     assert.equal(dob?.pii, true);
     assert.equal(dob?.page, 1);
-    assert.deepEqual(dob?.box, { x: 61.2, y: 594, w: 244.8, h: 39.6 });
+    // Moved by the measured label offset: right 10.8pt onto x=72, and down to the
+    // label's real line (glyphs ~82–94pt from the top vs. the predicted 79–95pt centre).
+    assert.equal(dob?.box.x, 72);
+    assert.equal(dob?.box.w, 244.8);
+    assert.equal(dob?.box.h, 39.6);
+    assert.ok(Math.abs((dob?.box.y ?? 0) - (594 - (88.4 - 87.12))) < 1.5, `dob y ${dob?.box.y}`);
     const custom = draft.fields.find((field) => field.id === 'custom_favourite_colour');
     assert.ok(custom);
     assert.equal(custom?.pii, true);
