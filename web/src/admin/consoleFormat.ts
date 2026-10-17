@@ -34,11 +34,19 @@ export function relativeTime(iso: string | null, now: number = Date.now()): stri
   return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** Why Publish is off for a row, or null when it can publish. */
-export function publishBlockedReason(row: AdminFormRow): string | null {
-  if (row.status !== 'draft') return null;
-  if (row.needsReview > 0) {
-    return `${row.needsReview} field${row.needsReview === 1 ? '' : 's'} still need review.`;
-  }
-  return null;
+/** Short badge text for the console: customers call a published form "live". */
+export function badgeLabel(status: AdminFormRow['status']): string {
+  return status === 'published' ? 'Live' : statusLabel(status);
+}
+
+/** One quiet line: "OCR · 262 fields · 23 filled by voice · updated 5 min ago" ("updated" left out when unknown). */
+export function versionSummary(row: AdminFormRow, now: number = Date.now()): string {
+  const parts = [
+    sourceLabel(row.source),
+    `${row.fieldCount} field${row.fieldCount === 1 ? '' : 's'}`,
+    `${row.sharedCount} filled by voice`,
+  ];
+  const updated = relativeTime(row.updatedAt, now);
+  if (updated !== '—') parts.push(`updated ${updated}`);
+  return parts.join(' · ');
 }

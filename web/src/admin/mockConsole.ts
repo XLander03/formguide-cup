@@ -1,4 +1,4 @@
-import { adminFormRow, adminStats, type AdminFormsResponse } from '../../../shared/forms/admin';
+import { adminFormRow, adminStats, type AdminFormRow, type AdminFormsResponse } from '../../../shared/forms/admin';
 import type { FieldRecord, FormStatus, FormVersion } from '../../../shared/forms/types';
 import { PLACEHOLDER_FORM_ID, placeholderFormVersion } from './placeholderForm';
 
@@ -13,25 +13,55 @@ interface MockEntry {
 
 let entries: MockEntry[] | null = null;
 
-function confirmed(fields: FieldRecord[]): FieldRecord[] {
-  return fields.map((field) => ({ ...field, checked: true }));
+interface MockSpec {
+  formId: string;
+  bankId: string;
+  journey: string;
+  status: FormStatus;
+  fillable: boolean;
+  fields: number;
+  shared: number;
+  needsReview: number;
 }
 
+/**
+ * A form shaped like a real upload: `fields` fields, `shared` of them on the
+ * shared library (so voice fills them) and `needsReview` low-confidence ones
+ * still unchecked. Boxes reuse the placeholder's, so review still renders.
+ */
+function mockForm(spec: MockSpec): FormVersion {
+  const base = placeholderFormVersion({ bankId: spec.bankId, journey: spec.journey, fillable: spec.fillable });
+  const fields: FieldRecord[] = Array.from({ length: spec.fields }, (_, index) => {
+    const shape = base.fields[index % base.fields.length];
+    const round = Math.floor(index / base.fields.length);
+    const shared = index < spec.shared;
+    const id = shared ? (round === 0 ? shape.id : `${shape.id}_${round + 1}`) : `custom_field_${index + 1}`;
+    const unchecked = index >= spec.fields - spec.needsReview;
+    return {
+      ...shape,
+      id,
+      label: round === 0 ? shape.label : `${shape.label} ${round + 1}`,
+      order: index + 1,
+      pdfField: undefined,
+      confidence: unchecked ? 0.5 : 0.95,
+      checked: !unchecked,
+    };
+  });
+  return { ...base, formId: spec.formId, status: spec.status, fields };
+}
+
+/** Mirrors production today: a live form with a newer draft, and repeated uploads of one PDF. */
 function seed(): MockEntry[] {
-  const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
-  const placeholder = placeholderFormVersion({ bankId: 'HDFC', journey: 'kyc_update', fillable: false });
-  const ready = placeholderFormVersion({ bankId: 'Axis', journey: 'account_opening', fillable: true });
-  const live = placeholderFormVersion({ bankId: 'ICICI', journey: 'kyc_update', fillable: true });
-  const old = placeholderFormVersion({ bankId: 'PNB', journey: 'rekyc', fillable: false });
+  const icici = { bankId: 'ICICI', journey: 'rekyc', fillable: false, fields: 129, shared: 41, needsReview: 5 };
   return [
-    { form: placeholder, updatedAt: hoursAgo(0.2) },
-    { form: { ...ready, formId: 'axis_aof_mock', fields: confirmed(ready.fields) }, updatedAt: hoursAgo(5) },
-    {
-      form: { ...live, formId: 'icici_kyc_mock', status: 'published', fields: confirmed(live.fields) },
-      updatedAt: hoursAgo(50),
-    },
-    { form: { ...old, formId: 'pnb_rekyc_mock', status: 'retired' }, updatedAt: null },
-  ];
+    mockForm({ formId: 'form_axis_aof_new', bankId: 'Axis', journey: 'account_opening', status: 'draft', fillable: false, fields: 262, shared: 23, needsReview: 0 }),
+    mockForm({ formId: 'form_axis_aof_old', bankId: 'Axis', journey: 'account_opening', status: 'published', fillable: false, fields: 248, shared: 21, needsReview: 0 }),
+    mockForm({ ...icici, formId: 'form_icici_rekyc_a', status: 'draft' }),
+    mockForm({ ...icici, formId: 'form_icici_rekyc_b', status: 'draft' }),
+    mockForm({ ...icici, formId: 'form_icici_rekyc_c', status: 'draft' }),
+    mockForm({ ...icici, formId: 'form_icici_rekyc_live', status: 'published', needsReview: 0 }),
+    mockForm({ formId: 'form_axis_rekyc', bankId: 'Axis', journey: 'rekyc', status: 'published', fillable: true, fields: 64, shared: 30, needsReview: 0 }),
+  ].map((form) => ({ form, updatedAt: null }));
 }
 
 function store(): MockEntry[] {
@@ -43,9 +73,20 @@ export function resetMockConsole(): void {
   entries = null;
 }
 
+/** Same order as the server: newest updatedAt first, rows without one last by formId. */
+function newestFirst(a: AdminFormRow, b: AdminFormRow): number {
+  if (a.updatedAt && b.updatedAt && a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? 1 : -1;
+  if (a.updatedAt && !b.updatedAt) return -1;
+  if (!a.updatedAt && b.updatedAt) return 1;
+  return a.formId.localeCompare(b.formId);
+}
+
 export function mockAdminForms(): AdminFormsResponse {
-  const rows = store().map((entry) => adminFormRow(entry.form, entry.updatedAt));
-  return { forms: rows, stats: adminStats(rows, 42) };
+  const rows = store()
+    .map((entry) => adminFormRow(entry.form, entry.updatedAt))
+    .sort(newestFirst);
+  // Production cannot read the voice counter yet either.
+  return { forms: rows, stats: adminStats(rows, null) };
 }
 
 export function mockAdminForm(formId: string, version?: string): FormVersion {
