@@ -195,19 +195,17 @@ export async function handleIngest(req: HttpReq, res: HttpRes, deps: IngestDeps)
       fields: draft.fields,
     });
     if (formVersion.status !== 'draft') throw new IngestError('ingest_failed', 500);
-    await deps.writeStorage(pdfPath, Buffer.from(bytes), 'application/pdf');
-    const pages: PageImage[] = [];
-    for (const page of draft.pages) {
-      const storagePath = pageStoragePath(formId, version, page.page);
-      await deps.writeStorage(storagePath, page.png, 'image/png');
-      pages.push({
-        page: page.page,
-        storagePath,
-        width: page.width,
-        height: page.height,
-        pngBase64: page.png.toString('base64'),
-      });
-    }
+    const pages: PageImage[] = draft.pages.map((page) => ({
+      page: page.page,
+      storagePath: pageStoragePath(formId, version, page.page),
+      width: page.width,
+      height: page.height,
+      pngBase64: page.png.toString('base64'),
+    }));
+    await Promise.all([
+      deps.writeStorage(pdfPath, Buffer.from(bytes), 'application/pdf'),
+      ...draft.pages.map((page, index) => deps.writeStorage(pages[index].storagePath, page.png, 'image/png')),
+    ]);
     await deps.createFormVersion(formVersion);
     res.status(200).json({ formVersion, pages });
   } catch (err) {

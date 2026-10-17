@@ -75,7 +75,7 @@ function recordsFromOcr(
 
 /**
  * Parse a PDF and produce draft fields. Fields above AUTO_ACCEPT_ABOVE come back checked. AcroForm PDFs never call `ocrPage`.
- * Flat PDFs call it once per page, in order.
+ * Flat PDFs call it once per page, concurrently; results are merged in page order.
  */
 export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promise<IngestDraft> {
   if (bytes.byteLength === 0) throw new IngestError('pdf_empty', 400);
@@ -107,19 +107,22 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
     };
   }
 
+  // Each page is an independent Gemini call taking tens of seconds, so run them
+  // together: a 4-page ingest then costs about one page's latency, not four.
+  // Library matching still walks pages in order so field ids stay stable.
+  const found = await Promise.all(pages.map((page) => ocrPage({
+    png: page.png,
+    page: page.page,
+    pageCount: loaded.pageCount,
+    width: page.width,
+    height: page.height,
+  })));
   const used = new Set<string>();
   const fields: FieldRecord[] = [];
-  for (const page of pages) {
+  pages.forEach((page, index) => {
     const size = loaded.pageSize(page.page);
-    const found = await ocrPage({
-      png: page.png,
-      page: page.page,
-      pageCount: loaded.pageCount,
-      width: page.width,
-      height: page.height,
-    });
-    fields.push(...recordsFromOcr(found, page.page, size.width, size.height, used, page.text));
-  }
+    fields.push(...recordsFromOcr(found[index], page.page, size.width, size.height, used, page.text));
+  });
   return {
     source: 'ocr',
     fields: withAutoAccept(assignOrder(fields)),
