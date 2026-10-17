@@ -322,6 +322,9 @@ export function FieldReview({
                   <img
                     src={images[pageNumber - 1] ?? paperPageDataUrl(pageNumber, page)}
                     alt={`Page ${pageNumber}`}
+                    // Long forms stack up to 20 pages; decode the off-screen ones as they scroll in.
+                    loading="lazy"
+                    decoding="async"
                     className="pointer-events-none absolute inset-0 h-full w-full"
                   />
                   {onPage.map((row) => {

@@ -14,6 +14,8 @@ export type UnitBox = { x: number; y: number; w: number; h: number };
 export type TextWord = UnitBox & {
   /** Lowercased letters and digits only. Never empty. */
   norm: string;
+  /** The word as printed (case and punctuation kept), when read from a PDF. */
+  text?: string;
 };
 
 export type PageText = {
@@ -133,7 +135,7 @@ export function pageTextFromItems(items: readonly unknown[], viewport: Viewport)
         const x1 = Math.min(1, raw.x1 / width);
         const y1 = Math.min(1, raw.y1 / height);
         if (x1 <= x0 || y1 <= y0) continue;
-        words.push({ norm, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+        words.push({ norm, text: raw.text, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
       }
     }
   }

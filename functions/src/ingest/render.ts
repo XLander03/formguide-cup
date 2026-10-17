@@ -31,6 +31,7 @@ type PdfjsPage = {
   getViewport: (params: { scale: number }) => PdfjsViewport;
   render: (params: { canvasContext: unknown; viewport: unknown }) => { promise: Promise<void> };
   getTextContent: () => Promise<{ items: unknown[] }>;
+  cleanup?: () => unknown;
 };
 
 /** A page whose text cannot be read is treated like a scan: no text layer. */
@@ -62,7 +63,10 @@ function loadPdfjs(): Promise<PdfjsModule> {
   return pdfjsPromise;
 }
 
-/** Longest side cap so a 4-page ingest stays inside a small function instance. */
+/**
+ * Longest side cap so a long ingest stays inside a small function instance.
+ * Only the PNG survives each page (~0.7 MB for a scanned page at this size).
+ */
 const MAX_EDGE = 1600;
 const BASE_SCALE = 1.5;
 
@@ -101,6 +105,9 @@ export async function renderPdfPages(bytes: Uint8Array): Promise<RenderedPage[]>
         height,
         text: await readPageText(page, base),
       });
+      // Drop pdf.js's decoded images and operator lists for this page now,
+      // instead of holding every page's until doc.destroy() (scans are 18 pages).
+      page.cleanup?.();
     }
   } finally {
     await doc.destroy?.();

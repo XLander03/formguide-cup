@@ -117,6 +117,8 @@ const RULES: Record<string, MatchRule> = {
   mobile_registered: { needs: [['mobile', 'phone', 'cell']] },
   pan_number: { rejects: ['name', 'dob', 'birth'] },
   customer_id_cif: { rejects: ['name'] },
+  // A bare "Current" (account type) tick box is not "permanent address same as current".
+  addr_permanent_same_as_current: { needs: [['permanent', 'same']] },
   ovd_poi_number: { needs: [NUMBERISH] },
   ovd_poa_number: { needs: [NUMBERISH] },
   tax_resident_india_only: { needs: [['tax']] },

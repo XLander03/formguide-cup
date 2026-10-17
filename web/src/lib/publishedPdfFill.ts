@@ -62,7 +62,9 @@ export function planBoxWrites(form: FormVersion, values: FormValues): BoxWrite[]
       if (value === true) writes.push({ ...base, kind: 'check' });
       continue;
     }
-    const text = boxText(value);
+    let text = boxText(value);
+    // A date printed as D D M M Y Y Y Y cells has room for the digits only.
+    if (field.type === 'date' && field.maxChars && text.length > field.maxChars) text = text.replace(/\D/g, '');
     if (text) writes.push({ ...base, kind: 'text', text });
   }
   return writes;

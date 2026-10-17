@@ -1,3 +1,4 @@
+import { MAX_PDF_PAGES } from '../../../shared/forms/limits';
 import { firebaseWebConfig } from './firebaseConfig';
 
 export async function adminPost(path: string, body: unknown, unavailable: string): Promise<unknown> {
@@ -33,6 +34,10 @@ export async function adminPost(path: string, body: unknown, unavailable: string
       throw new Error('Check every low-confidence field before publishing.');
     }
     if (payload.error === 'pdf_too_large') throw new Error('That PDF is too large.');
+    if (payload.error === 'pdf_too_many_pages') throw new Error(`That PDF has more than ${MAX_PDF_PAGES} pages.`);
+    if (payload.error === 'form_too_large') {
+      throw new Error('That form has too many fields to save as one version. Split the PDF and upload each part.');
+    }
     // Never swallow an unrecognized server error behind the generic
     // message again — show what the server actually said.
     throw new Error(payload.error ? `${unavailable} (${payload.error})` : `${unavailable} (HTTP ${response.status})`);

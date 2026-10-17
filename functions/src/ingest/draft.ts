@@ -6,10 +6,14 @@ import type { OcrField, OcrPageInput } from './geminiOcr';
 import { assignOrder, normalisedTopLeftToPdfBox, roundPt } from './geom';
 import { customId, matchLibrary, roundScore } from './match';
 import { renderPdfPages, type RenderedPage } from './render';
+import { mapPool } from './pool';
 import { placePageFields } from './snap';
 import type { PageText } from './textLayer';
 
 export type OcrPageFn = (input: OcrPageInput) => Promise<OcrField[]>;
+
+/** Gemini page calls in flight at once. 18 pages run in 5 waves. */
+export const OCR_CONCURRENCY = 4;
 
 export type IngestDraft = {
   source: FormVersion['source'];
@@ -75,7 +79,7 @@ function recordsFromOcr(
 
 /**
  * Parse a PDF and produce draft fields. Fields above AUTO_ACCEPT_ABOVE come back checked. AcroForm PDFs never call `ocrPage`.
- * Flat PDFs call it once per page, concurrently; results are merged in page order.
+ * Flat PDFs call it once per page, up to OCR_CONCURRENCY at a time; results are merged in page order.
  */
 export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promise<IngestDraft> {
   if (bytes.byteLength === 0) throw new IngestError('pdf_empty', 400);
@@ -89,7 +93,6 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
   if (loaded.pageCount < 1) throw new IngestError('pdf_empty', 400);
   if (loaded.pageCount > MAX_PDF_PAGES) throw new IngestError('pdf_too_many_pages', 400);
 
-  const acro = readAcroFormFields(loaded.doc);
   let pages: RenderedPage[];
   try {
     pages = await renderPdfPages(bytes);
@@ -97,6 +100,8 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
     throw new IngestError('pdf_render_failed', 400);
   }
   if (pages.length !== loaded.pageCount) throw new IngestError('pdf_render_failed', 400);
+  // Fillable fields take their printed labels from the rendered pages' text layers.
+  const acro = readAcroFormFields(loaded.doc, pages.map((page) => page.text));
 
   if (acro.length > 0) {
     return {
@@ -108,15 +113,16 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
   }
 
   // Each page is an independent Gemini call taking tens of seconds, so run them
-  // together: a 4-page ingest then costs about one page's latency, not four.
+  // concurrently — but at most OCR_CONCURRENCY at once, so an 18-page form does
+  // not fire 18 simultaneous calls (rate limits, memory for request bodies).
   // Library matching still walks pages in order so field ids stay stable.
-  const found = await Promise.all(pages.map((page) => ocrPage({
+  const found = await mapPool(pages, OCR_CONCURRENCY, (page) => ocrPage({
     png: page.png,
     page: page.page,
     pageCount: loaded.pageCount,
     width: page.width,
     height: page.height,
-  })));
+  }));
   const used = new Set<string>();
   const fields: FieldRecord[] = [];
   pages.forEach((page, index) => {

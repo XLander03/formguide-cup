@@ -5,4 +5,9 @@
  * shows "Pass" on a file the server then rejects (or vice versa).
  */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
-export const MAX_PDF_PAGES = 4;
+/**
+ * Real account-opening forms run 6-18 pages (Axis savings/current is 18).
+ * Server-side OCR runs a bounded pool of pages at a time (functions/src/ingest/draft.ts),
+ * so this cap bounds total ingest time and the version doc size, not memory.
+ */
+export const MAX_PDF_PAGES = 20;

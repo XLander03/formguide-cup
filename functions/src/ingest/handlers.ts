@@ -3,6 +3,7 @@ import { buildFormVersion, draftFromPdf, type OcrPageFn } from './draft';
 import { IngestError, MAX_PDF_BYTES } from './errors';
 import { unconfirmedLowConfidence } from '../../../shared/forms/review';
 import { randomBytes } from 'node:crypto';
+import { versionDocForWrite } from './versionDoc';
 
 export type HttpReq = {
   method: string;
@@ -17,12 +18,16 @@ export type HttpRes = {
   json(body: unknown): void;
 };
 
+/**
+ * Page PNGs are in Storage at `storagePath`. They are not inlined as base64:
+ * the admin client renders its own page images from the PDF it uploaded, and
+ * 18 inlined pages would be ~17 MB of JSON.
+ */
 export type PageImage = {
   page: number;
   storagePath: string;
   width: number;
   height: number;
-  pngBase64: string;
 };
 
 export type IngestDeps = {
@@ -200,8 +205,9 @@ export async function handleIngest(req: HttpReq, res: HttpRes, deps: IngestDeps)
       storagePath: pageStoragePath(formId, version, page.page),
       width: page.width,
       height: page.height,
-      pngBase64: page.png.toString('base64'),
     }));
+    // Fail an oversized form before anything is uploaded (createFormVersion checks again).
+    versionDocForWrite(formVersion);
     await Promise.all([
       deps.writeStorage(pdfPath, Buffer.from(bytes), 'application/pdf'),
       ...draft.pages.map((page, index) => deps.writeStorage(pages[index].storagePath, page.png, 'image/png')),
