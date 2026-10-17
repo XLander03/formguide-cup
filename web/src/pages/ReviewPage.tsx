@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BankFields } from '../components/BankFields';
+import { VoiceBar } from '../components/VoiceBar';
 import { buildReadbackScript } from '../lib/heuristicExtract';
 import { languageLabel } from '../lib/languages';
 import { fieldLabel } from '../lib/schema';
@@ -7,8 +8,9 @@ import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { FieldGroups } from '../ui/fields';
-import { ArrowRightIcon, MicIcon, PauseIcon, PencilIcon, StopIcon, VolumeIcon } from '../ui/icons';
-import { useMic } from '../ui/useMic';
+import { voiceLine } from '../lib/voiceLines';
+import { ArrowRightIcon, PauseIcon, PencilIcon, VolumeIcon } from '../ui/icons';
+import { useVoiceAgent } from '../ui/useVoiceAgent';
 
 function listLabels(ids: string[]): string {
   const names = ids.slice(0, 3).map(fieldLabel);
@@ -40,8 +42,50 @@ export function ReviewPage() {
   const spokenLanguage = languageLabel(session.language);
   const script = buildReadbackScript(session.values, session.readbackLang);
   const blocker = readbackBlocker(session);
-  const mic = useMic(session.micLang, (utterance) => {
-    void session.onSubmitUtterance(utterance);
+  const live = useRef(session);
+  live.current = session;
+  const agent = useVoiceAgent({
+    prepare: async (last) => {
+      const s = live.current;
+      const hi = s.readbackLang === 'hi';
+      // After a correction or an answer the reply was spoken; after a command its line was.
+      if (last) return 'review';
+      if (!s.canReadback) {
+        await s.say(voiceLine('reviewIncomplete', hi));
+        return 'review';
+      }
+      await s.onReadback();
+      await s.say(voiceLine('reviewPrompt', hi));
+      return 'review';
+    },
+    onCommand: async (command) => {
+      const s = live.current;
+      const hi = s.readbackLang === 'hi';
+      switch (command) {
+        case 'read_again':
+          if (!s.canReadback) return voiceLine('reviewIncomplete', hi);
+          await s.onReadback();
+          return voiceLine('reviewPrompt', hi);
+        case 'go_back':
+          await s.say(voiceLine('goingBackFill', hi));
+          go('/speak');
+          return null;
+        case 'yes':
+        case 'continue':
+          if (!s.canReadback) return voiceLine('reviewIncomplete', hi);
+          // "Yes" after hearing the read-back confirms it, like the Speak read-back.
+          if (command === 'yes') s.confirmGates();
+          await s.say(voiceLine('goingConfirm', hi));
+          go('/confirm');
+          return null;
+        case 'no':
+          return voiceLine('whatToChange', hi);
+        case 'next_form':
+          return voiceLine('finishFormFirst', hi);
+        default:
+          return voiceLine('saveOnConfirm', hi);
+      }
+    },
   });
 
   useEffect(() => {
@@ -94,7 +138,7 @@ export function ReviewPage() {
           ) : null}
         </div>
         <div className="mt-6 border-2 border-saffron bg-saffron/10 p-4">
-          <p className="text-[10px] uppercase text-saffron">One correction</p>
+          <p className="text-[10px] uppercase text-saffron">Correct or ask</p>
           {editing ? (
             <div className="mt-3 flex gap-2">
               <input
@@ -116,24 +160,21 @@ export function ReviewPage() {
             </div>
           ) : (
             <>
-              <p className="mt-2 text-sm">Say “change my name”, or correct it here.</p>
+              <p className="mt-2 text-sm">Use the voice controls below, or correct the name here.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" className={`${BTN_OUTLINE} ${BTN_MD}`} onClick={() => setEditing(true)}>
                   <PencilIcon /> Correct full name
                 </button>
-                <button
-                  type="button"
-                  className={`${BTN_OUTLINE} ${BTN_MD}`}
-                  disabled={!mic.supported || session.busy}
-                  onClick={() => (mic.listening ? mic.stop() : mic.start())}
-                >
-                  {mic.listening ? <StopIcon /> : <MicIcon />}
-                  {mic.listening ? 'Listening…' : 'Mic'}
-                </button>
               </div>
-              {mic.live ? <p className="mt-2 text-xs text-foreground/70">“{mic.live}”</p> : null}
             </>
           )}
+        </div>
+        <div className="mt-6">
+          <VoiceBar
+            agent={agent}
+            context="review"
+            hint="Say “No, my PIN is 560037”, ask “What is CKYC?”, or say “read it again”, “go back” or “continue”."
+          />
         </div>
       </section>
       <section className="px-5 py-7 lg:col-span-7 lg:px-8">

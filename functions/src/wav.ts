@@ -1,5 +1,6 @@
 import { parseFormFields, type BankFormField } from './bankFields';
 import { isSpeakLanguage, type SpeakLanguage } from './languages';
+import { isVoiceContext, type VoiceContext } from '../../shared/voiceCommands';
 
 /** Gate audio before any outbound Gemini request. */
 
@@ -14,6 +15,8 @@ export type SpeakParts = {
   formFields: BankFormField[];
   /** Optional `form_id` part naming the published form, for anonymous usage counts only. */
   formId?: string;
+  /** Optional `context` part: where the turn was spoken. Missing or unknown means `fill`. */
+  context: VoiceContext;
 };
 
 export type SpeakRead =
@@ -86,6 +89,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
   let audio: Buffer | null = null;
   let formFields: BankFormField[] = [];
   let formId: string | undefined;
+  let context: VoiceContext = 'fill';
 
   for (const part of parts) {
     const sep = part.indexOf(Buffer.from('\r\n\r\n'));
@@ -114,6 +118,9 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
     } else if (name === 'form_id') {
       const value = body.toString('utf8').trim();
       if (/^[A-Za-z0-9_-]{1,80}$/.test(value)) formId = value;
+    } else if (name === 'context') {
+      const value = body.toString('utf8').trim();
+      if (isVoiceContext(value)) context = value;
     } else if (name === 'audio') {
       audio = Buffer.from(body);
     }
@@ -124,7 +131,7 @@ function parseMultipart(raw: Buffer, contentType: string): SpeakRead {
   if (!isSpeakLanguage(language)) return { ok: false, error: 'bad_language' };
   const wav = inspectWav(audio);
   if (!wav.ok) return wav;
-  return { ok: true, parts: { language, current, audio, formFields, ...(formId ? { formId } : {}) } };
+  return { ok: true, parts: { language, current, audio, formFields, context, ...(formId ? { formId } : {}) } };
 }
 
 export function readSpeakRequest(raw: Buffer, contentType: string): SpeakRead {

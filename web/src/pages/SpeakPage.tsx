@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BankFields } from '../components/BankFields';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
 import { languageLabel } from '../lib/languages';
@@ -17,6 +17,8 @@ import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { draftChoiceLabel } from '../ui/fields';
 import { ArrowRightIcon, FileTextIcon, MicIcon, RotateIcon, SparkleIcon, StopIcon } from '../ui/icons';
 import { useSpeakMic } from '../ui/useMic';
+import { useVoiceAgent, voicePhaseLabel } from '../ui/useVoiceAgent';
+import { voiceLine } from '../lib/voiceLines';
 
 const EN_SAMPLE =
   'Hi, I want to open a savings account. My name is Ananya Reddy, DOB 15/08/1992, PAN ABCDE1234F, mobile 9876501234. I live at 22 MG Road, Bengaluru, Karnataka 560001.';
@@ -164,7 +166,103 @@ export function SpeakPage() {
       else if (!result.transcript) setMicNote('Could not transcribe that clip.');
     });
   });
-  const listening = mic.listening;
+  // The voice agent's loop outlives renders; it reads the session through this ref.
+  const live = useRef(session);
+  live.current = session;
+  /** A field (or the old-card tick) the agent just asked "is this right?" about. */
+  const checkingRef = useRef<string | null>(null);
+  const agent = useVoiceAgent({
+    enabled: session.readyForFill,
+    prepare: async (last) => {
+      const s = live.current;
+      const hi = s.readbackLang === 'hi';
+      checkingRef.current = null;
+      // "No" at the read-back: listen for the change. "Read it again" already read it.
+      if (last?.intent === 'command' && last.command === 'no') return 'fill';
+      if (last?.intent === 'command' && last.command === 'read_again') return 'readback';
+      if (last?.context === 'readback' && last.intent === 'question' && s.canReadback) {
+        await s.say(voiceLine('askConfirm', hi));
+        return 'readback';
+      }
+      if (s.missing.length === 0) {
+        const flaggedId = s.flaggedIds[0];
+        if (flaggedId) {
+          checkingRef.current = flaggedId;
+          const label = sheetLabel(flaggedId);
+          await s.say(voiceLine('checkField', hi, { label, value: String(s.values[flaggedId] ?? '') }));
+          return 'readback';
+        }
+        const invalidId = s.invalidIds[0];
+        if (invalidId) {
+          const issue = fieldIssue(invalidId, s.values[invalidId]) ?? '';
+          await s.say(voiceLine('fixFormat', hi, { label: sheetLabel(invalidId), issue }));
+          return 'fill';
+        }
+        if (s.journey === 'debit_reissue' && s.values.card_old_blocked_ack !== true) {
+          checkingRef.current = 'card_old_blocked_ack';
+          await s.say(voiceLine('oldCardBlocked', hi));
+          return 'readback';
+        }
+        if (s.canReadback) {
+          await s.onReadback();
+          await s.say(voiceLine('askConfirm', hi));
+          return 'readback';
+        }
+      }
+      // The reply already asked the next question.
+      if (last?.spoke && last.context === 'fill') return 'fill';
+      const started = Object.entries(s.values).some(
+        ([id, value]) => !['journey_mode', 'preferred_language', 'account_product_intent'].includes(id) && isFilled(value),
+      );
+      const ask = started ? getNextAsk(s.missing, s.values, s.readbackLang) : null;
+      await s.say(ask || voiceLine('startName', hi));
+      return 'fill';
+    },
+    onCommand: async (command) => {
+      const s = live.current;
+      const hi = s.readbackLang === 'hi';
+      const checking = checkingRef.current;
+      if (checking && (command === 'yes' || command === 'no')) {
+        if (checking === 'card_old_blocked_ack') {
+          if (command === 'no') return voiceLine('blockOldCardFirst', hi);
+          s.onChange('card_old_blocked_ack', true);
+          return voiceLine('thanks', hi);
+        }
+        if (command === 'no') return voiceLine('sayCorrectValue', hi);
+        s.confirmField(checking);
+        return voiceLine('thanks', hi);
+      }
+      if (command === 'yes') {
+        if (!s.canReadback) return voiceLine('confirmFirst', hi);
+        s.confirmGates();
+        await s.say(voiceLine('confirmedGoConfirm', hi));
+        go('/confirm');
+        return null;
+      }
+      if (command === 'no') return voiceLine('whatToChange', hi);
+      if (command === 'read_again') {
+        await s.onReadback();
+        await s.say(voiceLine('askConfirm', hi));
+        return null;
+      }
+      if (command === 'continue') {
+        await s.say(voiceLine('goingReview', hi));
+        go('/review');
+        return null;
+      }
+      if (command === 'go_back') return voiceLine('firstPage', hi);
+      return voiceLine('confirmFirst', hi);
+    },
+  });
+  const handsFree = session.handsFree;
+  const listening = handsFree ? agent.listening : mic.listening;
+
+  useEffect(() => {
+    if (agent.heard) {
+      setSaid(agent.heard);
+      setSaidIsSample(false);
+    }
+  }, [agent.heard]);
 
   useEffect(() => {
     if (!preview) return;
@@ -180,6 +278,9 @@ export function SpeakPage() {
     ? DEBIT_FIELDS.filter((field) => field.id !== 'card_reason_other' || session.values.card_reason === 'other')
     : FIELDS;
   const sheetSections = debit ? DEBIT_SECTIONS : SECTIONS;
+  function sheetLabel(id: string): string {
+    return sheetFields.find((field) => field.id === id)?.label ?? fieldLabel(id);
+  }
   const sampleLines = debit ? [DEBIT_SAMPLE] : SAMPLE_LINES;
   const requiredFields = sheetFields.filter((field) => field.required && field.id);
   const requiredFilled = requiredFields.filter((field) => field.id && isFilled(session.values[field.id])).length;
@@ -226,15 +327,16 @@ export function SpeakPage() {
         : 'Ready for read-back · Fields vary by bank.'
     : asked?.hint || '';
   const active = pinned ?? asked?.section ?? sheetSections[0];
+  const shownTurns = turns + agent.turns;
   const started =
-    turns > 0 ||
+    shownTurns > 0 ||
     Boolean(session.last) ||
     sheetFields.some((field) => field.id && isFilled(session.values[field.id]));
   const companion = !started
     ? session.language === 'hi'
       ? 'नमस्ते! अपना पूरा नाम बताइए।'
       : 'Hi! Start with your full name.'
-    : session.last?.next_ask ||
+    : [session.last?.reply, session.last?.next_ask].filter(Boolean).join(' ') ||
       getNextAsk(session.missing, session.values, session.readbackLang) ||
       (session.language === 'hi'
         ? 'ज़रूरी जानकारी पूरी हो गई।'
@@ -258,29 +360,78 @@ export function SpeakPage() {
             <span className={`size-2 bg-primary ${listening ? 'bg-saffron' : ''}`} />
             Voice companion · {languageLabel(session.language)}
           </span>
-          <span>Turn {turns}</span>
+          <span className="flex items-center gap-3">
+            <button
+              type="button"
+              aria-pressed={handsFree}
+              onClick={() => {
+                if (handsFree) {
+                  agent.stop();
+                  session.setHandsFree(false);
+                } else {
+                  if (mic.listening) mic.cancel();
+                  setMicNote(null);
+                  session.setHandsFree(true);
+                }
+              }}
+              className={`border px-2 py-0.5 font-bold ${
+                handsFree ? 'border-primary bg-primary text-primary-foreground' : 'border-background/40 hover:bg-background hover:text-foreground'
+              }`}
+            >
+              Hands-free {handsFree ? 'on' : 'off'}
+            </button>
+            <span>Turn {shownTurns}</span>
+          </span>
         </div>
         <div className="flex flex-1 flex-col items-center gap-5 overflow-y-auto px-5 py-6">
-          <button
-            type="button"
-            aria-label="Tap and speak your details"
-            aria-pressed={listening}
-            onClick={() => {
-              if (listening) mic.stop();
-              else if (!session.busy) {
-                setMicNote(null);
-                void mic.start();
-              }
-            }}
-            disabled={session.busy && !listening}
-            className="grid size-40 place-items-center rounded-full bg-primary text-primary-foreground"
-          >
-            {listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
-          </button>
+          {handsFree ? (
+            <button
+              type="button"
+              aria-label={agent.running ? 'Pause hands-free' : 'Carry on hands-free'}
+              aria-pressed={agent.running}
+              onClick={() => {
+                if (agent.running) agent.stop();
+                else void agent.start();
+              }}
+              className={`grid size-40 place-items-center rounded-full text-primary-foreground ${
+                agent.phase === 'listening' ? 'bg-saffron' : 'bg-primary'
+              }`}
+            >
+              {agent.running ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label="Tap and speak your details"
+              aria-pressed={listening}
+              onClick={() => {
+                if (listening) mic.stop();
+                else if (!session.busy) {
+                  setMicNote(null);
+                  void mic.start();
+                }
+              }}
+              disabled={session.busy && !listening}
+              className="grid size-40 place-items-center rounded-full bg-primary text-primary-foreground"
+            >
+              {listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
+            </button>
+          )}
           <div className="text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-wide">
-              {listening ? 'Recording · tap stop · 45 seconds max' : 'Tap and speak your details'}
+            <p role="status" aria-live="polite" className="text-[11px] font-semibold uppercase tracking-wide">
+              {handsFree
+                ? agent.running
+                  ? voicePhaseLabel(agent.phase, session.language === 'hi')
+                  : 'Hands-free paused · tap to carry on'
+                : listening
+                  ? 'Recording · tap stop · 45 seconds max'
+                  : 'Tap and speak your details'}
             </p>
+            {handsFree ? (
+              <p className="mt-1 text-[10px] text-background/60">
+                I ask, you answer. I stop listening when you pause. Say “yes” at the read-back to confirm.
+              </p>
+            ) : null}
             <GreenDots />
           </div>
 
@@ -291,6 +442,7 @@ export function SpeakPage() {
               </p>
               <p className="mt-1 font-display text-xl leading-snug">{said ? `“${said}”` : '—'}</p>
               {micNote ? <p className="mt-1 text-xs text-saffron">{micNote}</p> : null}
+              {handsFree && agent.note ? <p className="mt-1 text-xs text-saffron">{agent.note}</p> : null}
               {mic.error ? <p className="mt-1 text-xs text-saffron">{mic.error}</p> : null}
             </div>
             <div className="border-2 border-primary bg-primary/15 p-3">
@@ -385,7 +537,8 @@ export function SpeakPage() {
               onClick={() => {
                 const text = sampleLines[sampleStep % sampleLines.length];
                 setSampleStep((step) => step + 1);
-                if (listening) mic.cancel();
+                if (mic.listening) mic.cancel();
+                if (agent.running) agent.stop();
                 setSaid(text);
                 setSaidIsSample(true);
                 setMicNote(null);
@@ -491,7 +644,7 @@ export function SpeakPage() {
             onClick={() => setPreview(true)}
           >
             <FileTextIcon /> Preview form{' '}
-            <span className="ml-1 bg-foreground px-1.5 text-[10px] text-background">v{turns}</span>
+            <span className="ml-1 bg-foreground px-1.5 text-[10px] text-background">v{shownTurns}</span>
           </button>
         </div>
         <div className="fg-scroll min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -715,7 +868,8 @@ export function SpeakPage() {
               type="button"
               className={`${BTN_OUTLINE} ${BTN_MD}`}
               onClick={() => {
-                if (listening) mic.cancel();
+                if (mic.listening) mic.cancel();
+                if (agent.running) agent.stop();
                 session.onClear();
                 setSaid('');
                 setSaidIsSample(false);
@@ -746,7 +900,7 @@ export function SpeakPage() {
       </section>
       {preview ? (
         <FormPreview
-          version={turns}
+          version={shownTurns}
           title={label}
           subtitle={debit ? 'Debit card reissue request' : 'Customer information sheet — individual'}
           footnote={debit ? HELPLINE_COPY : null}

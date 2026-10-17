@@ -1,3 +1,5 @@
+import type { VoiceCommand } from '../../../shared/voiceCommands';
+
 export type FieldValue = string | boolean | null | undefined;
 
 export type FormValues = Record<string, FieldValue>;
@@ -32,8 +34,14 @@ export interface ExtractResponse {
   completeness: 'empty' | 'partial_core' | 'demo_ready' | 'full_bank_packet';
   refuse_live_submit: boolean;
   refuse_message?: string;
-  source: 'gemini' | 'heuristic' | 'heuristic-dev' | 'priya_demo' | 'out_of_scope';
+  source: 'gemini' | 'heuristic' | 'heuristic-dev' | 'priya_demo' | 'out_of_scope' | 'command';
   assistant_message?: string;
+  /** What the voice turn was. Absent on typed text and older responses. */
+  intent?: 'answer' | 'correction' | 'question' | 'other' | 'command';
+  /** Spoken before next_ask: the answer to a question, or what a correction changed. */
+  reply?: string | null;
+  /** Set when intent is 'command' (read-back, review and confirm only). */
+  command?: VoiceCommand | null;
   /** Language of this utterance. English path omits nothing required — default en. */
   reply_lang?: 'en' | 'hi' | 'mixed';
 }

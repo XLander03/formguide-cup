@@ -76,6 +76,7 @@ export function mergeFieldUpdatesWithMeta(
   rawUpdates: Record<string, unknown> | FormValues,
   transcript = '',
   confidenceMap: Record<string, unknown> = {},
+  options: MergeOptions = {},
 ): { updates: FormValues; meta: FieldMetaMap } {
   const plain: Record<string, unknown> = {};
   const metaIn: FieldMetaMap = {};
@@ -95,7 +96,7 @@ export function mergeFieldUpdatesWithMeta(
   const fatherSent = Object.keys(plain).some(
     (rawKey) => (ALIASES[rawKey] || rawKey) === 'father_or_spouse_name' && isFilled(plain[rawKey]),
   );
-  const updates = mergeFieldUpdates(current, plain, transcript);
+  const updates = mergeFieldUpdates(current, plain, transcript, options);
   const meta: FieldMetaMap = {};
   for (const key of Object.keys(updates)) {
     // Only a father name that came from remapping the applicant name inherits its confidence.
@@ -106,6 +107,14 @@ export function mergeFieldUpdatesWithMeta(
   return { updates, meta };
 }
 
+export type MergeOptions = {
+  /**
+   * The customer is changing a value they already gave ("change the name to …").
+   * Skips the guess that a second name belongs to the father or spouse.
+   */
+  correction?: boolean;
+};
+
 /**
  * Canonicalize keys, drop unknown ids, then protect filled fields.
  * Remaps a mis-bound second name onto father_or_spouse_name when needed.
@@ -114,7 +123,9 @@ export function mergeFieldUpdates(
   current: FormValues,
   rawUpdates: Record<string, unknown> | FormValues,
   transcript = '',
+  options: MergeOptions = {},
 ): FormValues {
+  const correction = options.correction === true;
   const incoming: FormValues = {};
   for (const [rawKey, value] of Object.entries(rawUpdates || {})) {
     const key = ALIASES[rawKey] || rawKey;
@@ -125,6 +136,7 @@ export function mergeFieldUpdates(
 
   // If model set both alias paths onto applicant only, restore father from cues.
   if (
+    !correction &&
     isFilled(incoming.applicant_full_name) &&
     !isFilled(incoming.father_or_spouse_name) &&
     isFilled(current.applicant_full_name) &&
@@ -161,6 +173,7 @@ export function mergeFieldUpdates(
       if (normName(String(current[key])) === normName(value)) continue; // no-op
       // Protect filled applicant name from a different string that belongs elsewhere.
       if (
+        !correction &&
         key === 'applicant_full_name' &&
         !isFilled(current.father_or_spouse_name) &&
         (FATHER_CUE.test(transcript) || !APPLICANT_CUE.test(transcript))

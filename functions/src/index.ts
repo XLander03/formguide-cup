@@ -8,6 +8,7 @@ import {
   enumPromptClause,
   extractFieldIds,
   missingRequiredIds,
+  toSchemaFields,
 } from './forms/hdfcV1';
 import { readSpeakRequest } from './wav';
 import { checkRateLimit, clientKey } from './rateLimit';
@@ -29,6 +30,7 @@ import {
   type SpeakLanguage,
 } from './languages';
 import { recordSpeakTurn } from './insights';
+import { matchVoiceCommand, type VoiceContext } from '../../shared/voiceCommands';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 // Optional. If unset, transcription has no fallback and a Gemini outage
@@ -41,6 +43,15 @@ const FIELD_IDS = extractFieldIds(HDFC_V1);
 const ENUMS: Record<string, readonly string[]> = enumMap(HDFC_V1);
 const BOOLS = new Set(booleanFieldIds(HDFC_V1));
 const AADHAAR_PARTIAL_IDS = aadhaarPartialFieldIds(HDFC_V1);
+/** "id: label" rows, so answers to "what does this mean?" use the form's own wording. */
+const FIELD_LABEL_LINES = toSchemaFields(HDFC_V1)
+  .map((field) => `${field.id}: ${field.label_en}`)
+  .join('\n');
+
+/** What a voice turn was: new details, a change to a filled detail, a question, or a spoken command. */
+export type TurnIntent = 'answer' | 'correction' | 'question' | 'other' | 'command';
+const MODEL_INTENTS = new Set<TurnIntent>(['answer', 'correction', 'question', 'other']);
+const MAX_REPLY_CHARS = 400;
 
 const EN_ASK: Record<string, string> = {
   journey_mode: 'Are you opening an account, updating KYC, or doing re-KYC?',
@@ -387,6 +398,7 @@ function fieldPrompt(
   current: FormValues,
   missing: string[],
   bankBlock = '',
+  context: VoiceContext = 'fill',
 ): string {
   const filled = Object.fromEntries(
     Object.entries(current).filter(([, value]) => isFilled(value)),
@@ -436,6 +448,21 @@ next_ask:
 - Language: Hindi if transcript is Hindi, else English.
 - reply_lang: "hi" or "en".
 
+TURN INTENT — decide first what this turn is, and return it as intent:
+- "answer": the customer gives new details for the form.
+- "correction": the customer changes a detail that is already filled ("No, my PIN is 560037", "Change the mobile to 98…", "My name is spelled S-U-N-I-T-A"). Put the corrected value in field_updates under that same id; it replaces the old value.
+- "question": the customer asks what something means or why it is needed ("What is CKYC?", "Why do they need my father's name?"). A question fills nothing: field_updates is {} unless the same turn also clearly states a value.
+- "other": anything else (greeting, unclear, off-topic).
+Where the customer is: ${context} (fill = filling the form; readback = just heard the draft read back; review = checking the draft; confirm = on the final confirmation page).
+
+reply (string or null) — spoken aloud before next_ask:
+- question → answer in 1–2 short sentences (max 40 words), plain everyday words, Hindi if the transcript is Hindi, else English. Name the field by its form label below. Explain Indian banking terms simply (KYC, CKYC, re-KYC, PAN, Form 60, OVD, PEP, CIF, tax residency). Say why a bank asks when asked why. No financial or legal advice; if unsure, say the bank will explain. Do not end with a question; next_ask carries the next question.
+- correction → one short sentence saying what changed, e.g. "Changed your PIN code to 560037." (same language as the transcript).
+- answer / other → null.
+
+FORM LABELS (id: label):
+${FIELD_LABEL_LINES}
+
 OTHER:
 - refuse_live_submit true only if user asks to submit/send to a bank.
 - assistant_message must include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}${bankBlock ? `\n\n${bankBlock}` : ''}
@@ -444,7 +471,7 @@ Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
 Transcript: ${JSON.stringify(transcript)}
 
-Return JSON: field_updates (id → {value, confidence, reason?}), next_ask, reply_lang, refuse_live_submit, assistant_message.`;
+Return JSON: intent, reply, field_updates (id → {value, confidence, reason?}), next_ask, reply_lang, refuse_live_submit, assistant_message.`;
 }
 
 /** Bank-only fields of a published form for this request, and their current values. */
@@ -460,7 +487,10 @@ export async function fieldJson(
   language: SpeakLanguage,
   current: FormValues,
   bank: BankFieldsInput = { fields: [], current: {} },
+  context: VoiceContext = 'fill',
 ): Promise<{
+  intent: TurnIntent;
+  reply: string | null;
   field_updates: FormValues;
   field_confidence: FieldMetaMap;
   next_ask: string | null;
@@ -475,7 +505,14 @@ export async function fieldJson(
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: FIELD_MODEL,
-      input: fieldPrompt(transcript, language, current, missingBefore, bankFieldsPrompt(bank.fields, bank.current)),
+      input: fieldPrompt(
+        transcript,
+        language,
+        current,
+        missingBefore,
+        bankFieldsPrompt(bank.fields, bank.current),
+        context,
+      ),
       generation_config: {
         thinking_level: 'low',
         // Each field is {value, confidence, reason}; a full multi-field dump needs headroom.
@@ -509,6 +546,8 @@ export async function fieldJson(
     text = parts.filter((part) => part.text && !part.thought).map((part) => part.text as string).join('');
   }
   let parsed: {
+    intent?: unknown;
+    reply?: unknown;
     field_updates?: unknown;
     field_confidence?: unknown;
     next_ask?: unknown;
@@ -534,7 +573,10 @@ export async function fieldJson(
     parsed.field_confidence && typeof parsed.field_confidence === 'object' && !Array.isArray(parsed.field_confidence)
       ? (parsed.field_confidence as Record<string, unknown>)
       : {};
-  const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap);
+  const modelIntent = MODEL_INTENTS.has(parsed.intent as TurnIntent) ? (parsed.intent as TurnIntent) : null;
+  const { updates: mergedIncoming, meta } = mergeFieldUpdatesWithMeta(current, rawUpdates, transcript, confMap, {
+    correction: modelIntent === 'correction',
+  });
   const updates = enforceLatinFieldValues(sanitizeUpdates(mergedIncoming), language);
   for (const key of Object.keys(meta)) {
     if (!(key in updates)) delete meta[key];
@@ -555,7 +597,9 @@ export async function fieldJson(
       transcript,
     );
   const askTable = replyLang === 'hi' ? HI_ASK : EN_ASK;
-  const modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
+  let modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
+  // The model sometimes returns a bare field id ("addr_permanent_same_as_current"); never speak that.
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(modelAsk)) modelAsk = '';
   let nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
   if (isBetaSpeakLanguage(language) && nextAsk && hasNonLatinLetter(nextAsk)) {
     nextAsk = buildNextAsk(missing, 'en', EN_ASK, null);
@@ -564,7 +608,19 @@ export async function fieldJson(
   if (isBetaSpeakLanguage(language) && hasNonLatinLetter(message)) message = '';
   if (!message) message = nextAsk || 'Draft updated.';
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
+  // A model that skipped intent still changed a filled value: call it a correction.
+  const overwrote = Object.keys(updates).some((id) => isFilled(current[id]) && isFilled(updates[id]));
+  const intent: TurnIntent = modelIntent ?? (overwrote ? 'correction' : 'answer');
+  // The on-screen "Fields vary by bank." line is not repeated aloud after every answer.
+  let reply =
+    typeof parsed.reply === 'string'
+      ? parsed.reply.replace(/\s*Fields vary by bank\.?/g, '').trim().slice(0, MAX_REPLY_CHARS)
+      : '';
+  if (isBetaSpeakLanguage(language) && hasNonLatinLetter(reply)) reply = '';
+  if (intent === 'answer' || intent === 'other') reply = '';
   return {
+    intent,
+    reply: reply || null,
     field_updates: updates,
     field_confidence: meta,
     next_ask: nextAsk,
@@ -649,6 +705,27 @@ export const speak = onRequest(
         transcript = await transcribeWithGroq(groqKey, read.parts.audio, read.parts.language);
       }
 
+      // Read-back, review and confirm: a bare command ("read it again", "yes") skips the field model.
+      const command = read.parts.context === 'fill' ? null : matchVoiceCommand(transcript);
+      if (command) {
+        const missing = getMissingRequired(current);
+        res.json({
+          transcript,
+          reply_lang: read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript) ? 'hi' : 'en',
+          field_updates: {},
+          missing_required: missing,
+          next_ask: null,
+          gates: { answers: {} },
+          completeness: completeness(current, missing),
+          refuse_live_submit: false,
+          source: 'command',
+          intent: 'command',
+          command,
+          reply: null,
+        });
+        return;
+      }
+
       if (OUT_OF_SCOPE_RE.test(transcript)) {
         const hindi = read.parts.language === 'hi-IN' || /[ऀ-ॿ]/.test(transcript);
         const missing = getMissingRequired(current);
@@ -663,6 +740,8 @@ export const speak = onRequest(
           completeness: completeness(current, missing),
           refuse_live_submit: false,
           source: 'out_of_scope',
+          intent: 'other',
+          reply: null,
           assistant_message: outOfScopeReply(hindi),
         });
         return;
@@ -672,7 +751,7 @@ export const speak = onRequest(
       const extracted = await fieldJson(apiKey, transcript, read.parts.language, current, {
         fields: formFields,
         current: currentBankValues(read.parts.current, formFields),
-      });
+      }, read.parts.context);
       const merged: FormValues = { ...current, ...extracted.field_updates };
       const missing = getMissingRequired(merged);
       // Anonymous daily counters for the admin copilot; never awaited, never fails the turn.
@@ -694,6 +773,8 @@ export const speak = onRequest(
         refuse_live_submit: extracted.refuse_live_submit,
         refuse_message: extracted.refuse_live_submit ? 'Refusing live bank submit. Draft only.' : undefined,
         source: 'gemini',
+        intent: extracted.intent,
+        reply: extracted.reply,
         assistant_message: extracted.assistant_message,
       });
     } catch (err) {

@@ -74,8 +74,7 @@ describe('JourneyPage planner', () => {
     const card = await screen.findByRole('region', { name: 'Your plan' });
     expect(within(card).getByText('2 forms, in this order.')).toBeInTheDocument();
     expect(within(card).getByText('चोरी हुआ कार्ड पहले ब्लॉक करें।')).toBeInTheDocument();
-    expect(within(card).getByText('How I decided')).toBeInTheDocument();
-    expect(within(card).getByText('Looked up KYC update forms: HDFC')).toBeInTheDocument();
+    expect(within(card).queryByText('How I decided')).not.toBeInTheDocument();
     // The single-card pick follows step 1.
     expect(screen.getByRole('button', { name: /Start filling Debit card reissue/ })).toBeInTheDocument();
 
