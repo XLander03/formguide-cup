@@ -133,7 +133,7 @@ export function ConsolePage({
       setConfirm({
         title: 'Publish and replace the live form?',
         name: group.title,
-        body: `Customers will see the new version from now on. The version live today goes back to draft and leaves the customer list, so there is still only one ${group.title} form to pick.`,
+        body: `Customers will see the new version from now on. The version live today is retired and leaves the customer list, so there is still only one ${group.title} form to pick.`,
         confirmLabel: 'Publish & replace',
         run: () => void perform(group, () => publishAndReplace(api, group, row)),
       }),
@@ -281,8 +281,9 @@ export function ConsolePage({
 }
 
 /**
- * Publishes the group's draft, then sends every previously live version back to
- * draft so customers only ever see one form for this bank and journey.
+ * Publishes the group's draft, then retires every previously live version so customers
+ * only ever see one form for this bank and journey. Retired, not unpublished: an old
+ * version left as a draft would be offered for publish again over the new one.
  */
 async function publishAndReplace(api: ConsoleApi, group: FormGroup, draft: AdminFormRow): Promise<Notice> {
   try {
@@ -293,7 +294,7 @@ async function publishAndReplace(api: ConsoleApi, group: FormGroup, draft: Admin
   const failures: string[] = [];
   for (const old of group.live) {
     try {
-      await api.setStatus({ formId: old.formId, version: old.version, status: 'draft' });
+      await api.setStatus({ formId: old.formId, version: old.version, status: 'retired' });
     } catch (error) {
       failures.push(errorText(error));
     }
@@ -306,7 +307,7 @@ async function publishAndReplace(api: ConsoleApi, group: FormGroup, draft: Admin
   }
   return {
     tone: 'ok',
-    text: `Published the new ${group.title}. The old version is a draft again and customers see only the new one.`,
+    text: `Published the new ${group.title}. The old version is retired and customers see only the new one.`,
   };
 }
 

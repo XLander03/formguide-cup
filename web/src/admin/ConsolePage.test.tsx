@@ -181,8 +181,8 @@ describe('ConsolePage', () => {
     expect(api.publish).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Publish & replace' }));
-    await waitFor(() => expect(calls).toEqual(['publish axis_new', 'draft axis_old']));
-    expect(api.setStatus).toHaveBeenCalledWith({ formId: 'axis_old', version: 'v1', status: 'draft' });
+    await waitFor(() => expect(calls).toEqual(['publish axis_new', 'retired axis_old']));
+    expect(api.setStatus).toHaveBeenCalledWith({ formId: 'axis_old', version: 'v1', status: 'retired' });
     expect(await screen.findByRole('status')).toHaveTextContent('customers see only the new one');
   });
 
