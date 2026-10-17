@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BankFields } from '../components/BankFields';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
 import { languageLabel } from '../lib/languages';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
@@ -626,6 +627,14 @@ export function SpeakPage() {
               </section>
             );
           })}
+          <BankFields
+            form={session.form}
+            values={session.values}
+            onChange={session.onChange}
+            flashIds={session.flashIds}
+            said={session.said}
+            fieldSource={session.fieldSource}
+          />
           <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-foreground pt-4">
             <button
               type="button"

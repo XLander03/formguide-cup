@@ -172,4 +172,56 @@ describe('FormSession active form', () => {
     expect(session.values.preferred_language).toBe('English');
     vi.unstubAllGlobals();
   });
+  function stubSpeak(reply: Record<string, unknown>) {
+    const sent: FormData[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: { body?: FormData }) => {
+        if (url !== '/api/speak') throw new Error('offline');
+        sent.push(init?.body as FormData);
+        return new Response(JSON.stringify(reply), { status: 200 });
+      }),
+    );
+    return sent;
+  }
+
+  const speakReply = (field_updates: Record<string, unknown>) => ({
+    transcript: "I'm Priya Sharma, born in Pune",
+    field_updates,
+    field_confidence: {},
+    missing_required: [],
+    next_ask: null,
+    gates: { answers: {} },
+    completeness: 'partial_core',
+    refuse_live_submit: false,
+    source: 'gemini',
+  });
+
+  it('does not send form_fields for the bundled HDFC form', async () => {
+    const sent = stubSpeak(speakReply({ applicant_full_name: 'Priya Sharma' }));
+    mount();
+    await act(async () => {
+      await session.onSubmitSpeakClip(new Blob(['x'], { type: 'audio/wav' }));
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].has('form_fields')).toBe(false);
+    expect(sent[0].has('audio')).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('sends a bank form\'s customer boxes and shows voice-filled ones as heard', async () => {
+    const sent = stubSpeak(speakReply({ applicant_full_name: 'Priya Sharma', custom_city_of_birth: 'Pune' }));
+    mount();
+    act(() => session.selectForm(REKYC));
+    await act(async () => {
+      await session.onSubmitSpeakClip(new Blob(['x'], { type: 'audio/wav' }));
+    });
+    const fields = JSON.parse(String(sent[0].get('form_fields'))) as Array<{ id: string }>;
+    expect(fields.map((f) => f.id)).toEqual(['custom_city_of_birth', 'custom_id_no']);
+    expect(session.values.custom_city_of_birth).toBe('Pune');
+    expect(session.said.custom_city_of_birth).toBe("I'm Priya Sharma, born in Pune");
+    expect(session.fieldSource.custom_city_of_birth).toBe('gemini');
+    expect(session.flashIds.has('custom_city_of_birth')).toBe(true);
+    vi.unstubAllGlobals();
+  });
 });
