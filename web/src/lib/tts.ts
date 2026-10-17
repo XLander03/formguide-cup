@@ -11,6 +11,9 @@ export interface SpeakHooks {
   onError?: (error: string) => void;
 }
 
+/** Server lines under way, fetching or playing: a line in pieces is still speaking between them. */
+let serverLines = 0;
+
 /** The server-spoken line now playing, and how to end its promise early on a stop. */
 let current: { audio: HTMLAudioElement; finish: () => void } | null = null;
 
@@ -103,24 +106,92 @@ export function speak(
     if (!text.trim()) return;
     const stops = stopCount;
     if (serverSpoken(lang)) {
-      const url = await serverAudio(text, lang, stops);
-      if (stops !== stopCount) return;
-      if (url && (await playAudio(url, hooks))) return;
-      if (stops !== stopCount) return;
-      // The backup must really speak this language. A browser with no matching voice (or one
-      // whose list has not loaded) reads Hindi with an English voice, which says only the
-      // digits and the commas; silence, with the words on screen, is better than that.
-      const match = voice ?? findVoice(await loadVoices(), lang);
-      if (!match) {
-        console.warn(`[tts] no ${lang} voice: server voice unavailable and no matching device voice`);
-        hooks?.onError?.('no_voice');
-        return;
+      serverLines++;
+      try {
+        await speakOnServer(text, lang, hooks, voice, stops);
+      } finally {
+        serverLines--;
       }
-      await speakOnDevice(text, lang, hooks, match, stops);
       return;
     }
     await speakOnDevice(text, lang, hooks, voice, stops);
   })();
+}
+
+/** Lines up to this long are one request; a short question gains nothing from splitting. */
+const WHOLE_LINE_CHARS = 120;
+/** The first piece stops at the sentence that reaches this length, so it arrives quickly. */
+const FIRST_CHUNK_CHARS = 40;
+const CHUNK_CHARS = 160;
+/** Pieces fetched at once: the one playing and the next two. */
+const PREFETCH = 3;
+
+/**
+ * A long line in sentence-sized pieces. The server voice makes a whole clip before sending
+ * any of it, so a read-back sent whole sat silent for 5-13s; in pieces the first sentence
+ * plays in about a second while the rest are fetched. Fixed sentences also cache on their own.
+ */
+export function speechChunks(text: string): string[] {
+  const clean = text.trim();
+  if (clean.length <= WHOLE_LINE_CHARS) return [clean];
+  const sentences = clean.split(/(?<=[.!?।॥])\s+/u).filter(Boolean);
+  const chunks: string[] = [];
+  let piece = '';
+  for (const sentence of sentences) {
+    const enough = chunks.length === 0 ? FIRST_CHUNK_CHARS : CHUNK_CHARS;
+    if (piece && (piece.length >= enough || piece.length + 1 + sentence.length > CHUNK_CHARS)) {
+      chunks.push(piece);
+      piece = sentence;
+    } else {
+      piece = piece ? `${piece} ${sentence}` : sentence;
+    }
+  }
+  if (piece) chunks.push(piece);
+  return chunks;
+}
+
+/** Plays the line piece by piece; onStart fires once, onEnd after the last piece. */
+async function speakOnServer(
+  text: string,
+  lang: string,
+  hooks: SpeakHooks | undefined,
+  voice: SpeechSynthesisVoice | null | undefined,
+  stops: number,
+): Promise<void> {
+  const chunks = speechChunks(text);
+  const fetches: Array<Promise<string | null>> = [];
+  const fetchAt = (i: number) => (fetches[i] ??= serverAudio(chunks[i], lang, stops));
+  let started = false;
+  const pieceHooks: SpeakHooks = {
+    onStart: () => {
+      if (started) return;
+      started = true;
+      hooks?.onStart?.();
+    },
+    onError: hooks?.onError,
+  };
+  for (let i = 0; i < chunks.length; i++) {
+    for (let next = i; next < Math.min(chunks.length, i + PREFETCH); next++) void fetchAt(next);
+    const url = await fetchAt(i);
+    if (stops !== stopCount) return;
+    if (url && (await playAudio(url, pieceHooks))) {
+      if (stops !== stopCount) return;
+      continue;
+    }
+    if (stops !== stopCount) return;
+    // The backup must really speak this language. A browser with no matching voice (or one
+    // whose list has not loaded) reads Hindi with an English voice, which says only the
+    // digits and the commas; silence, with the words on screen, is better than that.
+    const match = voice ?? findVoice(await loadVoices(), lang);
+    if (!match) {
+      console.warn(`[tts] no ${lang} voice: server voice unavailable and no matching device voice`);
+      hooks?.onError?.('no_voice');
+      return;
+    }
+    await speakOnDevice(chunks[i], lang, pieceHooks, match, stops);
+    if (stops !== stopCount) return;
+  }
+  hooks?.onEnd?.();
 }
 
 function speakOnDevice(
@@ -190,6 +261,7 @@ export async function speakForUtterance(
 
 /** True while a line is playing, from the server or the device voice. */
 export function isSpeaking(): boolean {
+  if (serverLines > 0) return true;
   if (current && !current.audio.paused && !current.audio.ended) return true;
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
   return window.speechSynthesis.speaking || window.speechSynthesis.pending;
