@@ -103,15 +103,23 @@ const OPEN_CARDS: OpenCard[] = [
       'Mobile number you can access',
     ],
   },
+  {
+    id: 'debit_reissue',
+    kind: 'Service request',
+    name: 'Debit card reissue',
+    blurb: 'Replace a lost, stolen, or damaged debit card',
+    journey: 'debit_reissue',
+    product: null,
+    needs: [
+      'Customer ID',
+      'Account number',
+      'Last 4 digits of the card — never the full number',
+      'Reason: lost or misplaced, stolen, damaged, or other',
+    ],
+  },
 ];
 
-const LATER = [
-  'Nomination',
-  'Debit card reissue',
-  'Personal loan',
-  'Fixed deposit',
-  'NEFT transfer',
-];
+const LATER = ['Nomination', 'Personal loan', 'Fixed deposit', 'NEFT transfer'];
 
 const SAMPLES = [
   'मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है',

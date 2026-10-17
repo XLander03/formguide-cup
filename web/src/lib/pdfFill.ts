@@ -1,5 +1,6 @@
 import { PDFDocument, PDFForm, StandardFonts, degrees, rgb } from 'pdf-lib';
 import { planPdfOps } from './pdfPlan';
+import { cardLast4, redactFullCardNumbers } from './debitReissue';
 import type { FormValues } from './types';
 
 /**
@@ -39,7 +40,7 @@ function applyFieldMappings(form: PDFForm, values: FormValues, today = new Date(
   }
 }
 
-export async function drawDraftWatermark(pdfDoc: PDFDocument): Promise<void> {
+export async function drawDraftWatermark(pdfDoc: PDFDocument, cardLastFour = ''): Promise<void> {
   const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   for (const page of pdfDoc.getPages()) {
     const { width, height } = page.getSize();
@@ -60,15 +61,26 @@ export async function drawDraftWatermark(pdfDoc: PDFDocument): Promise<void> {
       color: rgb(0.4, 0.4, 0.4),
       opacity: 0.8,
     });
+    if (cardLastFour) {
+      page.drawText(`Card last 4: ${cardLastFour}`, {
+        x: width * 0.06,
+        y: height * 0.05,
+        size: 10,
+        font,
+        color: rgb(0.1, 0.1, 0.1),
+        opacity: 0.9,
+      });
+    }
   }
 }
 
 export async function buildFilledKycPdf(values: FormValues): Promise<Blob> {
+  const safe = redactFullCardNumbers(values);
   const bytes = await fetch(TEMPLATE_URL).then((r) => r.arrayBuffer());
   const pdfDoc = await PDFDocument.load(bytes);
   const form = pdfDoc.getForm();
 
-  applyFieldMappings(form, values);
+  applyFieldMappings(form, safe);
 
   try {
     form.flatten();
@@ -77,7 +89,8 @@ export async function buildFilledKycPdf(values: FormValues): Promise<Blob> {
     // filled-but-unflattened document rather than failing the download.
   }
 
-  await drawDraftWatermark(pdfDoc);
+  const last4 = typeof safe.card_last4 === 'string' ? cardLast4(safe.card_last4) : '';
+  await drawDraftWatermark(pdfDoc, last4.length === 4 ? last4 : '');
 
   const outBytes = await pdfDoc.save();
   // pdf-lib's Uint8Array type doesn't line up with the stricter BlobPart

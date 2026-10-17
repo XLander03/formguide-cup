@@ -3,12 +3,12 @@ import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
 import { ArrowRightIcon, LockIcon, MicIcon, SparkleIcon, Waveform } from '../ui/icons';
 
 const STEPS = [
-  ['Choose a journey', 'Pick Hindi or English, then account opening, KYC update, or Re-KYC.'],
+  ['Choose a journey', 'Pick Hindi or English, then account opening, KYC update, Re-KYC, or debit card reissue.'],
   ['Speak. Fields fill.', 'About 45 fields stay grouped into identity, address, and proof of identity.'],
   ['Hear it back. Save draft.', 'Correct anything by voice, pass clear gates, and keep a receipt.'],
 ] as const;
 
-const LATER = ['Nomination', 'Debit reissue', 'Personal loan', 'Fixed deposit', 'NEFT'];
+const LATER = ['Nomination', 'Personal loan', 'Fixed deposit', 'NEFT'];
 
 export function LandingPage() {
   const { go } = useRoute();
@@ -63,7 +63,7 @@ export function LandingPage() {
       <section className="grid md:grid-cols-[1fr_1.4fr]">
         <div className="border-b border-foreground/20 px-6 py-6 md:border-b-0 md:border-r">
           <p className="text-[10px] uppercase text-muted-foreground">Working today</p>
-          <p className="mt-2 font-display text-2xl">Account opening · KYC update · Re-KYC</p>
+          <p className="mt-2 font-display text-2xl">Account opening · KYC update · Re-KYC · Debit card reissue</p>
         </div>
         <div className="px-6 py-6">
           <p className="flex items-center gap-2 text-[10px] uppercase text-saffron">

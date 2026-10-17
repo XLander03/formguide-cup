@@ -51,4 +51,6 @@ export interface SchemaField {
   voice_hints?: string[];
   notes?: string;
   section?: string;
+  /** When set, the field is only required and shown on these journeys. */
+  journey_modes?: string[];
 }

@@ -45,6 +45,12 @@ describe('pickJourneyCard', () => {
     });
   });
 
+  it('picks debit card reissue for a lost, stolen, or replacement card', () => {
+    for (const text of ['I lost my debit card', 'Please reissue my ATM card', 'My debit card was stolen, block it']) {
+      expect(pickJourneyCard(text)).toEqual({ kind: 'card', cardId: 'debit_reissue' });
+    }
+  });
+
   it('does not pick a form this demo does not fill', () => {
     expect(pickJourneyCard('I want a personal loan')).toEqual({ kind: 'later' });
     expect(pickJourneyCard('Send money by NEFT')).toEqual({ kind: 'later' });

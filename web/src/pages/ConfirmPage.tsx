@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { bankOnlyFields, isBundledForm } from '../forms/activeForm';
-import { BANK_VARIES_COPY, SCHEMA, isFilled } from '../lib/schema';
+import { OLD_CARD_BLOCKED_ACK } from '../lib/debitReissue';
+import { BANK_VARIES_COPY, SCHEMA, fieldApplies, isFilled, journeyValues } from '../lib/schema';
 import { buildDraftPdf } from '../lib/publishedPdfFill';
 import type { SchemaField } from '../lib/types';
 import { useRoute } from '../routing/router';
@@ -53,7 +54,10 @@ type ReceiptField = Pick<SchemaField, 'id' | 'label_en'>;
 /** Filled shared fields, then filled boxes that only the selected bank's form has. A cleared checkbox is not filled. */
 function filledFields(session: ReturnType<typeof useFormSession>): ReceiptField[] {
   const shared = SCHEMA.fields.filter(
-    (field) => field.group !== 'confirm_gates' && isFilled(session.values[field.id]),
+    (field) =>
+      field.group !== 'confirm_gates' &&
+      fieldApplies(field, session.values) &&
+      isFilled(session.values[field.id]),
   );
   const bank = bankOnlyFields(session.form)
     .filter((field) => isFilled(session.values[field.id]) && session.values[field.id] !== false)
@@ -85,7 +89,7 @@ function draftPayload(session: ReturnType<typeof useFormSession>) {
     },
     language: session.language,
     mic_lang: session.micLang,
-    values: session.values,
+    values: journeyValues(session.values),
     // Structured handoff shape: per-field value + provenance + confidence.
     // This is the part a bank's onboarding/core-banking system would
     // actually import — the flat `values` above is kept for simple
@@ -107,7 +111,7 @@ export function ConfirmPage() {
     setPdfBusy(true);
     setPdfError(null);
     try {
-      const blob = await buildDraftPdf(session.form, session.values);
+      const blob = await buildDraftPdf(session.form, journeyValues(session.values));
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -124,6 +128,13 @@ export function ConfirmPage() {
   };
   const rows = filledFields(session);
   const pdfLabel = isBundledForm(session.form) ? 'HDFC KYC' : `${session.form.bankId} form`;
+  // No bank card-reissue form is in the corpus. Printing a card request onto the KYC
+  // application would hand the bank an empty KYC form, so this journey offers JSON only.
+  const pdfAvailable = session.journey !== 'debit_reissue';
+  const gates =
+    session.journey === 'debit_reissue'
+      ? ([['card_old_blocked_ack', OLD_CARD_BLOCKED_ACK], ...GATES] as const)
+      : GATES;
 
   if (session.draftReady) {
     return (
@@ -154,14 +165,16 @@ export function ConfirmPage() {
               >
                 <DownloadIcon /> Download JSON
               </button>
-              <button
-                type="button"
-                className={`${BTN} ${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
-                disabled={pdfBusy}
-                onClick={() => void downloadPdf()}
-              >
-                <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : `Download PDF (${pdfLabel})`}
-              </button>
+              {pdfAvailable ? (
+                <button
+                  type="button"
+                  className={`${BTN} ${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+                  disabled={pdfBusy}
+                  onClick={() => void downloadPdf()}
+                >
+                  <DownloadIcon /> {pdfBusy ? 'Generating PDF…' : `Download PDF (${pdfLabel})`}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`${BTN_OUTLINE} ${BTN_MD} border-background text-background hover:bg-background hover:text-foreground`}
@@ -173,6 +186,11 @@ export function ConfirmPage() {
                 <RotateIcon /> New draft
               </button>
             </div>
+            {pdfAvailable ? null : (
+              <p className="mt-3 max-w-sm text-xs text-primary-foreground/80">
+                No bank PDF for a card reissue yet. The JSON draft has every field, with the card's last 4 only.
+              </p>
+            )}
             {pdfError ? <p className="mt-3 max-w-sm text-xs text-saffron">{pdfError}</p> : null}
           </div>
           <Receipt rows={rows} session={session} />
@@ -188,12 +206,14 @@ export function ConfirmPage() {
     <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
       <section className="border-b-2 border-foreground px-5 py-8 lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
         <p className="text-[10px] uppercase text-primary">05 · Confirm draft</p>
-        <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">Three gates. No bank submit.</h1>
+        <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">
+          {session.journey === 'debit_reissue' ? 'Block the old card. Then three gates.' : 'Three gates. No bank submit.'}
+        </h1>
         <p className="mt-4 max-w-md text-sm text-muted-foreground">
           Each gate must be clear before FormGuide saves anything. This action stores a draft in this demo only.
         </p>
         <div className="mt-7 space-y-3">
-          {GATES.map(([id, label], index) => {
+          {gates.map(([id, label], index) => {
             const on = session.values[id] === true;
             return (
               <label

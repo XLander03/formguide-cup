@@ -41,15 +41,23 @@ export const HDFC_V1_DATA = {
           "open a savings account",
           "update KYC",
           "re-KYC",
-          "KYC updation"
+          "KYC updation",
+          "debit card reissue"
+        ],
+        "journey_modes": [
+          "account_opening",
+          "kyc_update",
+          "rekyc",
+          "debit_reissue"
         ],
         "bank_varies": true,
-        "notes": "Maps to AO-SB vs KYC-UPD/rekyc hubs; bank forms differ."
+        "notes": "Maps to AO-SB vs KYC-UPD/rekyc hubs, or a debit card reissue request. Bank forms differ."
       },
       "options": [
         "account_opening",
         "kyc_update",
-        "rekyc"
+        "rekyc",
+        "debit_reissue"
       ]
     },
     {
@@ -76,6 +84,12 @@ export const HDFC_V1_DATA = {
         "type": "string",
         "required": true,
         "group": "identity",
+        "journey_modes": [
+          "account_opening",
+          "kyc_update",
+          "rekyc",
+          "debit_reissue"
+        ],
         "section": "sec_identity",
         "validation": {
           "minLength": 2,
@@ -151,7 +165,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_identity",
-      "order": 2,
+      "order": 8,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -284,7 +298,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_identity",
-      "order": 22,
+      "order": 28,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -325,7 +339,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_identity",
-      "order": 4,
+      "order": 10,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -359,7 +373,7 @@ export const HDFC_V1_DATA = {
       "required": false,
       "pii": true,
       "section": "sec_identity",
-      "order": 5,
+      "order": 11,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -408,7 +422,7 @@ export const HDFC_V1_DATA = {
       "required": false,
       "pii": false,
       "section": "sec_identity",
-      "order": 6,
+      "order": 12,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -483,7 +497,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": true,
       "section": "sec_contact",
-      "order": 3,
+      "order": 9,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -608,7 +622,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_address",
-      "order": 7,
+      "order": 13,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -699,7 +713,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_address",
-      "order": 8,
+      "order": 14,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -745,7 +759,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_address",
-      "order": 9,
+      "order": 15,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -791,7 +805,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_address",
-      "order": 10,
+      "order": 16,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -836,7 +850,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_address",
-      "order": 11,
+      "order": 17,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1068,7 +1082,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_kyc_ovd",
-      "order": 12,
+      "order": 18,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1117,7 +1131,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": true,
       "section": "sec_kyc_ovd",
-      "order": 13,
+      "order": 19,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1196,7 +1210,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_kyc_ovd",
-      "order": 14,
+      "order": 20,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1355,7 +1369,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_kyc_ovd",
-      "order": 15,
+      "order": 21,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1390,7 +1404,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_kyc_ovd",
-      "order": 16,
+      "order": 22,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1425,7 +1439,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_account_refs",
-      "order": 17,
+      "order": 23,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1459,7 +1473,7 @@ export const HDFC_V1_DATA = {
       "required": false,
       "pii": true,
       "section": "sec_account_refs",
-      "order": 18,
+      "order": 24,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1538,7 +1552,7 @@ export const HDFC_V1_DATA = {
       "required": false,
       "pii": false,
       "section": "sec_account_refs",
-      "order": 19,
+      "order": 25,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1668,7 +1682,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_profile_light",
-      "order": 20,
+      "order": 26,
       "confidence": 1,
       "checked": false,
       "page": 1,
@@ -1711,7 +1725,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_profile_light",
-      "order": 21,
+      "order": 27,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1782,13 +1796,421 @@ export const HDFC_V1_DATA = {
       }
     },
     {
+      "id": "card_customer_id",
+      "label": "Customer ID",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 2,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_customer_id",
+        "label_en": "Customer ID",
+        "type": "string",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue"
+        },
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "minLength": 4,
+          "maxLength": 20
+        },
+        "voice_hints": [
+          "customer id",
+          "CIF"
+        ],
+        "bank_varies": true,
+        "notes": "Researcher field list. Not a bank form number."
+      },
+      "maxChars": 20
+    },
+    {
+      "id": "card_account_number",
+      "label": "Account number",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 3,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_account_number",
+        "label_en": "Account number",
+        "type": "string",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue"
+        },
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "minLength": 6,
+          "maxLength": 18
+        },
+        "voice_hints": [
+          "account number"
+        ],
+        "bank_varies": true,
+        "notes": "Account number for the card. Never a full card number."
+      },
+      "maxChars": 18
+    },
+    {
+      "id": "card_last4",
+      "label": "Card last 4 digits",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 4,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_last4",
+        "label_en": "Card last 4 digits",
+        "type": "string",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue"
+        },
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "pattern": "^[0-9]{4}$"
+        },
+        "voice_hints": [
+          "last four digits",
+          "card ending"
+        ],
+        "bank_varies": true,
+        "notes": "Store only the last 4 digits. Never the full card number. No PIN."
+      }
+    },
+    {
+      "id": "card_reason",
+      "label": "Reason",
+      "type": "choice",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 5,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_reason",
+        "label_en": "Reason",
+        "type": "enum",
+        "enum_ref": "card_reason",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue"
+        },
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "enum": true
+        },
+        "voice_hints": [
+          "lost",
+          "stolen",
+          "damaged",
+          "other"
+        ],
+        "bank_varies": true,
+        "notes": "lost or misplaced, stolen, damaged, or other."
+      },
+      "options": [
+        "lost_or_misplaced",
+        "stolen",
+        "damaged",
+        "other"
+      ]
+    },
+    {
+      "id": "card_reason_other",
+      "label": "Reason, if other",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 6,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_reason_other",
+        "label_en": "Reason, if other",
+        "type": "string",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue",
+          "card_reason": "other"
+        },
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "voice_hints": [
+          "other reason"
+        ],
+        "bank_varies": true
+      },
+      "maxChars": 80
+    },
+    {
+      "id": "card_reissue_new",
+      "label": "Reissue a new card",
+      "type": "checkbox",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 7,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_reissue_new",
+        "label_en": "Reissue a new card",
+        "type": "boolean",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue"
+        },
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "voice_hints": [
+          "reissue",
+          "new card",
+          "block only"
+        ],
+        "bank_varies": true,
+        "notes": "Defaults to yes."
+      }
+    },
+    {
+      "id": "card_charges_account",
+      "label": "Charges debit account",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 1048,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_charges_account",
+        "label_en": "Charges debit account",
+        "type": "string",
+        "required": false,
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "voice_hints": [
+          "same account"
+        ],
+        "bank_varies": true,
+        "notes": "Optional. Defaults to the same account."
+      }
+    },
+    {
+      "id": "card_remarks",
+      "label": "Remarks",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 1049,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_remarks",
+        "label_en": "Remarks",
+        "type": "string",
+        "required": false,
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "maxLength": 120
+        },
+        "bank_varies": true
+      },
+      "maxChars": 120
+    },
+    {
+      "id": "card_confirm_mobile",
+      "label": "Mobile number for confirmation",
+      "type": "text",
+      "required": false,
+      "pii": false,
+      "section": "sec_card",
+      "order": 1050,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "card_reissue",
+      "schemaField": {
+        "id": "card_confirm_mobile",
+        "label_en": "Mobile number for confirmation",
+        "type": "string",
+        "required": false,
+        "group": "card_reissue",
+        "section": "sec_card",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "pattern": "^[6-9][0-9]{9}$"
+        },
+        "voice_hints": [
+          "confirmation mobile"
+        ],
+        "bank_varies": true
+      }
+    },
+    {
+      "id": "card_old_blocked_ack",
+      "label": "I understand the old card is permanently blocked and can't be used again, even if found",
+      "type": "checkbox",
+      "required": false,
+      "pii": false,
+      "section": "sec_confirm",
+      "order": 1051,
+      "confidence": 1,
+      "checked": false,
+      "page": 0,
+      "box": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      "group": "confirm_gates",
+      "schemaField": {
+        "id": "card_old_blocked_ack",
+        "label_en": "I understand the old card is permanently blocked and can't be used again, even if found",
+        "type": "boolean",
+        "required": false,
+        "required_if": {
+          "journey_mode": "debit_reissue"
+        },
+        "group": "confirm_gates",
+        "section": "sec_confirm",
+        "journey_modes": [
+          "debit_reissue"
+        ],
+        "validation": {
+          "must_be_true_before_readback": true
+        },
+        "bank_varies": false,
+        "notes": "Required before read-back confirm. Not a PIN and not an address."
+      }
+    },
+    {
       "id": "readback_confirmed",
       "label": "I confirm the read-back of key details is correct",
       "type": "checkbox",
       "required": true,
       "pii": false,
       "section": "sec_confirm",
-      "order": 23,
+      "order": 29,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1824,7 +2246,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_confirm",
-      "order": 24,
+      "order": 30,
       "confidence": 1,
       "checked": false,
       "page": 0,
@@ -1860,7 +2282,7 @@ export const HDFC_V1_DATA = {
       "required": true,
       "pii": false,
       "section": "sec_confirm",
-      "order": 25,
+      "order": 31,
       "confidence": 1,
       "checked": false,
       "page": 0,
