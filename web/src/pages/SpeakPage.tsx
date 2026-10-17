@@ -8,6 +8,7 @@ import {
   REGISTERED_ADDRESS_COPY,
   cardLast4,
 } from '../lib/debitReissue';
+import { demoMode } from '../lib/demoMode';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
 import { HINDI_SAMPLE, MIXED_SAMPLE } from '../lib/utteranceLang';
@@ -135,6 +136,8 @@ function GreenDots() {
 export function SpeakPage() {
   const { go } = useRoute();
   const session = useFormSession();
+  // Sample phrase, sample draft and manual read-back are demo helpers: ?demo=1 only.
+  const [demo] = useState(demoMode);
   const [said, setSaid] = useState('');
   const [saidIsSample, setSaidIsSample] = useState(false);
   const [turns, setTurns] = useState(0);
@@ -538,54 +541,58 @@ export function SpeakPage() {
           </div>
 
           <div className="mt-auto grid w-full gap-2">
-            <button
-              type="button"
-              className={lightBtn}
-              disabled={session.busy}
-              onClick={() => {
-                const text = sampleLines[sampleStep % sampleLines.length];
-                setSampleStep((step) => step + 1);
-                if (mic.listening) mic.cancel();
-                if (agent.running) agent.stop();
-                setSaid(text);
-                setSaidIsSample(true);
-                setMicNote(null);
-                setTurns((count) => count + 1);
-                void session.onSubmitUtterance(text);
-              }}
-            >
-              Try a sample phrase ({(sampleStep % sampleLines.length) + 1}/{sampleLines.length})
-            </button>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className={lightBtn}
-                disabled={session.busy}
-                onClick={(event) => {
-                  const demoFlags = event.shiftKey || event.altKey || flagsDemoRequested();
-                  session.onPriya(demoFlags);
-                }}
-              >
-                Load sample draft
-              </button>
-              {session.readingBack ? (
-                <button type="button" className={lightBtn} onClick={() => session.onStopReadback()}>
-                  <StopIcon /> Stop
-                </button>
-              ) : (
+            {demo ? (
+              <>
                 <button
                   type="button"
                   className={lightBtn}
-                  disabled={!session.canReadback || session.busy || session.speaking}
-                  onClick={() => void session.onReadback()}
+                  disabled={session.busy}
+                  onClick={() => {
+                    const text = sampleLines[sampleStep % sampleLines.length];
+                    setSampleStep((step) => step + 1);
+                    if (mic.listening) mic.cancel();
+                    if (agent.running) agent.stop();
+                    setSaid(text);
+                    setSaidIsSample(true);
+                    setMicNote(null);
+                    setTurns((count) => count + 1);
+                    void session.onSubmitUtterance(text);
+                  }}
                 >
-                  Read back
+                  Try a sample phrase ({(sampleStep % sampleLines.length) + 1}/{sampleLines.length})
                 </button>
-              )}
-            </div>
-            <p className="text-center text-[10px] font-semibold text-saffron">
-              Sample person · not from a bank
-            </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className={lightBtn}
+                    disabled={session.busy}
+                    onClick={(event) => {
+                      const demoFlags = event.shiftKey || event.altKey || flagsDemoRequested();
+                      session.onPriya(demoFlags);
+                    }}
+                  >
+                    Load sample draft
+                  </button>
+                  {session.readingBack ? (
+                    <button type="button" className={lightBtn} onClick={() => session.onStopReadback()}>
+                      <StopIcon /> Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className={lightBtn}
+                      disabled={!session.canReadback || session.busy || session.speaking}
+                      onClick={() => void session.onReadback()}
+                    >
+                      Read back
+                    </button>
+                  )}
+                </div>
+                <p className="text-center text-[10px] font-semibold text-saffron">
+                  Sample person · not from a bank
+                </p>
+              </>
+            ) : null}
             {debit && session.missing.length === 0 && session.values.card_old_blocked_ack !== true ? (
               <p className="text-center text-[10px]">
                 Tick that the old card is permanently blocked before read-back.
