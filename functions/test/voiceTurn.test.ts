@@ -222,4 +222,10 @@ describe('fieldJson turn intent', () => {
     const dropped = await fieldJson('k', telugu, 'en-IN', {});
     assert.equal(dropped.reply, null);
   });
+
+  it('does not read the bank disclaimer aloud with the next question', async () => {
+    stubModel({ ...base, intent: 'answer', spoken_lang: 'hi-IN', next_ask: 'कृपया अपना 10 अंकों का मोबाइल नंबर बताएं। Fields vary by bank.', field_updates: {} });
+    const out = await fieldJson('k', 'मेरा नाम राहुल है', 'hi-IN', { applicant_full_name: 'Rahul Verma' });
+    assert.doesNotMatch(String(out.next_ask), /Fields vary/);
+  });
 });

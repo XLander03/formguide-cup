@@ -765,8 +765,10 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         if (heard) setSpokenLang(heard);
         const replyBcp47: MicLang = heard ?? (replyLang === 'hi' ? 'hi-IN' : 'en-IN');
         const askBcp47: MicLang = languageByBcp47(data.next_ask_lang)?.bcp47 ?? replyBcp47;
-        const replyText = data.reply?.trim() || '';
-        const askText = data.next_ask?.trim() || '';
+        // Both are spoken; the on-screen bank disclaimer is not read out every turn.
+        const unspoken = (text: string | null | undefined) => (text ?? '').replace(/\s*Fields vary by bank\.?/g, '').trim();
+        const replyText = unspoken(data.reply);
+        const askText = unspoken(data.next_ask);
         return {
           transcript: data.transcript,
           error: null,
@@ -824,11 +826,11 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   /** One line in a BCP-47 language: its device voice, else the English version, else nothing. */
   const sayIn = useCallback(
     async (text: string, lang: MicLang, english: string | null) => {
-      if (lang === 'en-IN' || lang === 'hi-IN') {
-        await say(text, lang === 'hi-IN' ? 'hi' : 'en');
+      if (lang === 'en-IN') {
+        await say(text, 'en');
         return;
       }
-      // An English voice reading Telugu letters is worse than English words.
+      // An English voice reading Hindi or Telugu letters says only the digits; English words are better.
       const voice = await resolveReadbackVoice(lang);
       if (voice.speech) await say(text, undefined, voice.speech);
       else if (english) await say(english, 'en');

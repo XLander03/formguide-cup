@@ -73,7 +73,8 @@ export function findVoice(voices: SpeechSynthesisVoice[], bcp47: string): Speech
   return family?.voice ?? null;
 }
 
-function loadVoices(): Promise<SpeechSynthesisVoice[]> {
+/** The device's speech voices; waits up to 1s for Chrome, which loads them after page load. */
+export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return Promise.resolve([]);
   const synth = window.speechSynthesis;
   const ready = synth.getVoices();
@@ -99,11 +100,12 @@ export interface ReadbackVoicePlan {
 }
 
 /**
- * English and Hindi keep the existing read-back path.
- * Other languages use a matching Web Speech voice, or English when the device has none.
+ * English keeps the default path. Hindi and the regional languages use a matching Web Speech
+ * voice, or English when the device has none: an English voice reading Devanagari says only
+ * the digits.
  */
 export async function resolveReadbackVoice(bcp47: string): Promise<ReadbackVoicePlan> {
-  if (bcp47 === 'en-IN' || bcp47 === 'hi-IN') return { fellBackToEnglish: false };
+  if (bcp47 === 'en-IN') return { fellBackToEnglish: false };
   const voices = await loadVoices();
   const voice = findVoice(voices, bcp47);
   if (!voice) return { fellBackToEnglish: true };
