@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildReadbackScript } from './heuristicExtract';
 import { detectScriptLanguage, LANGUAGES } from './languages';
-import { isRegionalLanguage } from './readbackI18n';
+import { isRegionalLanguage, spokenDate } from './readbackI18n';
 import { readbackFollowup } from './utteranceLang';
 
 const AOF = {
@@ -17,7 +17,9 @@ describe('regional read-back', () => {
   it('reads the AOF draft in Telugu with Latin values and the required English line', () => {
     const script = buildReadbackScript(AOF, 'te');
     expect(script).toContain('పేరు: Priya Sharma');
-    expect(script).toContain('1994-03-12');
+    // Dates are read as day, month name and year, not the raw stored form.
+    expect(script).toContain('12 మార్చి, 1994');
+    expect(script).not.toContain('1994-03-12');
     expect(script).toContain('3210');
     expect(script).toContain('డ్రైవింగ్ లైసెన్స్');
     expect(script).toContain('సాధారణ పొదుపు ఖాతా');
@@ -65,5 +67,21 @@ describe('detectScriptLanguage', () => {
     expect(detectScriptLanguage('माझं नाव प्रिया', 'mr-IN')).toBe('mr-IN');
     expect(detectScriptLanguage('मेरा नाम प्रिया', 'en-IN')).toBe('hi-IN');
     expect(detectScriptLanguage('My name is Priya', 'te-IN')).toBeNull();
+  });
+});
+
+describe('spoken dates', () => {
+  it('reads a stored date as day, month name and year in the read-back language', () => {
+    expect(spokenDate('1994-03-12', 'en-IN')).toBe('12 March 1994');
+    expect(spokenDate('1994-03-12', 'hi-IN')).toBe('12 मार्च 1994');
+    expect(spokenDate('1994-03-12', 'te-IN')).toMatch(/^12 .+ 1994$/);
+    expect(spokenDate('1994-03-12', 'bn-IN')).toMatch(/12/);
+    expect(spokenDate('not a date', 'hi-IN')).toBe('not a date');
+  });
+
+  it('the Hindi read-back no longer says the raw date', () => {
+    const script = buildReadbackScript({ applicant_full_name: 'Priya Sharma', dob: '1994-03-12' }, 'hi');
+    expect(script).toContain('12 मार्च 1994');
+    expect(script).not.toContain('1994-03-12');
   });
 });

@@ -33,7 +33,7 @@ import {
   type ReadbackLang,
   type UtteranceLang,
 } from './utteranceLang';
-import { isRegionalLanguage, regionalReadback } from './readbackI18n';
+import { isRegionalLanguage, regionalReadback, spokenDate } from './readbackI18n';
 
 const MOBILE_RE = /\b(?:\+?91[\s-]?)?([6-9]\d{9})\b/;
 const PIN_RE = /\b(\d{6})\b/;
@@ -708,7 +708,12 @@ export function buildReadbackScript(
     return regionalReadback(Object.fromEntries(ids.map((id) => [id, formValue(form, values, id)])), lang);
   }
   const name = formValue(form, values, 'applicant_full_name') || (lang === 'en' ? 'applicant' : 'आवेदक');
-  const dob = formValue(form, values, 'dob') || (lang === 'en' ? 'date of birth not set' : 'जन्म तिथि नहीं');
+  const rawDob = formValue(form, values, 'dob');
+  const dob = rawDob
+    ? spokenDate(rawDob, lang === 'en' ? 'en-IN' : 'hi-IN')
+    : lang === 'en'
+      ? 'date of birth not set'
+      : 'जन्म तिथि नहीं';
   const mobile = String(formValue(form, values, 'mobile_registered') || '');
   const last4 = mobile.length >= 4 ? mobile.slice(-4) : 'xxxx';
   const ovd = formValue(form, values, 'ovd_poi_type') || (lang === 'en' ? 'document not set' : 'दस्तावेज़ नहीं');

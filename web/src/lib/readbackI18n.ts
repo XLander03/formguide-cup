@@ -487,7 +487,7 @@ type Values = Record<string, string | boolean | null | undefined>;
 export function regionalReadback(values: Values, lang: RegionalLanguage): string {
   const c = COPY[lang];
   const name = values.applicant_full_name || c.applicant;
-  const dob = values.dob || c.notSet;
+  const dob = values.dob ? spokenDate(values.dob, `${lang}-IN`) : c.notSet;
   const mobile = String(values.mobile_registered || '');
   const last4 = mobile.length >= 4 ? mobile.slice(-4) : 'xxxx';
   const ovd = values.ovd_poi_type ? label(c, values.ovd_poi_type) : c.notSet;
@@ -518,4 +518,26 @@ export function regionalDebitReadback(values: Values, lang: RegionalLanguage, la
 
 export function regionalReadbackFollowup(lang: RegionalLanguage): string {
   return COPY[lang].followup;
+}
+
+/**
+ * A stored YYYY-MM-DD date as it should be read aloud: "12 March 1994", "12 मार्च 1994",
+ * "12 మార్చి 1994". Read raw, every voice says "1994 minus 03 minus 12". Digits stay Western.
+ */
+export function spokenDate(value: unknown, bcp47: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!iso) return text;
+  const date = new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
+  if (Number.isNaN(date.getTime())) return text;
+  try {
+    return new Intl.DateTimeFormat(`${bcp47}-u-nu-latn`, {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(date);
+  } catch {
+    return text;
+  }
 }

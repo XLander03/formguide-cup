@@ -48,7 +48,10 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
   sessionRef.current = session;
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const hindi = session.readbackLang === 'hi';
+  // Read through a ref: the language flips to Hindi as soon as one is heard, and a loop that
+  // depended on it would restart mid-turn, cutting off the question being spoken.
+  const hindiRef = useRef(session.readbackLang === 'hi');
+  hindiRef.current = session.readbackLang === 'hi';
 
   const [phase, setPhase] = useState<VoicePhase>('idle');
   const [running, setRunning] = useState(false);
@@ -107,7 +110,9 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
         if (line) {
           setReply(line);
           setPhase('speaking');
-          await sessionRef.current.say(line, result.replyLang);
+          // The page wrote this line in the conversation's language, which a one-word "yes"
+          // in English does not change; speak it in that language, not the clip's.
+          await sessionRef.current.say(line);
         }
         return { context, intent: 'command', command: result.command, spoke: true };
       }
@@ -156,7 +161,7 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
         if (recorded.kind === 'silence') {
           misses += 1;
           if (misses >= MAX_MISSES) {
-            setNote(hindi ? 'हैंड्स-फ़्री रुका है। जारी रखने के लिए माइक दबाइए।' : 'Hands-free paused. Tap the mic to carry on.');
+            setNote(hindiRef.current ? 'हैंड्स-फ़्री रुका है। जारी रखने के लिए माइक दबाइए।' : 'Hands-free paused. Tap the mic to carry on.');
             return;
           }
           last = null;
@@ -179,7 +184,7 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
         setPhase('idle');
       }
     }
-  }, [record, handleClip, hindi]);
+  }, [record, handleClip]);
 
   /** Tap-to-talk: one turn that stops on silence, without the loop. */
   const talkOnce = useCallback(
@@ -193,7 +198,7 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
         const recorded = await record();
         if (!alive()) return;
         if (recorded.kind === 'failed') setNote(micRef.current.error ?? 'The microphone did not start.');
-        else if (recorded.kind === 'silence') setNote(hindi ? 'कुछ सुनाई नहीं दिया।' : 'I did not hear anything.');
+        else if (recorded.kind === 'silence') setNote(hindiRef.current ? 'कुछ सुनाई नहीं दिया।' : 'I did not hear anything.');
         else if (recorded.kind === 'clip') await handleClip(recorded.wav, context, alive);
       } finally {
         if (runRef.current === id) {
@@ -202,7 +207,7 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
         }
       }
     },
-    [record, handleClip, hindi],
+    [record, handleClip],
   );
 
   /** Stop listening and speaking now. Hands-free stays switched on but paused. */
