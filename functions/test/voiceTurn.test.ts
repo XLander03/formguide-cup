@@ -198,9 +198,11 @@ describe('fieldJson turn intent', () => {
   });
 
   it('never returns a bare field id as the next question', async () => {
-    stubModel({ ...base, intent: 'answer', next_ask: 'addr_permanent_same_as_current', field_updates: {} });
-    const out = await fieldJson('k', 'hello', 'en-IN', { applicant_full_name: 'Priya Sharma' });
-    assert.doesNotMatch(String(out.next_ask), /^[a-z_]+$/);
+    for (const id of ['addr_permanent_same_as_current', 'dob']) {
+      stubModel({ ...base, intent: 'answer', next_ask: id, field_updates: {} });
+      const out = await fieldJson('k', 'Yes', 'en-IN', { applicant_full_name: 'Priya Sharma' });
+      assert.match(String(out.next_ask), /\s/, `${id} → ${out.next_ask}`);
+    }
   });
 
   it('drops the on-screen bank disclaimer from a spoken answer', async () => {

@@ -598,8 +598,9 @@ export async function fieldJson(
     );
   const askTable = replyLang === 'hi' ? HI_ASK : EN_ASK;
   let modelAsk = typeof parsed.next_ask === 'string' ? parsed.next_ask.trim() : '';
-  // The model sometimes returns a bare field id ("addr_permanent_same_as_current"); never speak that.
-  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(modelAsk)) modelAsk = '';
+  // The model sometimes returns a bare field id ("addr_permanent_same_as_current", "dob"); never speak
+  // that. A real question always has a space or punctuation.
+  if (/^[A-Za-z0-9_]+$/.test(modelAsk)) modelAsk = '';
   let nextAsk = buildNextAsk(missing, replyLang, askTable, modelAsk);
   if (isBetaSpeakLanguage(language) && nextAsk && hasNonLatinLetter(nextAsk)) {
     nextAsk = buildNextAsk(missing, 'en', EN_ASK, null);
