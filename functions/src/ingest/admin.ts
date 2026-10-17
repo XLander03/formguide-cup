@@ -124,8 +124,12 @@ export async function handleAdminForms(req: AdminReq, res: HttpRes, deps: AdminD
 
 async function loadRequested(req: AdminReq, deps: AdminDeps): Promise<VersionRecord> {
   const formId = strictId(queryParam(req, 'formId'));
-  const version = strictId(queryParam(req, 'version'));
-  const record = await deps.loadVersion(formId, version);
+  // A review link without a version (/admin/forms/:id/review) means the newest one,
+  // chosen by the same rule as the console's forms list.
+  const requested = queryParam(req, 'version');
+  const record = requested
+    ? await deps.loadVersion(formId, strictId(requested))
+    : newestPerForm((await deps.listAllVersions()).filter((item) => item.formVersion.formId === formId))[0];
   if (!record) throw new IngestError('not_found', 404);
   return record;
 }

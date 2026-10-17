@@ -162,6 +162,18 @@ describe('admin endpoints', () => {
     assert.equal(missing.statusCode, 404);
   });
 
+  it('opens the newest version when a review link carries no version', async () => {
+    const deps = seeded();
+    deps.docs.set('axis_aof/v2', versionDocWithTime({ ...DRAFT, version: 'v2' }, '2026-10-17T08:00:00.000Z') as unknown as Record<string, unknown>);
+    const res = mockRes();
+    await handleAdminForm(get('', { formId: 'axis_aof' }), res, deps);
+    assert.equal(res.statusCode, 200);
+    assert.equal((res.body as { formVersion: FormVersion }).formVersion.version, 'v2');
+    const unknown = mockRes();
+    await handleAdminForm(get('', { formId: 'no_such_form' }), unknown, deps);
+    assert.equal(unknown.statusCode, 404);
+  });
+
   it('serves the source PDF of a draft, privately', async () => {
     const deps = seeded();
     deps.files.set(DRAFT.pdfPath, Buffer.from('%PDF-1.7 draft'));
@@ -239,7 +251,7 @@ describe('admin endpoints', () => {
       await handleSetFormStatus(post(body), res, deps);
       assert.equal(res.statusCode, 400, JSON.stringify(body));
     }
-    for (const query of [{}, { formId: 'hdfc_aof' }, { formId: 'a b', version: 'v1' }, { formId: 'x'.repeat(81), version: 'v1' }]) {
+    for (const query of [{}, { formId: 'a b', version: 'v1' }, { formId: 'hdfc_aof', version: 'v 1' }, { formId: 'x'.repeat(81), version: 'v1' }]) {
       const one = mockRes();
       await handleAdminForm(get('', query), one, deps);
       assert.equal(one.statusCode, 400);
