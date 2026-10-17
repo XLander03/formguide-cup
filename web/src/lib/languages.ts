@@ -1,7 +1,8 @@
 /**
  * Picker + speak hint for India locales of gemini-3.5-transcribe.
  * Same codes as functions/src/languages.ts. English and Hindi are Supported;
- * every other code is Experimental on the model language table and shows Beta.
+ * every other code is Experimental on the model language table. The `beta` flag only drives
+ * functional fallbacks (e.g. extraction guards); the customer UI lists every language equally.
  * Tamil (ta-IN) and Urdu (ur-IN / ur-PK) are not on that table, so they are not listed.
  * The table also lists Punjabi (Gurmukhi script) as pa-Guru-IN. The picker offers
  * one Punjabi row and sends pa-IN. Sindhi is listed as sd-Arab-IN and is kept.
