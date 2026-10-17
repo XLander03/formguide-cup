@@ -1,56 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-export function useMic(lang: string, onFinal: (text: string) => void) {
-  const [listening, setListening] = useState(false);
-  const [live, setLive] = useState('');
-  const recogRef = useRef<SpeechRecognition | null>(null);
-  const buf = useRef('');
-  const onFinalRef = useRef(onFinal);
-  onFinalRef.current = onFinal;
-
-  const supported =
-    typeof window !== 'undefined' &&
-    !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-
-  useEffect(() => {
-    return () => recogRef.current?.abort();
-  }, []);
-
-  const stop = useCallback(() => {
-    recogRef.current?.stop();
-    setListening(false);
-  }, []);
-
-  const start = useCallback(() => {
-    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Ctor) return;
-    recogRef.current?.abort();
-    const recog = new Ctor();
-    recog.lang = lang;
-    recog.continuous = false;
-    recog.interimResults = true;
-    recog.onresult = (ev) => {
-      let transcript = '';
-      for (let i = 0; i < ev.results.length; i++) transcript += ev.results[i][0].transcript;
-      buf.current = transcript;
-      setLive(transcript);
-    };
-    recog.onerror = () => setListening(false);
-    recog.onend = () => {
-      setListening(false);
-      const text = buf.current.trim();
-      buf.current = '';
-      if (text) onFinalRef.current(text);
-    };
-    recogRef.current = recog;
-    setLive('');
-    recog.start();
-    setListening(true);
-  }, [lang]);
-
-  return { listening, live, supported, start, stop };
-}
-
+import { createSilenceDetector, rmsLevel, type SilenceDetector } from '../lib/silence';
 
 const MAX_SAMPLES = 16000 * 45;
 
@@ -119,9 +68,18 @@ type RecSession = {
   inputRate: number;
   timer: number;
   stopped: boolean;
+  /** Set for hands-free turns: stops on its own when the speaker goes quiet. */
+  detector: SilenceDetector | null;
 };
 
-/** Live speak mic: PCM until stop or 45s, then one WAV. Does not auto-restart. */
+export interface SpeakMicStart {
+  /** Stop by itself once the speaker has talked and gone quiet. */
+  autoStop?: boolean;
+  /** With autoStop: nobody spoke, so no clip is sent. */
+  onNoSpeech?: () => void;
+}
+
+/** Live speak mic: PCM until stop, silence (autoStop) or 45s, then one WAV. Does not auto-restart. */
 export function useSpeakMic(lang: string, onClip: (wav: Blob, lang: string) => void) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,12 +122,12 @@ export function useSpeakMic(lang: string, onClip: (wav: Blob, lang: string) => v
     teardown(false);
   }, [teardown]);
 
-  const start = useCallback(async () => {
-    if (sessionRef.current) return;
+  const start = useCallback(async (options: SpeakMicStart = {}): Promise<boolean> => {
+    if (sessionRef.current) return false;
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('This browser has no microphone.');
-      return;
+      return false;
     }
     let stream: MediaStream;
     try {
@@ -179,7 +137,7 @@ export function useSpeakMic(lang: string, onClip: (wav: Blob, lang: string) => v
     } catch {
       setError('Microphone permission was blocked.');
       setListening(false);
-      return;
+      return false;
     }
     const ctx = new AudioContext();
     await ctx.resume();
@@ -198,6 +156,7 @@ export function useSpeakMic(lang: string, onClip: (wav: Blob, lang: string) => v
       inputRate: ctx.sampleRate || 48000,
       timer: 0,
       stopped: false,
+      detector: options.autoStop ? createSilenceDetector() : null,
     };
     sessionRef.current = session;
     processor.onaudioprocess = (event) => {
@@ -205,13 +164,23 @@ export function useSpeakMic(lang: string, onClip: (wav: Blob, lang: string) => v
       const data = event.inputBuffer.getChannelData(0);
       session.chunks.push(new Float32Array(data));
       session.samples += data.length;
-      if (session.samples >= session.inputRate * 45) teardown(true);
+      if (session.samples >= session.inputRate * 45) {
+        teardown(true);
+        return;
+      }
+      const heard = session.detector?.push(rmsLevel(data), (data.length / session.inputRate) * 1000);
+      if (heard === 'speech_end') teardown(true);
+      else if (heard === 'no_speech') {
+        teardown(false);
+        options.onNoSpeech?.();
+      }
     };
     source.connect(processor);
     processor.connect(gain);
     gain.connect(ctx.destination);
     session.timer = window.setTimeout(() => teardown(true), 45000);
     setListening(true);
+    return true;
   }, [teardown]);
 
   useEffect(() => {

@@ -32,6 +32,7 @@ import { speak, speakForUtterance, stopSpeaking } from '../lib/tts';
 import type { ExtractResponse, FormValues } from '../lib/types';
 import { invalidFieldIds, normalizeInput } from '../lib/validate';
 import { readbackFollowup, type UtteranceLang } from '../lib/utteranceLang';
+import type { VoiceCommand, VoiceContext } from '../../../shared/voiceCommands';
 import {
   hasNonLatinLetter,
   languageByBcp47,
@@ -203,6 +204,19 @@ function normalizeCardInput(id: string, value: string | boolean | null): string 
   return value;
 }
 
+/** One voice turn through the speak function, as the pages need it. */
+export interface VoiceTurnResult {
+  transcript: string | null;
+  error: string | null;
+  /** The field model failed and the transcript was filled locally instead. */
+  fallback?: boolean;
+  intent?: ExtractResponse['intent'];
+  command?: VoiceCommand | null;
+  /** What to say back: the reply (answer or change), then the next question. Empty when nothing. */
+  spoken: string;
+  replyLang: 'en' | 'hi';
+}
+
 export interface FormSessionValue {
   language: ShellLanguage | null;
   journey: JourneyId | null;
@@ -241,6 +255,15 @@ export interface FormSessionValue {
   onSubmitSpeakClip: (
     wav: Blob,
   ) => Promise<{ transcript: string | null; error: string | null; fallback?: boolean }>;
+  /** One voice turn (fill, read-back, review or confirm). Fills fields; never speaks. */
+  voiceTurn: (wav: Blob, context: VoiceContext) => Promise<VoiceTurnResult>;
+  /** Speaks one line and resolves when it has finished. */
+  say: (text: string, lang?: UtteranceLang) => Promise<void>;
+  /** FormGuide asks each question aloud and listens by itself, on Speak, Review and Confirm. */
+  handsFree: boolean;
+  setHandsFree: (on: boolean) => void;
+  /** A spoken "yes" at the read-back: ticks the read-back, draft-only and no-live-submit gates. */
+  confirmGates: () => void;
   /** Pass true for the demo-only low-confidence variant (DOB + mobile flagged). */
   onPriya: (withFlags?: boolean) => void;
   onClear: () => void;
@@ -299,6 +322,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     bootFlags.current ? priyaDemoValues() : seedValues(saved),
   );
   const [busy, setBusy] = useState(false);
+  const [handsFree, setHandsFree] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [readingBack, setReadingBack] = useState(false);
   const [readbackInEnglish, setReadbackInEnglish] = useState(false);
@@ -658,14 +682,16 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
   );
 
 
-  const onSubmitSpeakClip = useCallback(
-    async (wav: Blob): Promise<{ transcript: string | null; error: string | null; fallback?: boolean }> => {
+  const voiceTurn = useCallback(
+    async (wav: Blob, context: VoiceContext): Promise<VoiceTurnResult> => {
       setBusy(true);
       setRefuseMsg(null);
       setDraftReady(false);
+      const fallbackLang: 'en' | 'hi' = micLang === 'hi-IN' ? 'hi' : 'en';
       const body = new FormData();
       body.append('language', micLang);
       body.append('current_values', JSON.stringify(values));
+      body.append('context', context);
       // A published bank form also lets voice fill its own customer boxes. Never sent for HDFC v1.
       const formFields = speakFormFields(formRef.current);
       if (formFields) {
@@ -687,31 +713,95 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           if (transcript?.trim() && error.startsWith('fields_')) {
             const local = await extractFields(transcript, values);
             applyUpdates(local.field_updates, local, transcript);
-            return { transcript, error: null, fallback: true };
+            return { transcript, error: null, fallback: true, intent: 'answer', spoken: '', replyLang: fallbackLang };
           }
-          return { transcript, error };
+          return { transcript, error, spoken: '', replyLang: fallbackLang };
         }
         if (!data || !data.field_updates || typeof data.transcript !== 'string') {
-          return { transcript: null, error: 'bad_response' };
+          return { transcript: null, error: 'bad_response', spoken: '', replyLang: fallbackLang };
+        }
+        const replyLang: 'en' | 'hi' =
+          data.reply_lang === 'hi' || /[\u0900-\u097F]/.test(data.transcript) ? 'hi' : 'en';
+        if (data.intent === 'command') {
+          return {
+            transcript: data.transcript,
+            error: null,
+            intent: 'command',
+            command: data.command ?? null,
+            spoken: '',
+            replyLang,
+          };
         }
         applyUpdates(data.field_updates, data, data.transcript);
-        const ask = data.next_ask?.trim() || '';
-        const hindi = data.reply_lang === 'hi' || /[\u0900-\u097F]/.test(data.transcript);
-        if (ask) {
-          setSpeaking(true);
-          await speakForUtterance(ask, hindi ? 'hi' : 'en');
-        }
-        return { transcript: data.transcript, error: null };
+        const spoken = [data.reply?.trim(), data.next_ask?.trim()].filter(Boolean).join(' ');
+        return { transcript: data.transcript, error: null, intent: data.intent ?? 'answer', spoken, replyLang };
       } catch {
-        return { transcript: null, error: 'network_error' };
+        return { transcript: null, error: 'network_error', spoken: '', replyLang: fallbackLang };
       } finally {
         window.clearTimeout(timer);
-        setSpeaking(false);
         setBusy(false);
       }
     },
     [micLang, values, applyUpdates],
   );
+
+  /**
+   * Hands-free waits on this before listening, so it must always finish: some devices never
+   * start or never end an utterance. Same no-start wait as the read-back, plus a length cap.
+   */
+  const say = useCallback(
+    async (text: string, lang?: UtteranceLang) => {
+      if (!text.trim()) return;
+      setSpeaking(true);
+      let noStart = 0;
+      let cap = 0;
+      try {
+        await new Promise<void>((resolve) => {
+          const give = () => {
+            stopSpeaking();
+            resolve();
+          };
+          noStart = window.setTimeout(give, READBACK_NO_START_MS);
+          cap = window.setTimeout(give, Math.max(8000, text.length * 120) + READBACK_NO_START_MS);
+          speakForUtterance(text, lang ?? readbackLang, {
+            onStart: () => window.clearTimeout(noStart),
+          }).then(resolve, resolve);
+        });
+      } finally {
+        window.clearTimeout(noStart);
+        window.clearTimeout(cap);
+        setSpeaking(false);
+      }
+    },
+    [readbackLang],
+  );
+
+  const onSubmitSpeakClip = useCallback(
+    async (wav: Blob): Promise<{ transcript: string | null; error: string | null; fallback?: boolean }> => {
+      const result = await voiceTurn(wav, 'fill');
+      if (result.spoken) {
+        // Busy through the spoken reply too, so the mic cannot record over it.
+        setBusy(true);
+        try {
+          await say(result.spoken, result.replyLang);
+        } finally {
+          setBusy(false);
+        }
+      }
+      return { transcript: result.transcript, error: result.error, fallback: result.fallback };
+    },
+    [voiceTurn, say],
+  );
+
+  const confirmGates = useCallback(() => {
+    setValues((prev) => ({ ...prev, readback_confirmed: true, draft_only_ack: true, no_live_submit_ack: true }));
+    setFieldSource((prev) => ({
+      ...prev,
+      readback_confirmed: 'manual',
+      draft_only_ack: 'manual',
+      no_live_submit_ack: 'manual',
+    }));
+  }, []);
 
   const onPriya = useCallback((withFlags?: boolean) => {
     stopSpeaking();
@@ -1017,6 +1107,11 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
     onChange,
     onSubmitUtterance,
     onSubmitSpeakClip,
+    voiceTurn,
+    say,
+    handsFree,
+    setHandsFree,
+    confirmGates,
     onPriya,
     onClear,
     onReadback,

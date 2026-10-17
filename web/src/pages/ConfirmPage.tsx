@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { VoiceBar } from '../components/VoiceBar';
 import { bankOnlyFields, isBundledForm } from '../forms/activeForm';
 import { OLD_CARD_BLOCKED_ACK } from '../lib/debitReissue';
 import { resolveStepForm, stepTitle } from '../lib/journeyPlan';
@@ -9,8 +10,9 @@ import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
 import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { displayValue } from '../ui/fields';
-import { ArrowRightIcon, CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
-import { useMic } from '../ui/useMic';
+import { voiceLine } from '../lib/voiceLines';
+import { ArrowRightIcon, CheckIcon, DownloadIcon, FileCheckIcon, RotateIcon } from '../ui/icons';
+import { useVoiceAgent } from '../ui/useVoiceAgent';
 
 const GATES = [
   ['readback_confirmed', 'I reviewed the filled details and corrections.'],
@@ -121,11 +123,20 @@ export function ConfirmPage() {
       setAdvancing(false);
     }
   };
-  const mic = useMic(session.micLang, (utterance) => {
-    void session.onSubmitUtterance(utterance);
-  });
+  const downloadJson = () => {
+    const blob = new Blob([JSON.stringify(draftPayload(session), null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'formguide-draft.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
-  const downloadPdf = async () => {
+  /** Resolves true when the PDF was handed to the browser. */
+  const downloadPdf = async (): Promise<boolean> => {
     setPdfBusy(true);
     setPdfError(null);
     try {
@@ -138,8 +149,10 @@ export function ConfirmPage() {
         : `formguide-${session.form.bankId.toLowerCase()}-${session.form.journey}-draft.pdf`;
       link.click();
       URL.revokeObjectURL(url);
+      return true;
     } catch {
       setPdfError('Could not generate the PDF. The JSON draft above still has everything captured.');
+      return false;
     } finally {
       setPdfBusy(false);
     }
@@ -153,6 +166,103 @@ export function ConfirmPage() {
     session.journey === 'debit_reissue'
       ? ([['card_old_blocked_ack', OLD_CARD_BLOCKED_ACK], ...GATES] as const)
       : GATES;
+
+  // The voice loop outlives renders; it reads the page through these refs.
+  const live = useRef({ session, nextStep, pdfAvailable });
+  live.current = { session, nextStep, pdfAvailable };
+  const downloadedRef = useRef(false);
+  const doneRef = useRef(false);
+  const agent = useVoiceAgent({
+    prepare: async (last) => {
+      const { session: s, nextStep: next } = live.current;
+      const hi = s.readbackLang === 'hi';
+      // A question or correction was answered already; keep listening.
+      if (last && last.intent !== 'command') return 'confirm';
+      if (last?.command === 'no') return 'confirm';
+      if (s.draftReady) {
+        if (!downloadedRef.current) {
+          await s.say(voiceLine(next ? 'savedPromptNext' : 'savedPrompt', hi));
+          return 'confirm';
+        }
+        if (next) {
+          await s.say(voiceLine('promptNextForm', hi));
+          return 'confirm';
+        }
+        if (!doneRef.current) {
+          doneRef.current = true;
+          await s.say(voiceLine('allDone', hi));
+        }
+        return null;
+      }
+      if (s.confirmGatesOk && s.canReadback) {
+        await s.say(voiceLine('saySave', hi));
+        return 'confirm';
+      }
+      await s.say(voiceLine('gatesPrompt', hi));
+      return 'confirm';
+    },
+    onCommand: async (command) => {
+      const { session: s, nextStep: next, pdfAvailable: pdf } = live.current;
+      const hi = s.readbackLang === 'hi';
+      const save = () => {
+        if (!s.canReadback || !s.confirmGatesOk) return false;
+        s.emitDraft();
+        return true;
+      };
+      switch (command) {
+        case 'yes':
+          if (s.draftReady) return null;
+          s.confirmGates();
+          return voiceLine('gatesTicked', hi);
+        case 'no':
+          return voiceLine('sayGoBack', hi);
+        case 'save_draft':
+          if (s.draftReady) return voiceLine('saved', hi);
+          return save() ? voiceLine('saved', hi) : voiceLine('confirmGatesFirst', hi);
+        case 'download': {
+          if (!s.draftReady && !save()) return voiceLine('confirmGatesFirst', hi);
+          const ok = pdf ? await downloadPdf() : (downloadJson(), true);
+          if (!ok) return voiceLine('downloadFailed', hi);
+          downloadedRef.current = true;
+          return voiceLine('downloading', hi);
+        }
+        case 'next_form':
+          if (!next) return voiceLine('noNextForm', hi);
+          if (!s.draftReady) return voiceLine('finishFormFirst', hi);
+          await s.say(voiceLine('startingNext', hi, { title: stepTitle(next) }));
+          await goNext();
+          return null;
+        case 'continue':
+          if (!s.draftReady) {
+            if (!s.confirmGatesOk) {
+              s.confirmGates();
+              return voiceLine('gatesTicked', hi);
+            }
+            return save() ? voiceLine('saved', hi) : voiceLine('confirmGatesFirst', hi);
+          }
+          return voiceLine(next ? 'promptNextForm' : 'savedPrompt', hi);
+        case 'read_again':
+          return s.draftReady
+            ? voiceLine(next ? 'savedPromptNext' : 'savedPrompt', hi)
+            : voiceLine('gatesPrompt', hi);
+        case 'go_back':
+          await s.say(voiceLine('goingBackReview', hi));
+          go('/review');
+          return null;
+      }
+    },
+  });
+  const voiceBar = (
+    <VoiceBar
+      agent={agent}
+      context="confirm"
+      hint={
+        session.draftReady
+          ? `Say “download my form”${nextStep ? ' or “start the next form”' : ''}.`
+          : 'Say “yes” to confirm all three, then “save my draft”. Or “read it again”, “go back”.'
+      }
+    />
+  );
 
   if (session.draftReady) {
     return (
@@ -169,17 +279,7 @@ export function ConfirmPage() {
               <button
                 type="button"
                 className={`${BTN} ${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
-                onClick={() => {
-                  const blob = new Blob([JSON.stringify(draftPayload(session), null, 2)], {
-                    type: 'application/json',
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = 'formguide-draft.json';
-                  link.click();
-                  URL.revokeObjectURL(url);
-                }}
+                onClick={downloadJson}
               >
                 <DownloadIcon /> Download JSON
               </button>
@@ -211,6 +311,7 @@ export function ConfirmPage() {
               </p>
             )}
             {pdfError ? <p className="mt-3 max-w-sm text-xs text-saffron">{pdfError}</p> : null}
+            <div className="mt-6 bg-background text-foreground">{voiceBar}</div>
             {nextStep && plan ? (
               <div className="mt-8 border-2 border-background p-4">
                 <p className="text-[10px] uppercase text-primary-foreground/70">
@@ -280,18 +381,7 @@ export function ConfirmPage() {
             );
           })}
         </div>
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            className={`${BTN_OUTLINE} ${BTN_MD}`}
-            disabled={!mic.supported || session.busy}
-            onClick={() => (mic.listening ? mic.stop() : mic.start())}
-          >
-            {mic.listening ? <StopIcon /> : <MicIcon />}
-            {mic.listening ? 'Listening…' : 'Or say the confirmation'}
-          </button>
-        </div>
-        {mic.live ? <p className="mt-2 text-xs text-muted-foreground">“{mic.live}”</p> : null}
+        <div className="mt-4">{voiceBar}</div>
         <button
           type="button"
           className={`${BTN_PRIMARY} ${BTN_LG} mt-6 w-full`}

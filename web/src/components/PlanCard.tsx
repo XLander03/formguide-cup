@@ -1,26 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { PlanResponse } from '../lib/journeyPlan';
-import { stepTitle, traceLabel } from '../lib/journeyPlan';
+import { stepTitle } from '../lib/journeyPlan';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
 import { ArrowRightIcon, SparkleIcon } from '../ui/icons';
-
-/** "How I decided": the planner's tool calls, quiet and collapsed by default. */
-function Trace({ trace }: { trace: PlanResponse['trace'] }) {
-  if (trace.length === 0) return null;
-  return (
-    <details className="mt-4 text-xs">
-      <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">How I decided</summary>
-      <ol aria-label="Planner steps" className="mt-2 space-y-1 border-l-2 border-primary/40 pl-3 text-muted-foreground">
-        {trace.map((entry, index) => (
-          <li key={index}>
-            <span className="mr-1.5 font-mono text-[10px] text-primary">{entry.tool}</span>
-            {traceLabel(entry)}
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
 
 export function PlanCard({
   result,
@@ -53,7 +35,6 @@ export function PlanCard({
             ))}
           </div>
         ) : null}
-        <Trace trace={result.trace} />
       </section>
     );
   }
@@ -99,7 +80,6 @@ export function PlanCard({
           </li>
         ))}
       </ol>
-      <Trace trace={result.trace} />
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button type="button" className={`${BTN_PRIMARY} ${BTN_LG}`} disabled={starting} onClick={onStart}>
           Start with step 1 · {stepTitle(first)} <ArrowRightIcon />
