@@ -89,6 +89,18 @@ describe('gemini box_2d parsing', () => {
     assert.equal(parseBox2d([1200, 0, 1300, 100]), null, 'nothing left on the page');
   });
 
+  it('reads caption_box_2d and repairs the restarted "label" key seen on real PNB replies', () => {
+    const reply = `{"fields":[
+      {"label": "Branch Office", "type": "text", "required": false, "options": null, "box_2d": [832, 618, 851, 912], "label": "caption_box_2d": [834, 627, 843, 722], "confidence": 0.95, "section": null},
+      {"label": "City", "type": "text", "required": false, "options": null, "box_2d": [780, 85, 790, 470], "label_box_2d": [780, 59, 790, 81], "label": "confidence": 0.9, "section": null},
+      {"label": "PIN", "type": "pin", "required": false, "options": null, "box_2d": [780, 500, 790, 600], "caption_box_2d": [780, 470, 790, 498], "confidence": 0.9, "section": null}
+    ]}`;
+    const fields = parseOcrFields(reply);
+    assert.deepEqual(fields.map((f) => f.label), ['Branch Office', 'City', 'PIN']);
+    assert.ok(fields.every((f) => f.labelBox));
+    assert.equal(fields[1].confidence, 0.9);
+  });
+
   it('parses box_2d with label_box_2d and falls back to the legacy box', () => {
     const fields = parseOcrFields(JSON.stringify({
       fields: [
