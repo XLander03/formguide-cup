@@ -719,3 +719,5 @@ export {
   publishedForms,
   setFormStatus,
 } from './ingest/http';
+
+export { planJourney } from './planner/http';
