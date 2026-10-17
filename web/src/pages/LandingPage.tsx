@@ -1,6 +1,7 @@
 import { useRoute } from '../routing/router';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
-import { ArrowRightIcon, LockIcon, MicIcon, SparkleIcon, Waveform } from '../ui/icons';
+import { LandingDemo } from '../components/LandingDemo';
+import { ArrowRightIcon, LockIcon, MicIcon, SparkleIcon } from '../ui/icons';
 
 const STEPS = [
   ['Choose a journey', 'Pick Hindi or English, then account opening, KYC update, Re-KYC, or debit card reissue.'],
@@ -35,17 +36,8 @@ export function LandingPage() {
             <span>Confirm saves a draft only. FormGuide cannot submit anything to a bank.</span>
           </div>
         </div>
-        <div className="flex min-h-72 flex-col justify-between bg-foreground px-6 py-8 text-background lg:col-span-5 lg:px-10">
-          <div className="flex items-center justify-between text-[10px] uppercase text-background/50">
-            <span>Voice ready</span>
-            <span>Hindi · English</span>
-          </div>
-          <div className="flex justify-center">
-            <Waveform />
-          </div>
-          <p className="max-w-sm font-display text-3xl leading-tight">
-            “मेरा नाम अनन्या राव है, जन्म तारीख बारह मार्च…”
-          </p>
+        <div className="bg-foreground px-6 py-8 text-background lg:col-span-5 lg:px-10">
+          <LandingDemo />
         </div>
       </section>
       <section className="grid border-b-2 border-foreground md:grid-cols-3">
