@@ -269,7 +269,7 @@ export function ConfirmPage() {
   if (session.draftReady) {
     return (
       <div className="min-h-[calc(100vh-150px)]">
-        <section className="grid border-b-2 border-foreground lg:grid-cols-12">
+        <section className="grid grid-cols-1 border-b-2 border-foreground lg:grid-cols-12">
           <div className="relative flex flex-col justify-start overflow-hidden border-b-2 border-foreground bg-primary px-5 py-10 text-primary-foreground lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
             <div
               aria-hidden="true"
@@ -355,8 +355,8 @@ export function ConfirmPage() {
   }
 
   return (
-    <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
-      <section className="border-b-2 border-foreground px-5 py-8 lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
+    <div className="grid min-h-[calc(100vh-150px)] grid-cols-1 lg:grid-cols-12">
+      <section className="min-w-0 border-b-2 border-foreground px-5 py-8 lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
         <p className="text-[10px] uppercase text-primary">05 · Confirm draft</p>
         <h1 className="mt-3 max-w-[9ch] font-display text-5xl leading-none">
           {session.journey === 'debit_reissue' ? 'Block the old card. Then three gates.' : 'Three gates. No bank submit.'}
@@ -421,7 +421,7 @@ function Receipt({
   const { go } = useRoute();
   const name = String(session.values.applicant_full_name || '');
   return (
-    <section className="px-5 py-8 lg:col-span-7 lg:px-8">
+    <section className="min-w-0 px-5 py-8 lg:col-span-7 lg:px-8">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-[10px] uppercase text-primary">Bank handoff preview</p>
@@ -433,7 +433,7 @@ function Receipt({
         </div>
         <span className="border border-foreground px-2 py-1 text-[10px]">FAKE DEMO</span>
       </div>
-      <div className="mt-6 border-2 border-foreground">
+      <div className="mt-6 overflow-x-auto border-2 border-foreground">
         <div className="grid grid-cols-[.6fr_1.1fr_.9fr_.6fr] bg-foreground px-3 py-2 text-[10px] uppercase text-background">
           <span>Field</span>
           <span>Said</span>

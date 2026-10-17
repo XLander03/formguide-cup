@@ -373,8 +373,13 @@ export function SpeakPage() {
     confidence: session.confidence,
     label: sheetLabel,
     nextLabel: askComplete ? null : askNextLabel,
+    rank: (id) => {
+      const at = sheetFields.findIndex((field) => field.id === id);
+      return at < 0 ? sheetFields.length : at;
+    },
   });
-  const requiredLeft = requiredFields.length - requiredFilled;
+  // Everything still required, including questions asked outside the panel (Still needed).
+  const requiredLeft = askComplete ? 0 : Math.max(session.missing.length, requiredFields.length - requiredFilled);
   // Built on BTN, not BTN_OUTLINE: its text-foreground/bg-background win over these in the stylesheet,
   // which left dark text on the dark panel.
   const lightBtn = `${BTN} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
@@ -388,7 +393,7 @@ export function SpeakPage() {
   });
 
   return (
-    <div className="grid min-h-[calc(100vh-150px)] lg:h-[calc(100vh-10.5rem)] lg:grid-cols-12 lg:overflow-hidden">
+    <div className="grid min-h-[calc(100vh-150px)] grid-cols-1 lg:h-[calc(100vh-10.5rem)] lg:grid-cols-12 lg:overflow-hidden">
       <section className="flex min-h-0 flex-col border-b-2 border-foreground bg-foreground text-background lg:col-span-4 lg:overflow-hidden lg:border-b-0 lg:border-r-2">
         <div className="flex items-center justify-between border-b border-background/15 px-5 py-3 text-[10px] uppercase tracking-wide text-background/70">
           <span className="flex items-center gap-2">
@@ -901,7 +906,7 @@ export function SpeakPage() {
                           </p>
                         ) : null}
                         {filled && field.id && chip ? (
-                          <p className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
+                          <p className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5 text-[10px]">
                             <span className={`shrink-0 px-1.5 py-px font-semibold ${CHIP_TONE[chip.tone]}`}>{chip.text}</span>
                             {heard ? <span className="truncate italic text-muted-foreground">“{heard}”</span> : null}
                           </p>
