@@ -89,7 +89,6 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
   if (loaded.pageCount < 1) throw new IngestError('pdf_empty', 400);
   if (loaded.pageCount > MAX_PDF_PAGES) throw new IngestError('pdf_too_many_pages', 400);
 
-  const acro = readAcroFormFields(loaded.doc);
   let pages: RenderedPage[];
   try {
     pages = await renderPdfPages(bytes);
@@ -97,6 +96,8 @@ export async function draftFromPdf(bytes: Uint8Array, ocrPage: OcrPageFn): Promi
     throw new IngestError('pdf_render_failed', 400);
   }
   if (pages.length !== loaded.pageCount) throw new IngestError('pdf_render_failed', 400);
+  // Fillable fields take their printed labels from the rendered pages' text layers.
+  const acro = readAcroFormFields(loaded.doc, pages.map((page) => page.text));
 
   if (acro.length > 0) {
     return {
