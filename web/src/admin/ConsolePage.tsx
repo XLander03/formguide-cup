@@ -4,7 +4,7 @@ import type { CopilotAction } from '../../../shared/forms/copilot';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { ArrowRightIcon, RotateIcon } from '../ui/icons';
 import { consoleApi, type ConsoleApi } from './consoleClient';
-import { actionTitle, CopilotPanel } from './CopilotPanel';
+import { actionTitle, CopilotPanel, type CopilotApplyResult } from './CopilotPanel';
 import { mockIngestRequested } from './mockQuery';
 import { badgeLabel, versionSummary } from './consoleFormat';
 import {
@@ -218,7 +218,8 @@ export function ConsolePage({
             setBusyKey('copilot');
             setNotice(null);
             try {
-              setNotice(await runProposals(api, proposed, data?.forms ?? []));
+              // The panel shows the outcome in its thread, item by item.
+              return await runProposals(api, proposed, data?.forms ?? []);
             } finally {
               await reload();
               setBusyKey(null);
@@ -342,9 +343,13 @@ async function publishAndReplace(api: ConsoleApi, group: FormGroup, draft: Admin
  * Runs copilot proposals the admin confirmed, one at a time, through the same calls as the
  * card actions: setFormStatus for retire / unpublish, the publish flow (with its review gate) for publish.
  */
-export async function runProposals(api: ConsoleApi, proposed: readonly CopilotAction[], rows: readonly AdminFormRow[]): Promise<Notice> {
-  const done: string[] = [];
-  const failed: string[] = [];
+export async function runProposals(
+  api: ConsoleApi,
+  proposed: readonly CopilotAction[],
+  rows: readonly AdminFormRow[],
+): Promise<Notice & CopilotApplyResult> {
+  const done: CopilotAction[] = [];
+  const failed: CopilotApplyResult['failed'] = [];
   for (const action of proposed) {
     try {
       if (action.type === 'publish') {
@@ -366,15 +371,16 @@ export async function runProposals(api: ConsoleApi, proposed: readonly CopilotAc
       } else {
         await api.setStatus({ formId: action.formId, version: action.version, status: action.type === 'retire' ? 'retired' : 'draft' });
       }
-      done.push(actionTitle(action));
+      done.push(action);
     } catch (error) {
-      failed.push(`${actionTitle(action)}: ${errorText(error)}`);
+      failed.push({ action, error: errorText(error) });
     }
   }
   if (failed.length > 0) {
-    return { tone: 'error', text: `Did ${done.length} of ${proposed.length} changes. ${failed.join(' ')}` };
+    const reasons = failed.map((item) => `${actionTitle(item.action)}: ${item.error}`).join(' ');
+    return { tone: 'error', text: `Did ${done.length} of ${proposed.length} changes. ${reasons}`, done, failed };
   }
-  return { tone: 'ok', text: `Done: ${done.join('; ')}.` };
+  return { tone: 'ok', text: `Done: ${done.map(actionTitle).join('; ')}.`, done, failed };
 }
 
 async function clearOlderDrafts(api: ConsoleApi, group: FormGroup): Promise<Notice> {
