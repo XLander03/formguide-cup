@@ -50,11 +50,13 @@ function takeName(text: string, cues: RegExp): string | null {
 
 function addressChunk(text: string): string | null {
   const labeled = text.match(
-    /(?:मेरा पता|पता है|पता:|mera pata(?:\s+hai)?|pata hai)\s+(.+?)(?:[।.]|$)/i,
+    /(?:मेरा पता|पता है|पता:|mera pata(?:\s+hai)?|pata hai)\s+([^।.\n]+?)(?:[।.]|$)/i,
   );
   if (labeled) return labeled[1].trim();
+  // Stay inside one sentence. The first "मैं" in a longer utterance is often
+  // "I want to open an account", and a match across दंड would paste that into the street.
   const live = text.match(
-    /(?:मैं|main)\s+(.+?)\s+(?:में|mein)\s+रह(?:ती|ता|ते)\s+(?:हूँ|हूं|हैं|hoon|hun|hain)/i,
+    /(?:मैं|main)\s+([^।.\n]+?)\s+(?:में|mein)\s+रह(?:ती|ता|ते)\s+(?:हूँ|हूं|हैं|hoon|hun|hain)/i,
   );
   if (live) return live[1].trim();
   return null;

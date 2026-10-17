@@ -1,9 +1,14 @@
 import type { ExtractResponse, FormValues } from './types';
 import { heuristicExtract } from './heuristicExtract';
 
-const FUNCTIONS_URL =
-  import.meta.env.VITE_FUNCTIONS_URL?.replace(/\/$/, '') ||
-  (import.meta.env.DEV ? '' : '');
+/** Hosting has no extract function. The Vite middleware exists only in dev. */
+export function extractEndpointUrls(env: { dev: boolean; functionsUrl: string }): string[] {
+  const base = env.functionsUrl.replace(/\/$/, '');
+  const urls: string[] = [];
+  if (base) urls.push(`${base}/extract`);
+  if (env.dev) urls.push('/api/extract');
+  return urls;
+}
 
 async function tryExtractEndpoint(
   url: string,
@@ -58,10 +63,10 @@ export async function extractFields(
     current_values: current,
   };
 
-  const endpoints = [
-    FUNCTIONS_URL ? `${FUNCTIONS_URL}/extract` : null,
-    '/api/extract', // Vite-dev middleware or hosting rewrite
-  ].filter(Boolean) as string[];
+  const endpoints = extractEndpointUrls({
+    dev: import.meta.env.DEV,
+    functionsUrl: import.meta.env.VITE_FUNCTIONS_URL ?? '',
+  });
 
   for (const url of endpoints) {
     const data = await tryExtractEndpoint(url, body);

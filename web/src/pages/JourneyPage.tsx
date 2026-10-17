@@ -4,12 +4,15 @@ import { formKey } from '../forms/activeForm';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import type { JourneyId } from '../lib/journeys';
+import { pickJourneyCard } from '../lib/journeyIntent';
 import { LANGUAGES } from '../lib/languages';
 import { appliesToJourney } from '../lib/publishedForms';
+import { transcribeClip } from '../lib/transcribeClip';
 import { useRoute } from '../routing/router';
 import { useFormSession } from '../session/FormSession';
 import { BTN_LG, BTN_PRIMARY } from '../ui/buttons';
 import { ArrowRightIcon, CheckIcon, MicIcon, StopIcon } from '../ui/icons';
+import { useSpeakMic } from '../ui/useMic';
 
 type OpenCard = {
   id: string;
@@ -111,14 +114,8 @@ const LATER = [
 ];
 
 const SAMPLES = [
-  {
-    text: 'मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है',
-    cardId: 'salary_savings',
-  },
-  {
-    text: 'My bank sent a letter saying I need to redo my KYC',
-    cardId: 'rekyc',
-  },
+  'मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है',
+  'My bank sent a letter saying I need to redo my KYC',
 ] as const;
 
 function WaveMark() {
@@ -144,14 +141,43 @@ function GreenDots() {
 
 export function JourneyPage() {
   const { go } = useRoute();
-  const { language, selectLanguage, selectJourney, selectDraft, form, selectForm } = useFormSession();
-  const [listening, setListening] = useState(false);
+  const { language, micLang, selectLanguage, selectJourney, selectDraft, form, selectForm, onSubmitUtterance } =
+    useFormSession();
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
+  const [heardLive, setHeardLive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
   const [pickedForm, setPickedForm] = useState<FormVersion>(form);
   // A form published for another journey cannot be filled for this one.
   const chosenForm = appliesToJourney(pickedForm, selected.journey) ? pickedForm : HDFC_V1;
+
+  function applyUtterance(text: string, live: boolean) {
+    setHeard(text);
+    setHeardLive(live);
+    const pick = pickJourneyCard(text);
+    if (pick.kind === 'card') {
+      setSelectedId(pick.cardId);
+      setNote(null);
+      return;
+    }
+    setNote(
+      pick.kind === 'later'
+        ? 'That journey comes later. Choose account opening or KYC here.'
+        : 'Name the account or the KYC you need.',
+    );
+  }
+
+  const mic = useSpeakMic(micLang, (wav) => {
+    setBusy(true);
+    setNote(null);
+    void transcribeClip(wav, micLang).then((result) => {
+      setBusy(false);
+      if (result.transcript) applyUtterance(result.transcript, true);
+      else setNote(result.error);
+    });
+  });
 
   return (
     <div className="grid min-h-[calc(100vh-150px)] lg:grid-cols-12">
@@ -169,16 +195,22 @@ export function JourneyPage() {
         <div className="mt-10 flex flex-col items-center">
           <button
             type="button"
-            aria-label="Tap, say your need"
-            aria-pressed={listening}
-            onClick={() => setListening((on) => !on)}
+            aria-label={mic.listening ? 'Stop and choose a form' : 'Tap and say what you need'}
+            aria-pressed={mic.listening}
+            disabled={busy && !mic.listening}
+            onClick={() => {
+              if (mic.listening) mic.stop();
+              else if (!busy) void mic.start();
+            }}
             className="grid size-40 place-items-center rounded-full bg-primary text-primary-foreground"
           >
-            {listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
+            {mic.listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
           </button>
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide">
-            {listening ? 'Listening · local only · not a transcript' : 'Tap · say your need'}
+            {mic.listening ? 'Listening' : busy ? 'Choosing a form' : 'Tap · say your need'}
           </p>
+          {mic.error ? <p className="mt-2 text-center text-xs text-saffron">{mic.error}</p> : null}
+          {note ? <p className="mt-2 max-w-xs text-center text-xs text-saffron">{note}</p> : null}
           <GreenDots />
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[11px]" role="group" aria-label="Language">
             <span className="flex items-center gap-1.5 text-background/80">
@@ -221,23 +253,19 @@ export function JourneyPage() {
           <div className="mt-3 flex flex-col gap-2">
             {SAMPLES.map((sample) => (
               <button
-                key={sample.text}
+                key={sample}
                 type="button"
-                onClick={() => {
-                  setListening(false);
-                  setHeard(sample.text);
-                  setSelectedId(sample.cardId);
-                }}
+                onClick={() => applyUtterance(sample, false)}
                 className="border border-background/30 px-3 py-2 text-left text-xs hover:border-primary"
               >
-                ▶ {sample.text}
+                ▶ {sample}
               </button>
             ))}
           </div>
           {heard ? (
             <p className="mt-3 border border-background/30 p-3 text-sm">
               <span className="block text-[10px] uppercase text-background/50">
-                Sample · not a live transcript
+                {heardLive ? 'Heard' : 'Sample · not a live transcript'}
               </span>
               “{heard}”
             </p>
@@ -324,6 +352,7 @@ export function JourneyPage() {
               if (selected.product) selectDraft(selected.journey, selected.product);
               selectJourney(selected.journey);
               selectForm(chosenForm);
+              if (heard) void onSubmitUtterance(heard);
               go('/speak');
             }}
           >

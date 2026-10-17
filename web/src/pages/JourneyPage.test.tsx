@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { BANK_VARIES_COPY } from '../lib/schema';
 import { RouteProvider } from '../routing/router';
@@ -29,6 +30,25 @@ describe('JourneyPage published forms', () => {
 
     renderJourney(400);
     expect(await screen.findByText('HDFC')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Tap, say your need/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Tap and say what you need/i })).toBeInTheDocument();
+  });
+
+  it('selects the form from what was said', async () => {
+    const user = userEvent.setup();
+    renderJourney(1365);
+    await user.click(await screen.findByRole('button', { name: /सैलरी के लिए नया अकाउंट/ }));
+    expect(screen.getByRole('button', { name: /Start filling Salary account/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /redo my KYC/ }));
+    expect(screen.getByRole('button', { name: /Start filling Re-KYC/ })).toBeInTheDocument();
+  });
+
+  it('uses the microphone instead of a fake listening label', async () => {
+    const user = userEvent.setup();
+    renderJourney(1365);
+    const mic = await screen.findByRole('button', { name: /Tap and say what you need/i });
+    await user.click(mic);
+    expect(await screen.findByText(/no microphone/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Speaking starts on the next step/i)).not.toBeInTheDocument();
   });
 });
