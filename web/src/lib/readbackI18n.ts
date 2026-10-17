@@ -8,7 +8,6 @@ import type { ShellLanguage } from './languages';
  * Values themselves are not translated: names, numbers and addresses are stored in
  * Latin script and read as they are. Only the labels around them and the enum
  * choices (document, account, journey, card reason) are.
- * "Fields vary by bank." stays English in every language: the app requires it verbatim.
  * The spoken gate phrase stays English too, because that is what the confirm step matches.
  */
 
@@ -21,8 +20,6 @@ interface ReadbackCopy {
   mobileEnding: (last4: string) => string;
   poi: string;
   product: string;
-  draft: string;
-  noSubmit: string;
   notSet: string;
   applicant: string;
   debit: string;
@@ -48,8 +45,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `মোবাইল নম্বরের শেষ চারটি সংখ্যা ${d}`,
     poi: 'পরিচয়ের প্রমাণ',
     product: 'অ্যাকাউন্ট বা কাজ',
-    draft: 'এটি শুধুমাত্র একটি খসড়া।',
-    noSubmit: 'ব্যাংকে কিছুই জমা দেওয়া হবে না।',
     notSet: 'দেওয়া হয়নি',
     applicant: 'আবেদনকারী',
     debit: 'ডেবিট কার্ড পুনরায় ইস্যু',
@@ -91,8 +86,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `मोबाइल नंबरचे शेवटचे चार अंक ${d}`,
     poi: 'ओळखीचा पुरावा',
     product: 'खाते किंवा काम',
-    draft: 'हा फक्त मसुदा आहे.',
-    noSubmit: 'बँकेत काहीही जमा केले जाणार नाही.',
     notSet: 'दिलेले नाही',
     applicant: 'अर्जदार',
     debit: 'डेबिट कार्ड पुन्हा जारी करणे',
@@ -134,8 +127,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `మొబైల్ నంబర్ చివరి నాలుగు అంకెలు ${d}`,
     poi: 'గుర్తింపు రుజువు',
     product: 'ఖాతా లేదా పని',
-    draft: 'ఇది కేవలం ముసాయిదా మాత్రమే.',
-    noSubmit: 'బ్యాంకుకు ఏమీ సమర్పించబడదు.',
     notSet: 'ఇవ్వలేదు',
     applicant: 'దరఖాస్తుదారు',
     debit: 'డెబిట్ కార్డు తిరిగి జారీ',
@@ -177,8 +168,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `મોબાઇલ નંબરના છેલ્લા ચાર અંક ${d}`,
     poi: 'ઓળખનો પુરાવો',
     product: 'ખાતું અથવા કામ',
-    draft: 'આ ફક્ત ડ્રાફ્ટ છે.',
-    noSubmit: 'બેંકમાં કંઈ જમા કરવામાં આવશે નહીં.',
     notSet: 'આપ્યું નથી',
     applicant: 'અરજદાર',
     debit: 'ડેબિટ કાર્ડ ફરી જારી',
@@ -220,8 +209,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯ ಕೊನೆಯ ನಾಲ್ಕು ಅಂಕೆಗಳು ${d}`,
     poi: 'ಗುರುತಿನ ಪುರಾವೆ',
     product: 'ಖಾತೆ ಅಥವಾ ಕೆಲಸ',
-    draft: 'ಇದು ಕೇವಲ ಕರಡು.',
-    noSubmit: 'ಬ್ಯಾಂಕಿಗೆ ಏನನ್ನೂ ಸಲ್ಲಿಸಲಾಗುವುದಿಲ್ಲ.',
     notSet: 'ನೀಡಿಲ್ಲ',
     applicant: 'ಅರ್ಜಿದಾರ',
     debit: 'ಡೆಬಿಟ್ ಕಾರ್ಡ್ ಮರು ವಿತರಣೆ',
@@ -263,8 +250,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `മൊബൈൽ നമ്പറിന്റെ അവസാന നാല് അക്കങ്ങൾ ${d}`,
     poi: 'തിരിച്ചറിയൽ രേഖ',
     product: 'അക്കൗണ്ട് അല്ലെങ്കിൽ സേവനം',
-    draft: 'ഇത് ഒരു കരട് മാത്രമാണ്.',
-    noSubmit: 'ബാങ്കിലേക്ക് ഒന്നും സമർപ്പിക്കില്ല.',
     notSet: 'നൽകിയിട്ടില്ല',
     applicant: 'അപേക്ഷകൻ',
     debit: 'ഡെബിറ്റ് കാർഡ് വീണ്ടും നൽകൽ',
@@ -306,8 +291,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `ମୋବାଇଲ ନମ୍ବରର ଶେଷ ଚାରି ଅଙ୍କ ${d}`,
     poi: 'ପରିଚୟର ପ୍ରମାଣ',
     product: 'ଖାତା କିମ୍ବା କାମ',
-    draft: 'ଏହା କେବଳ ଏକ ଡ୍ରାଫ୍ଟ।',
-    noSubmit: 'ବ୍ୟାଙ୍କରେ କିଛି ଜମା ହେବ ନାହିଁ।',
     notSet: 'ଦିଆଯାଇନାହିଁ',
     applicant: 'ଆବେଦନକାରୀ',
     debit: 'ଡେବିଟ୍ କାର୍ଡ ପୁନଃ ଜାରି',
@@ -349,8 +332,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `ਮੋਬਾਈਲ ਨੰਬਰ ਦੇ ਆਖਰੀ ਚਾਰ ਅੰਕ ${d}`,
     poi: 'ਪਛਾਣ ਦਾ ਸਬੂਤ',
     product: 'ਖਾਤਾ ਜਾਂ ਕੰਮ',
-    draft: 'ਇਹ ਸਿਰਫ਼ ਇੱਕ ਡਰਾਫਟ ਹੈ।',
-    noSubmit: 'ਬੈਂਕ ਵਿੱਚ ਕੁਝ ਵੀ ਜਮ੍ਹਾਂ ਨਹੀਂ ਕੀਤਾ ਜਾਵੇਗਾ।',
     notSet: 'ਨਹੀਂ ਦਿੱਤਾ',
     applicant: 'ਬਿਨੈਕਾਰ',
     debit: 'ਡੈਬਿਟ ਕਾਰਡ ਦੁਬਾਰਾ ਜਾਰੀ',
@@ -392,8 +373,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `মোবাইল নম্বৰৰ শেষৰ চাৰিটা সংখ্যা ${d}`,
     poi: 'পৰিচয়ৰ প্ৰমাণ',
     product: 'একাউণ্ট বা কাম',
-    draft: 'এইটো কেৱল এটা খচৰা।',
-    noSubmit: 'বেংকত একো জমা দিয়া নহ’ব।',
     notSet: 'দিয়া হোৱা নাই',
     applicant: 'আবেদনকাৰী',
     debit: 'ডেবিট কাৰ্ড পুনৰ জাৰি',
@@ -435,8 +414,6 @@ const COPY: Record<RegionalLanguage, ReadbackCopy> = {
     mobileEnding: (d) => `موبائل نمبر جا آخري چار انگ ${d}`,
     poi: 'سڃاڻپ جو ثبوت',
     product: 'کاتو يا ڪم',
-    draft: 'هي صرف هڪ مسودو آهي.',
-    noSubmit: 'بئنڪ ۾ ڪجهه به جمع نه ڪيو ويندو.',
     notSet: 'نه ڏنو ويو',
     applicant: 'درخواست ڏيندڙ',
     debit: 'ڊيبٽ ڪارڊ ٻيهر جاري ڪرڻ',
@@ -495,8 +472,7 @@ export function regionalReadback(values: Values, lang: RegionalLanguage): string
   const product = productRaw ? label(c, productRaw) : c.notSet;
   return (
     `${c.confirm} ${c.name}: ${name}. ${c.dob}: ${dob}. ${c.mobileEnding(last4)}. ` +
-    `${c.poi}: ${ovd}. ${c.product}: ${product}. ` +
-    `${c.draft} Fields vary by bank. ${c.noSubmit}`
+    `${c.poi}: ${ovd}. ${c.product}: ${product}.`
   );
 }
 
@@ -511,8 +487,7 @@ export function regionalDebitReadback(values: Values, lang: RegionalLanguage, la
   return (
     `${c.confirm} ${c.debit}. ${c.name}: ${name}. ${c.customerId}: ${customer}. ` +
     `${c.account}: ${account}. ${c.cardLast4}: ${last4 || 'xxxx'}. ${c.reason}: ${reason}${other}. ` +
-    `${c.newCard}: ${reissue}. ${c.registeredAddress}. ` +
-    `${c.draft} Fields vary by bank. ${c.noSubmit}`
+    `${c.newCard}: ${reissue}. ${c.registeredAddress}.`
   );
 }
 
