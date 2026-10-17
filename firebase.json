@@ -49,6 +49,34 @@
         }
       },
       {
+        "source": "/api/adminForms",
+        "function": {
+          "functionId": "adminForms",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/adminForm",
+        "function": {
+          "functionId": "adminForm",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/adminFormPdf",
+        "function": {
+          "functionId": "adminFormPdf",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/api/setFormStatus",
+        "function": {
+          "functionId": "setFormStatus",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -8,12 +8,40 @@ import { IngestError } from './errors';
  */
 export const VERSION_DOC_BUDGET = 900_000;
 
-export type VersionDoc = Omit<FormVersion, 'fields'> & { fields?: FormVersion['fields']; payload: string };
+export type VersionDoc = Omit<FormVersion, 'fields'> & {
+  fields?: FormVersion['fields'];
+  payload: string;
+  /** ISO time of the last ingest, publish or status change. Stored beside the form, never inside it. */
+  updatedAt?: string;
+};
 
+/** A plain FormVersion: no `payload` copy and no `updatedAt` bookkeeping. */
 export function strip(value: FormVersion): FormVersion {
-  const clean = JSON.parse(JSON.stringify(value)) as FormVersion & { payload?: string };
+  const clean = JSON.parse(JSON.stringify(value)) as FormVersion & { payload?: string; updatedAt?: unknown };
   delete clean.payload;
+  delete clean.updatedAt;
   return clean;
+}
+
+/** versionDocForWrite plus the time of this write, for the admin console. */
+export function versionDocWithTime(version: FormVersion, updatedAt: string): VersionDoc {
+  return { ...versionDocForWrite(version), updatedAt };
+}
+
+/** `updatedAt` of a stored version doc as an ISO string (string or Firestore Timestamp); null when absent. */
+export function updatedAtFromDoc(data: Record<string, unknown> | undefined): string | null {
+  const value = data?.updatedAt;
+  if (typeof value === 'string') return Number.isNaN(Date.parse(value)) ? null : new Date(value).toISOString();
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  if (value && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    try {
+      const date = (value as { toDate(): Date }).toDate();
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 function utf8(value: string): number {
@@ -98,6 +126,7 @@ export function versionFromDoc(data: Record<string, unknown> | undefined): FormV
   if (!data) return null;
   const rest: Record<string, unknown> = { ...data };
   delete rest.payload;
+  delete rest.updatedAt;
   if (Array.isArray(data.fields) || typeof data.payload !== 'string') return rest as unknown as FormVersion;
   try {
     const parsed = JSON.parse(data.payload) as FormVersion;
