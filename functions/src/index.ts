@@ -10,6 +10,13 @@ import {
   missingRequiredIds,
 } from './forms/hdfcV1';
 import { readSpeakRequest } from './wav';
+import {
+  bankFieldsPrompt,
+  currentBankValues,
+  sanitizeBankUpdates,
+  type BankFieldValue,
+  type BankFormField,
+} from './bankFields';
 import { buildNextAsk, mergeFieldUpdatesWithMeta, type FieldMetaMap } from './merge';
 import { maskSensitiveFields } from './pii';
 import {
@@ -331,6 +338,7 @@ function fieldPrompt(
   language: SpeakLanguage,
   current: FormValues,
   missing: string[],
+  bankBlock = '',
 ): string {
   const filled = Object.fromEntries(
     Object.entries(current).filter(([, value]) => isFilled(value)),
@@ -373,7 +381,7 @@ next_ask:
 
 OTHER:
 - refuse_live_submit true only if user asks to submit/send to a bank.
-- assistant_message must include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}
+- assistant_message must include the exact English sentence "Fields vary by bank."${scriptNote ? `\n\n${scriptNote}` : ''}${bankBlock ? `\n\n${bankBlock}` : ''}
 
 Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
@@ -382,11 +390,19 @@ Transcript: ${JSON.stringify(transcript)}
 Return JSON: field_updates (id → {value, confidence, reason?}), next_ask, reply_lang, refuse_live_submit, assistant_message.`;
 }
 
-async function fieldJson(
+/** Bank-only fields of a published form for this request, and their current values. */
+export type BankFieldsInput = {
+  fields: readonly BankFormField[];
+  current: Record<string, BankFieldValue>;
+};
+
+/** Exported for tests and the live prompt check; Firebase deploys only the onRequest exports. */
+export async function fieldJson(
   apiKey: string,
   transcript: string,
   language: SpeakLanguage,
   current: FormValues,
+  bank: BankFieldsInput = { fields: [], current: {} },
 ): Promise<{
   field_updates: FormValues;
   field_confidence: FieldMetaMap;
@@ -402,11 +418,12 @@ async function fieldJson(
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: FIELD_MODEL,
-      input: fieldPrompt(transcript, language, current, missingBefore),
+      input: fieldPrompt(transcript, language, current, missingBefore, bankFieldsPrompt(bank.fields, bank.current)),
       generation_config: {
         thinking_level: 'low',
         // Each field is {value, confidence, reason}; a full multi-field dump needs headroom.
-        max_output_tokens: 4096,
+        // A bank form adds its own boxes (name parts, ticks) on top of the shared fields.
+        max_output_tokens: bank.fields.length > 0 ? 8192 : 4096,
       },
       response_format: {
         type: 'text',
@@ -465,6 +482,11 @@ async function fieldJson(
   for (const key of Object.keys(meta)) {
     if (!(key in updates)) delete meta[key];
   }
+  // Bank-only ids never reach the shared merge (it drops unknown ids); they are
+  // sanitised separately against the fields this request sent, and only those.
+  const bankOut = sanitizeBankUpdates(rawUpdates, bank.fields, bank.current);
+  Object.assign(updates, bankOut.updates);
+  Object.assign(meta, bankOut.meta);
   const merged: FormValues = { ...current, ...updates };
   // Aadhaar must never leave this function unmasked (schema requires last-4 only).
   // Resolve type from `merged` — it may have been set in an earlier turn.
@@ -581,7 +603,11 @@ export const speak = onRequest(
         return;
       }
 
-      const extracted = await fieldJson(apiKey, transcript, read.parts.language, current);
+      const formFields = read.parts.formFields;
+      const extracted = await fieldJson(apiKey, transcript, read.parts.language, current, {
+        fields: formFields,
+        current: currentBankValues(read.parts.current, formFields),
+      });
       const merged: FormValues = { ...current, ...extracted.field_updates };
       const missing = getMissingRequired(merged);
       res.json({
