@@ -85,11 +85,22 @@ describe('tts', () => {
     }
   });
 
-  it('counts against the per-caller limit', async () => {
+  it('counts against its own per-caller limit, not speak\'s', async () => {
     stubGemini([]);
+    const keys: string[] = [];
     const { r, out } = res();
-    await handleTts(req({ lang: 'hi-IN', text: 'नमस्ते' }), r, { counter: async () => 10_000, apiKey: () => 'k' });
-    assert.equal(out.statusCode, 429);
+    await handleTts(req({ lang: 'hi-IN', text: 'नमस्ते' }), r, {
+      counter: async (key) => {
+        keys.push(key);
+        return 200; // over speak's 150, under the voice's 600
+      },
+      apiKey: () => 'k',
+    });
+    assert.equal(out.statusCode, 200);
+    assert.match(keys[0], /^ip_tts_/);
+    const blocked = res();
+    await handleTts(req({ lang: 'hi-IN', text: 'नमस्ते' }), blocked.r, { counter: async () => 10_000, apiKey: () => 'k' });
+    assert.equal(blocked.out.statusCode, 429);
   });
 
   it('wraps raw PCM in a WAV header and leaves a WAV alone', () => {

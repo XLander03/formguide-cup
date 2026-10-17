@@ -12,6 +12,8 @@ let deviceSpoken: Array<{ text: string; lang: string; voice: string | null }> = 
 let played: string[] = [];
 let ttsRequests: string[] = [];
 let ttsOk = true;
+/** Status codes to answer before succeeding, for the retry test. */
+let ttsFailFirst: number[] = [];
 /** While true, server audio "plays" until stopSpeaking pauses it. */
 let holdAudio = false;
 
@@ -73,6 +75,7 @@ beforeEach(() => {
   played = [];
   ttsRequests = [];
   ttsOk = true;
+  ttsFailFirst = [];
   holdAudio = false;
   installSpeech(MAC_VOICES);
   vi.stubGlobal('Audio', FakeAudio);
@@ -81,6 +84,8 @@ beforeEach(() => {
     'fetch',
     vi.fn(async (url: string) => {
       ttsRequests.push(decodeURIComponent(url));
+      const failNow = ttsFailFirst.shift();
+      if (failNow) return new Response('{"error":"rate_limited"}', { status: failNow, headers: { 'content-type': 'application/json' } });
       if (!ttsOk) return new Response('{"error":"tts_failed"}', { status: 502, headers: { 'content-type': 'application/json' } });
       return new Response(new Blob(['RIFF']), { status: 200, headers: { 'content-type': 'audio/wav' } });
     }),
@@ -109,6 +114,23 @@ describe('speak', () => {
     ttsOk = false;
     await speak('कृपया अपना 10 अंकों का मोबाइल नंबर बताएं।', 'hi-IN');
     expect(deviceSpoken).toEqual([{ text: expect.any(String), lang: 'hi-IN', voice: 'Lekha' }]);
+  });
+
+  it('retries the server voice once after a quota error, then plays it', async () => {
+    ttsFailFirst = [429];
+    await speak('कृपया अपना पूरा नाम बताइए।', 'hi-IN');
+    expect(ttsRequests).toHaveLength(2);
+    expect(played).toHaveLength(1);
+    expect(deviceSpoken).toEqual([]);
+  });
+
+  it('when the server voice fails and the browser has no Hindi voice, it stays silent rather than read digits', async () => {
+    ttsOk = false;
+    installSpeech([voice('Rishi', 'en-IN', true)]);
+    const onError = vi.fn();
+    await speak('कृपया अपना 10 अंकों का मोबाइल नंबर बताएं।', 'hi-IN', { onError });
+    expect(deviceSpoken).toEqual([]);
+    expect(onError).toHaveBeenCalledWith('no_voice');
   });
 
   it('English stays on the device voice, with no server call', async () => {

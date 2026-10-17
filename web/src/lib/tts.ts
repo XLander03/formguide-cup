@@ -28,12 +28,28 @@ function serverSpoken(lang: string): boolean {
   return !/^en\b/i.test(lang);
 }
 
-async function serverAudio(text: string, lang: string): Promise<string | null> {
+const RETRY_MS = 1200;
+
+async function serverAudio(text: string, lang: string, stops: number): Promise<string | null> {
   const key = `${lang}|${text}`;
   const cached = audioCache.get(key);
   if (cached) return cached;
+  // One retry: a busy model or a brief quota blip should not drop the line to a worse voice.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+      if (stops !== stopCount) return null;
+    }
+    const url = await fetchAudio(key, text, lang);
+    if (url !== 'retry') return url;
+  }
+  return null;
+}
+
+async function fetchAudio(key: string, text: string, lang: string): Promise<string | null | 'retry'> {
   try {
     const res = await fetch(`/api/tts?lang=${encodeURIComponent(lang)}&text=${encodeURIComponent(text)}`);
+    if (res.status === 429 || res.status >= 500) return 'retry';
     if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('audio/')) return null;
     const url = URL.createObjectURL(await res.blob());
     audioCache.set(key, url);
@@ -44,7 +60,7 @@ async function serverAudio(text: string, lang: string): Promise<string | null> {
     }
     return url;
   } catch {
-    return null;
+    return 'retry';
   }
 }
 
@@ -86,10 +102,21 @@ export function speak(
     if (!text.trim()) return;
     const stops = stopCount;
     if (serverSpoken(lang)) {
-      const url = await serverAudio(text, lang);
+      const url = await serverAudio(text, lang, stops);
       if (stops !== stopCount) return;
       if (url && (await playAudio(url, hooks))) return;
       if (stops !== stopCount) return;
+      // The backup must really speak this language. A browser with no matching voice (or one
+      // whose list has not loaded) reads Hindi with an English voice, which says only the
+      // digits and the commas; silence, with the words on screen, is better than that.
+      const match = voice ?? findVoice(await loadVoices(), lang);
+      if (!match) {
+        console.warn(`[tts] no ${lang} voice: server voice unavailable and no matching device voice`);
+        hooks?.onError?.('no_voice');
+        return;
+      }
+      await speakOnDevice(text, lang, hooks, match, stops);
+      return;
     }
     await speakOnDevice(text, lang, hooks, voice, stops);
   })();

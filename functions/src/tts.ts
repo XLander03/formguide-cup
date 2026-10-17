@@ -1,6 +1,6 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { isSpeakLanguage } from './languages';
-import { checkRateLimit, clientKey, type CounterStore } from './rateLimit';
+import { checkRateLimit, clientKey, type CounterStore, type RateLimitRule } from './rateLimit';
 import { firestoreCounter } from './rateLimitStore';
 
 /**
@@ -18,6 +18,12 @@ import { firestoreCounter } from './rateLimitStore';
 
 export const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts'] as const;
 export const MAX_TTS_CHARS = 700;
+/**
+ * Its own bucket, apart from speak's: every Hindi turn speaks one or two lines, and sharing
+ * speak's 150 let normal use plus testing lock the voice out, so the page fell back to a
+ * browser voice that reads Hindi as digits.
+ */
+export const TTS_PER_CLIENT: RateLimitRule = { limit: 600, windowMs: 10 * 60 * 1000 };
 const VOICE = 'Kore';
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -108,7 +114,12 @@ export async function handleTts(req: TtsReq, res: TtsRes, deps: TtsDeps): Promis
     res.status(400).json({ error: 'bad_language' });
     return;
   }
-  const limit = await checkRateLimit(deps.counter, clientKey(req.header('x-forwarded-for'), req.ip));
+  const limit = await checkRateLimit(
+    deps.counter,
+    `tts_${clientKey(req.header('x-forwarded-for'), req.ip)}`,
+    Date.now(),
+    TTS_PER_CLIENT,
+  );
   if (!limit.ok) {
     res.set('Retry-After', String(limit.retryAfterSeconds));
     res.status(429).json({ error: 'rate_limited' });
