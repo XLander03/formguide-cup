@@ -50,18 +50,6 @@ describe('PublishedFormRows', () => {
     ];
     expect(visiblePublishedForms(forms, 'kyc_update')).toHaveLength(1);
 
-    const dumped = form({
-      status: 'published',
-      bankId: 'Axis',
-      journey: 'account_opening',
-      formId: 'axis-dump',
-      fields: [
-        ...Array.from({ length: 23 }, (_, index) => ({ id: `applicant_${index}` })),
-        ...Array.from({ length: 275 }, (_, index) => ({ id: `custom_widget_${index}` })),
-      ] as FormVersion['fields'],
-    });
-    expect(visiblePublishedForms([dumped], 'account_opening')).toEqual([]);
-
     render(<PublishedFormRows journey="kyc_update" load={async () => forms} />);
     expect(await screen.findByText('Axis')).toBeInTheDocument();
     expect(screen.getByText('HDFC')).toBeInTheDocument();

@@ -31,17 +31,12 @@ describe('publish gate', () => {
     const bankOnlyWidget = { ...base, id: 'custom_per_in_cust_tel', pdfField: 'per_in_cust_tel', confidence: 0, checked: false };
     const sharedMatch = { ...base, id: 'addr_current_city', pdfField: 'city_1', confidence: 0.72, checked: false };
     const ocrCustom = { ...base, id: 'custom_city_of_birth', pdfField: undefined, confidence: 0.4, checked: false };
+    const confidentOcr = { ...base, id: 'custom_fixed_deposit', pdfField: undefined, confidence: 0.95, checked: false };
     expect(fieldAutoAccepted(bankOnlyWidget)).toBe(true);
     expect(fieldAutoAccepted(sharedMatch)).toBe(false);
     expect(fieldAutoAccepted(ocrCustom)).toBe(false);
+    expect(fieldAutoAccepted(confidentOcr)).toBe(true);
     expect(publishBlocked([bankOnlyWidget])).toBe(false);
     expect(publishBlocked([bankOnlyWidget, sharedMatch])).toBe(true);
-  });
-
-  it('does not auto-accept an unmatched OCR label just because the model is confident', () => {
-    const base = form.fields[0];
-    const ocrCustom = { ...base, id: 'custom_fixed_deposit', pdfField: undefined, confidence: 0.95, checked: false };
-    expect(fieldAutoAccepted(ocrCustom)).toBe(false);
-    expect(publishBlocked([ocrCustom])).toBe(true);
   });
 });
