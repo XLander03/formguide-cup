@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { AdminFormRow, AdminFormsResponse, AdminStats } from '../../../shared/forms/admin';
+import type { CopilotAction } from '../../../shared/forms/copilot';
 import { BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { ArrowRightIcon, RotateIcon } from '../ui/icons';
 import { consoleApi, type ConsoleApi } from './consoleClient';
+import { actionTitle, CopilotPanel } from './CopilotPanel';
+import { mockIngestRequested } from './mockQuery';
 import { badgeLabel, versionSummary } from './consoleFormat';
 import {
   defaultFilter,
@@ -66,6 +69,12 @@ export function ConsolePage({
   /** Fixed clock for tests. */
   now?: number;
 }) {
+  // `?mock=1&ask=...` opens the assistant on that question: an offline demo link.
+  const askQuestion = useMemo(() => {
+    if (typeof window === 'undefined' || !mockIngestRequested()) return undefined;
+    const value = new URLSearchParams(window.location.search).get('ask');
+    return value ? value.slice(0, 500) : undefined;
+  }, []);
   const [load, setLoad] = useState<Load>({ state: 'loading', data: null });
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(initialNotice ? { tone: 'ok', text: initialNotice } : null);
@@ -202,6 +211,24 @@ export function ConsolePage({
         onFilter={setPicked}
       />
 
+      {api.askCopilot ? (
+        <CopilotPanel
+          ask={api.askCopilot}
+          execute={async (proposed) => {
+            setBusyKey('copilot');
+            setNotice(null);
+            try {
+              setNotice(await runProposals(api, proposed, data?.forms ?? []));
+            } finally {
+              await reload();
+              setBusyKey(null);
+            }
+          }}
+          disabled={busyKey !== null}
+          initialQuestion={askQuestion}
+        />
+      ) : null}
+
       {notice ? (
         <p
           role={notice.tone === 'error' ? 'alert' : 'status'}
@@ -309,6 +336,45 @@ async function publishAndReplace(api: ConsoleApi, group: FormGroup, draft: Admin
     tone: 'ok',
     text: `Published the new ${group.title}. The old version is retired and customers see only the new one.`,
   };
+}
+
+/**
+ * Runs copilot proposals the admin confirmed, one at a time, through the same calls as the
+ * card actions: setFormStatus for retire / unpublish, the publish flow (with its review gate) for publish.
+ */
+export async function runProposals(api: ConsoleApi, proposed: readonly CopilotAction[], rows: readonly AdminFormRow[]): Promise<Notice> {
+  const done: string[] = [];
+  const failed: string[] = [];
+  for (const action of proposed) {
+    try {
+      if (action.type === 'publish') {
+        const row = rows.find((item) => item.formId === action.formId && item.version === action.version);
+        await api.publish(
+          row ?? {
+            formId: action.formId,
+            version: action.version,
+            bankId: action.bankId,
+            journey: action.journey,
+            status: action.from,
+            source: 'ocr',
+            fieldCount: 0,
+            sharedCount: 0,
+            needsReview: 0,
+            updatedAt: null,
+          },
+        );
+      } else {
+        await api.setStatus({ formId: action.formId, version: action.version, status: action.type === 'retire' ? 'retired' : 'draft' });
+      }
+      done.push(actionTitle(action));
+    } catch (error) {
+      failed.push(`${actionTitle(action)}: ${errorText(error)}`);
+    }
+  }
+  if (failed.length > 0) {
+    return { tone: 'error', text: `Did ${done.length} of ${proposed.length} changes. ${failed.join(' ')}` };
+  }
+  return { tone: 'ok', text: `Done: ${done.join('; ')}.` };
 }
 
 async function clearOlderDrafts(api: ConsoleApi, group: FormGroup): Promise<Notice> {

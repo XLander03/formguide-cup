@@ -10,6 +10,7 @@ import type { FieldRecord, FormStatus, FormVersion } from './types';
  *   GET  /api/adminForm?formId=..&version=..            -> { formVersion: FormVersion }
  *   GET  /api/adminFormPdf?formId=..&version=..         -> the source PDF (any status)
  *   POST /api/setFormStatus  SetFormStatusRequest       -> { formVersion: FormVersion }
+ *   POST /api/adminCopilot   CopilotRequest             -> CopilotResponse (see copilot.ts)
  *
  * Publishing still goes through POST /api/publishForm, which enforces the review gate.
  */
@@ -19,6 +20,7 @@ export const ADMIN_API = {
   form: '/api/adminForm',
   formPdf: '/api/adminFormPdf',
   setStatus: '/api/setFormStatus',
+  copilot: '/api/adminCopilot',
 } as const;
 
 /** One row of the console's forms table: the newest version of each form. */

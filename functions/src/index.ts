@@ -28,6 +28,7 @@ import {
   isBetaSpeakLanguage,
   type SpeakLanguage,
 } from './languages';
+import { recordSpeakTurn } from './insights';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 // Optional. If unset, transcription has no fallback and a Gemini outage
@@ -674,6 +675,13 @@ export const speak = onRequest(
       });
       const merged: FormValues = { ...current, ...extracted.field_updates };
       const missing = getMissingRequired(merged);
+      // Anonymous daily counters for the admin copilot; never awaited, never fails the turn.
+      void recordSpeakTurn({
+        language: read.parts.language,
+        missingRequired: missing,
+        filled: Object.keys(extracted.field_updates).filter((id) => isFilled(extracted.field_updates[id])),
+        formKey: read.parts.formId ?? (formFields.length > 0 ? 'published' : 'bundled'),
+      });
       res.json({
         transcript,
         reply_lang: extracted.reply_lang,
@@ -710,6 +718,7 @@ export const speak = onRequest(
 );
 
 export {
+  adminCopilot,
   adminForm,
   adminFormPdf,
   adminForms,

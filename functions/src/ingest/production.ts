@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { isCupAdmin } from '../../../shared/forms/cupAdmin';
 import type { FormVersion } from '../../../shared/forms/types';
+import { INSIGHTS_COLLECTION, insightDayIds, sumInsightDays, type InsightSummary } from '../insights';
 import { SPEAK_PER_CLIENT } from '../rateLimit';
 import {
   handleAdminForm,
@@ -16,6 +17,7 @@ import {
   type AdminReq,
   type VersionRecord,
 } from './admin';
+import { geminiCaller, handleAdminCopilot } from './copilot';
 import { IngestError, MAX_PDF_BYTES } from './errors';
 import { ocrPageWithGemini } from './geminiOcr';
 import { handleIngest, handlePublish, safeStoragePath, type HttpReq, type HttpRes } from './handlers';
@@ -270,4 +272,27 @@ export async function productionAdminFormPdf(req: AdminReq, res: AdminPdfRes): P
 export async function productionSetFormStatus(req: AdminReq, res: HttpRes): Promise<void> {
   ensureAdmin();
   await handleSetFormStatus(req, res, adminDeps());
+}
+
+/** Sums the copilot's anonymous `insights/day_*` docs for the last `days` days (India time). */
+async function readInsights(days: number, now = new Date()): Promise<InsightSummary> {
+  const span = Math.min(7, Math.max(1, Math.round(days) || 1));
+  const col = db().collection(INSIGHTS_COLLECTION);
+  const snaps = await db().getAll(...insightDayIds(now, span).map((id) => col.doc(id)));
+  return sumInsightDays(
+    snaps.map((snap) => (snap.exists ? (snap.data() as Record<string, unknown>) : null)),
+    span,
+  );
+}
+
+/** "Ask about your forms": read-only tools over the same data as adminForms. Never writes. */
+export async function productionAdminCopilot(req: HttpReq, res: HttpRes): Promise<void> {
+  ensureAdmin();
+  const admin = adminDeps();
+  await handleAdminCopilot(req, res, {
+    verifyAdmin: admin.verifyAdmin,
+    listAllVersions: admin.listAllVersions,
+    readInsights: (days) => readInsights(days),
+    gemini: geminiCaller(process.env.GEMINI_API_KEY || ''),
+  });
 }
