@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AdminFormRow, AdminFormsResponse } from '../../../shared/forms/admin';
@@ -10,33 +10,37 @@ const NOW = Date.parse('2026-10-17T12:00:00Z');
 
 function row(patch: Partial<AdminFormRow>): AdminFormRow {
   return {
-    formId: 'hdfc_kyc',
+    formId: 'f',
     version: 'v1',
-    bankId: 'HDFC',
-    journey: 'kyc_update',
+    bankId: 'ICICI',
+    journey: 'rekyc',
     status: 'draft',
     source: 'ocr',
-    fieldCount: 40,
-    sharedCount: 31,
+    fieldCount: 129,
+    sharedCount: 41,
     needsReview: 0,
-    updatedAt: '2026-10-17T09:00:00Z',
+    updatedAt: null,
     ...patch,
   };
 }
 
+const AXIS_NEW = row({ formId: 'axis_new', bankId: 'Axis', journey: 'account_opening', fieldCount: 262, sharedCount: 23, updatedAt: '2026-10-17T11:55:00Z' });
+const AXIS_OLD = row({ formId: 'axis_old', bankId: 'Axis', journey: 'account_opening', status: 'published', fieldCount: 248 });
+const AXIS_REKYC = row({ formId: 'axis_rekyc', bankId: 'Axis', status: 'published', source: 'acroform', fieldCount: 64 });
+const ICICI_A = row({ formId: 'icici_a', needsReview: 5 });
+const ICICI_B = row({ formId: 'icici_b', needsReview: 5 });
+const ICICI_C = row({ formId: 'icici_c', needsReview: 5 });
+const ICICI_LIVE = row({ formId: 'icici_live', status: 'published' });
+const PNB_GONE = row({ formId: 'pnb_gone', bankId: 'PNB', status: 'retired' });
+
 const RESPONSE: AdminFormsResponse = {
-  forms: [
-    row({ formId: 'hdfc_kyc', needsReview: 3 }),
-    row({ formId: 'axis_aof', bankId: 'Axis', journey: 'account_opening', source: 'acroform', needsReview: 0 }),
-    row({ formId: 'icici_kyc', bankId: 'ICICI', status: 'published', updatedAt: null }),
-    row({ formId: 'pnb_rekyc', bankId: 'PNB', journey: 'rekyc', status: 'retired' }),
-  ],
-  stats: { publishedForms: 1, draftForms: 2, fieldsAwaitingReview: 3, voiceRequests24h: null },
+  forms: [AXIS_NEW, AXIS_OLD, AXIS_REKYC, ICICI_A, ICICI_B, ICICI_C, ICICI_LIVE, PNB_GONE],
+  stats: { publishedForms: 3, draftForms: 4, fieldsAwaitingReview: 15, voiceRequests24h: null },
 };
 
-function stubApi(overrides: Partial<ConsoleApi> = {}): ConsoleApi {
+function stubApi(overrides: Partial<ConsoleApi> = {}, response: AdminFormsResponse = RESPONSE): ConsoleApi {
   return {
-    loadForms: vi.fn(async () => RESPONSE),
+    loadForms: vi.fn(async () => response),
     publish: vi.fn(async () => {}),
     setStatus: vi.fn(async () => {}),
     openPdf: vi.fn(async () => {}),
@@ -51,112 +55,240 @@ function renderConsole(api: ConsoleApi, extra: { onReview?: () => void; onUpload
   return { onReview, onUpload };
 }
 
+function filterButton(name: RegExp) {
+  return within(screen.getByRole('group', { name: 'Show forms' })).getByRole('button', { name });
+}
+
+function tile(name: RegExp) {
+  return within(screen.getByRole('group', { name: 'Summary' })).getByRole('button', { name });
+}
+
+function card(name: string) {
+  return screen.getByRole('article', { name });
+}
+
 afterEach(() => setViewport(1365));
 
 describe('ConsolePage', () => {
-  it('renders stat tiles and one row per form from the loader', async () => {
+  it('opens on Needs review, with counts on every filter and older drafts collapsed', async () => {
     renderConsole(stubApi());
 
-    const table = await screen.findByRole('table', { name: 'Forms' });
-    const tiles = screen.getByText('Published forms').closest('div') as HTMLElement;
-    expect(within(tiles).getByText('1')).toBeInTheDocument();
-    expect(within(screen.getByText('Drafts awaiting review').closest('div') as HTMLElement).getByText('2')).toBeInTheDocument();
-    expect(within(screen.getByText('Fields awaiting review').closest('div') as HTMLElement).getByText('3')).toBeInTheDocument();
-    expect(within(screen.getByText('Voice requests (24h)').closest('div') as HTMLElement).getByText('—')).toBeInTheDocument();
+    const icici = await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+    expect(filterButton(/^Needs review/)).toHaveAttribute('aria-pressed', 'true');
+    expect(filterButton(/^Needs review/)).toHaveTextContent('1');
+    expect(filterButton(/^Ready to publish/)).toHaveTextContent('1');
+    expect(filterButton(/^Live/)).toHaveTextContent('3');
+    expect(filterButton(/^Retired/)).toHaveTextContent('1');
+    expect(filterButton(/^All/)).toHaveTextContent('3');
 
-    const rows = within(table).getAllByRole('row').slice(1);
-    expect(rows).toHaveLength(4);
-    const axis = rows[1];
-    expect(within(axis).getByText('Axis')).toBeInTheDocument();
-    expect(within(axis).getByText('Account opening')).toBeInTheDocument();
-    expect(within(axis).getByText('Fillable PDF')).toBeInTheDocument();
-    expect(within(axis).getByText('Draft')).toBeInTheDocument();
-    expect(within(axis).getByText('3 h ago')).toBeInTheDocument();
-    expect(within(rows[2]).getByText('Published')).toBeInTheDocument();
-    expect(within(rows[3]).getByText('Retired')).toBeInTheDocument();
-    expect(within(rows[3]).getByText('Re-KYC')).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Forms' })).getAllByRole('article')).toHaveLength(1);
+    const versions = within(icici).getAllByRole('listitem');
+    expect(versions.map((item) => item.textContent)).toEqual([
+      'LiveOCR · 129 fields · 41 filled by voice',
+      'DraftOCR · 129 fields · 41 filled by voice',
+    ]);
+    expect(icici).toHaveTextContent('2 older drafts');
+    expect(within(icici).getByRole('button', { name: 'Review 5 fields' })).toBeEnabled();
   });
 
-  it('turns Publish off with a reason while fields still need review', async () => {
-    const api = stubApi();
+  it('shows stat tiles that set the filter, and "Not available" for missing voice counts', async () => {
+    const user = userEvent.setup();
+    renderConsole(stubApi());
+    await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+
+    const review = tile(/^Need review/);
+    expect(review).toHaveTextContent('Need review15 fields');
+    expect(review).toHaveAttribute('aria-pressed', 'true');
+    expect(tile(/^Live forms/)).toHaveTextContent('3');
+    expect(screen.getByText('Voice requests (24h)').parentElement).toHaveTextContent('Not available');
+    expect(screen.queryByText('—')).toBeNull();
+
+    await user.click(tile(/^Ready to publish/));
+    expect(filterButton(/^Ready to publish/)).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('article', { name: 'Axis · Account opening' })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'ICICI · Re-KYC' })).toBeNull();
+  });
+
+  it('defaults to Ready to publish, then Live, when nothing needs review', async () => {
+    const ready = { ...RESPONSE, forms: [AXIS_NEW, AXIS_OLD] };
+    renderConsole(stubApi({}, ready));
+    await screen.findByRole('article', { name: 'Axis · Account opening' });
+    expect(filterButton(/^Ready to publish/)).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('defaults to Live with only live forms, and its action opens the customer site', async () => {
+    renderConsole(stubApi({}, { ...RESPONSE, forms: [AXIS_REKYC] }));
+    const axis = await screen.findByRole('article', { name: 'Axis · Re-KYC' });
+    expect(filterButton(/^Live/)).toHaveAttribute('aria-pressed', 'true');
+    expect(within(axis).getByRole('link', { name: 'View on site' })).toHaveAttribute('href', '/journey');
+    expect(axis).toHaveTextContent('Fillable PDF · 64 fields · 41 filled by voice');
+  });
+
+  it('shows retired versions only under the Retired filter', async () => {
+    const user = userEvent.setup();
+    renderConsole(stubApi());
+    await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+
+    await user.click(filterButton(/^All/));
+    expect(screen.queryByRole('article', { name: 'PNB · Re-KYC' })).toBeNull();
+    expect(screen.queryByText('Retired', { selector: 'span' })).toBeNull();
+
+    await user.click(filterButton(/^Retired/));
+    const pnb = card('PNB · Re-KYC');
+    expect(within(pnb).getByText('Retired')).toBeInTheDocument();
+  });
+
+  it('opens review for the newest draft from the primary action', async () => {
+    const user = userEvent.setup();
+    const { onReview } = renderConsole(stubApi());
+    const icici = await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+    await user.click(within(icici).getByRole('button', { name: 'Review 5 fields' }));
+    expect(onReview).toHaveBeenCalledWith(ICICI_A);
+  });
+
+  it('publishes a draft with no live form straight away', async () => {
+    const user = userEvent.setup();
+    const hdfc = row({ formId: 'hdfc', bankId: 'HDFC', journey: 'kyc_update' });
+    const api = stubApi({}, { ...RESPONSE, forms: [hdfc] });
     renderConsole(api);
 
-    const blocked = await screen.findByRole('button', { name: 'Publish HDFC · KYC update' });
-    expect(blocked).toBeDisabled();
-    expect(blocked).toHaveAccessibleDescription('3 fields still need review.');
-
-    const ready = screen.getByRole('button', { name: 'Publish Axis · Account opening' });
-    expect(ready).toBeEnabled();
-    await userEvent.setup().click(ready);
-    await waitFor(() => expect(api.publish).toHaveBeenCalledWith(RESPONSE.forms[1]));
-    await waitFor(() => expect(api.loadForms).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText(/Published Axis · Account opening/)).toBeInTheDocument();
+    const group = await screen.findByRole('article', { name: 'HDFC · KYC update' });
+    await user.click(within(group).getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(api.publish).toHaveBeenCalledWith(hdfc));
+    expect(api.setStatus).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Published HDFC · KYC update/)).toBeInTheDocument();
+    expect(api.loadForms).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the right actions for each status', async () => {
-    renderConsole(stubApi());
-    await screen.findByRole('table', { name: 'Forms' });
+  it('publishes and replaces: asks first, publishes the draft, then sends the old live version to draft', async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    const api = stubApi({
+      publish: vi.fn(async (item: AdminFormRow) => {
+        calls.push(`publish ${item.formId}`);
+      }),
+      setStatus: vi.fn(async (request) => {
+        calls.push(`${request.status} ${request.formId}`);
+      }),
+    });
+    renderConsole(api);
+    await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+    await user.click(filterButton(/^Ready to publish/));
 
-    expect(screen.getByRole('button', { name: 'Review HDFC · KYC update' })).toBeEnabled();
-    expect(screen.queryByRole('button', { name: 'Review ICICI · KYC update' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Unpublish ICICI · KYC update' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open ICICI · KYC update in the app' })).toHaveAttribute('href', '/journey');
-    expect(screen.queryByRole('link', { name: 'Open HDFC · KYC update in the app' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Retire PNB · Re-KYC' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Source PDF for PNB · Re-KYC' })).toBeInTheDocument();
+    await user.click(within(card('Axis · Account opening')).getByRole('button', { name: 'Publish & replace live' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Publish and replace the live form?' });
+    expect(dialog).toHaveTextContent('Customers will see the new version');
+    expect(api.publish).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Publish & replace' }));
+    await waitFor(() => expect(calls).toEqual(['publish axis_new', 'retired axis_old']));
+    expect(api.setStatus).toHaveBeenCalledWith({ formId: 'axis_old', version: 'v1', status: 'retired' });
+    expect(await screen.findByRole('status')).toHaveTextContent('customers see only the new one');
   });
 
-  it('asks before unpublishing, then sets the form back to draft and reloads', async () => {
+  it('says clearly when the new form went live but the old one could not be taken down', async () => {
+    const user = userEvent.setup();
+    const api = stubApi({ setStatus: vi.fn(async () => Promise.reject(new Error('Network down.'))) });
+    renderConsole(api);
+    await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+    await user.click(filterButton(/^Ready to publish/));
+    await user.click(within(card('Axis · Account opening')).getByRole('button', { name: 'Publish & replace live' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Publish & replace' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Published the new Axis · Account opening, but could not take the old version off');
+    expect(alert).toHaveTextContent('Network down.');
+    expect(alert).toHaveTextContent('Both are live now');
+    expect(api.loadForms).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears older drafts after a confirm, retiring only the older ones', async () => {
     const user = userEvent.setup();
     const api = stubApi();
     renderConsole(api);
+    const icici = await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
 
-    await user.click(await screen.findByRole('button', { name: 'Unpublish ICICI · KYC update' }));
+    await user.click(within(icici).getByRole('button', { name: 'Clear older drafts' }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Clear older drafts?' });
+    expect(dialog).toHaveTextContent('Retires 2 older drafts');
+    await user.click(within(dialog).getByRole('button', { name: 'Clear older drafts' }));
+
+    await waitFor(() => expect(api.setStatus).toHaveBeenCalledTimes(2));
+    expect(api.setStatus).toHaveBeenCalledWith({ formId: 'icici_b', version: 'v1', status: 'retired' });
+    expect(api.setStatus).toHaveBeenCalledWith({ formId: 'icici_c', version: 'v1', status: 'retired' });
+    expect(await screen.findByText('Cleared 2 older drafts of ICICI · Re-KYC.')).toBeInTheDocument();
+  });
+
+  it('keeps the rest in a More menu that works from the keyboard', async () => {
+    const user = userEvent.setup();
+    const api = stubApi();
+    renderConsole(api);
+    const icici = await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+
+    const more = within(icici).getByRole('button', { name: 'More actions for ICICI · Re-KYC' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    more.focus();
+    await user.keyboard('{Enter}');
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    const menu = screen.getByRole('menu', { name: 'More actions for ICICI · Re-KYC' });
+    const items = within(menu).getAllByRole('menuitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      'Review live version',
+      'View on site',
+      'Unpublish live version',
+      'Source PDF (draft)',
+      'Source PDF (live)',
+      'Retire draft',
+      'Retire live version',
+    ]);
+    expect(items[0]).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(items[1]).toHaveFocus();
+    await user.keyboard('{ArrowUp}{ArrowUp}');
+    expect(items[items.length - 1]).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(more).toHaveFocus();
+
+    await user.click(more);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    await user.click(more);
+    await user.click(screen.getByRole('menuitem', { name: 'Source PDF (live)' }));
+    await waitFor(() => expect(api.openPdf).toHaveBeenCalledWith(ICICI_LIVE));
+    expect(api.loadForms).toHaveBeenCalledTimes(1);
+  });
+
+  it('unpublishes from the menu after a confirm', async () => {
+    const user = userEvent.setup();
+    const api = stubApi();
+    renderConsole(api);
+    const icici = await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
+
+    await user.click(within(icici).getByRole('button', { name: /^More actions/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'Unpublish live version' }));
     const dialog = screen.getByRole('alertdialog', { name: 'Unpublish this form?' });
-    expect(dialog).toHaveTextContent('leaves the customer journey list');
-    expect(api.setStatus).not.toHaveBeenCalled();
-
-    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('alertdialog')).toBeNull();
-    expect(api.setStatus).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'Unpublish ICICI · KYC update' }));
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Unpublish' }));
-
+    await user.click(within(dialog).getByRole('button', { name: 'Unpublish' }));
     await waitFor(() =>
-      expect(api.setStatus).toHaveBeenCalledWith({ formId: 'icici_kyc', version: 'v1', status: 'draft' }),
-    );
-    await waitFor(() => expect(api.loadForms).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/Unpublished ICICI · KYC update/)).toBeInTheDocument();
-  });
-
-  it('retires only after a confirm that says it cannot be undone', async () => {
-    const user = userEvent.setup();
-    const api = stubApi();
-    renderConsole(api);
-
-    await user.click(await screen.findByRole('button', { name: 'Retire Axis · Account opening' }));
-    const dialog = screen.getByRole('alertdialog', { name: 'Retire this form?' });
-    expect(dialog).toHaveTextContent('cannot be undone');
-    await user.click(within(dialog).getByRole('button', { name: 'Retire form' }));
-    await waitFor(() =>
-      expect(api.setStatus).toHaveBeenCalledWith({ formId: 'axis_aof', version: 'v1', status: 'retired' }),
+      expect(api.setStatus).toHaveBeenCalledWith({ formId: 'icici_live', version: 'v1', status: 'draft' }),
     );
   });
 
-  it('opens review and upload, and shows an action error', async () => {
+  it('shows an action error, and opens upload', async () => {
     const user = userEvent.setup();
     const api = stubApi({ openPdf: vi.fn(async () => Promise.reject(new Error('That form was not found.'))) });
-    const { onReview, onUpload } = renderConsole(api);
+    const { onUpload } = renderConsole(api);
+    const icici = await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
 
-    await user.click(await screen.findByRole('button', { name: 'Review HDFC · KYC update' }));
-    expect(onReview).toHaveBeenCalledWith(RESPONSE.forms[0]);
     await user.click(screen.getByRole('button', { name: 'Upload a form' }));
     expect(onUpload).toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'Source PDF for PNB · Re-KYC' }));
+    await user.click(within(icici).getByRole('button', { name: /^More actions/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'Source PDF (draft)' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('That form was not found.');
-    expect(api.loadForms).toHaveBeenCalledTimes(1);
   });
 
   it('shows loading, then an error with a retry, then the empty state', async () => {
@@ -182,17 +314,8 @@ describe('ConsolePage', () => {
     const user = userEvent.setup();
     const api = stubApi();
     renderConsole(api);
-    await screen.findByRole('table', { name: 'Forms' });
+    await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(api.loadForms).toHaveBeenCalledTimes(2));
-  });
-
-  it('shows cards instead of a table on a phone', async () => {
-    setViewport(390);
-    renderConsole(stubApi());
-    const list = await screen.findByRole('list', { name: 'Forms' });
-    expect(within(list).getAllByRole('listitem')).toHaveLength(4);
-    expect(screen.queryByRole('table')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Publish HDFC · KYC update' })).toBeDisabled();
   });
 });
