@@ -151,7 +151,7 @@ export function ConfirmPage() {
       URL.revokeObjectURL(url);
       return true;
     } catch {
-      setPdfError('Could not generate the PDF. The JSON draft above still has everything captured.');
+      setPdfError('Could not make the PDF just now. The saved details file above still has everything.');
       return false;
     } finally {
       setPdfBusy(false);
@@ -290,7 +290,7 @@ export function ConfirmPage() {
                 className={`${BTN} ${BTN_MD} border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
                 onClick={downloadJson}
               >
-                <DownloadIcon /> Download JSON
+                <DownloadIcon /> Download details
               </button>
               {pdfAvailable ? (
                 <button
@@ -424,21 +424,21 @@ function Receipt({
     <section className="min-w-0 px-5 py-8 lg:col-span-7 lg:px-8">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[10px] uppercase text-primary">Bank handoff preview</p>
-          <h2 className="mt-2 font-display text-4xl">Said, filled, and confidence</h2>
+          <p className="text-[10px] uppercase text-primary">What branch staff see</p>
+          <h2 className="mt-2 font-display text-4xl">What you said, and what was filled</h2>
           <p className="mt-2 max-w-md text-xs text-muted-foreground">
-            What a bank’s onboarding system would import per field — not just the value, but
-            where it came from and how much to trust it before auto-filing it.
+            Each detail sits next to your own words, so staff know what to double-check instead of
+            asking you again.
           </p>
         </div>
-        <span className="border border-foreground px-2 py-1 text-[10px]">FAKE DEMO</span>
+        <span className="border border-foreground px-2 py-1 text-[10px]">PREVIEW</span>
       </div>
       <div className="mt-6 overflow-x-auto border-2 border-foreground">
         <div className="grid grid-cols-[.6fr_1.1fr_.9fr_.6fr] bg-foreground px-3 py-2 text-[10px] uppercase text-background">
           <span>Field</span>
           <span>Said</span>
           <span>Filled</span>
-          <span>Confidence</span>
+          <span>Check</span>
         </div>
         {rows.length === 0 ? (
           <p className="px-3 py-3 text-xs text-muted-foreground">Nothing filled yet.</p>
