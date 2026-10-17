@@ -112,13 +112,15 @@ describe('JourneyPage companion panel', () => {
     );
   });
 
-  it('never says Beta anywhere on the page', async () => {
+  it('marks beta languages in the picker and leaves English and Hindi unmarked', async () => {
     const user = userEvent.setup();
-    const { container } = mount();
-    for (const tab of ['Speak', 'Type', 'Languages']) {
-      await user.click(screen.getByRole('tab', { name: tab }));
-      expect(container.textContent ?? '').not.toMatch(/beta/i);
-      expect(container.innerHTML).not.toMatch(/beta/i);
+    mount();
+    await user.click(screen.getByRole('tab', { name: 'Languages' }));
+    const list = screen.getByRole('list', { name: 'Supported languages' });
+    expect(within(list).getByRole('button', { name: /^English/ }).textContent).not.toMatch(/Beta/);
+    expect(within(list).getByRole('button', { name: /हिन्दी/ }).textContent).not.toMatch(/Beta/);
+    for (const option of LANGUAGES.filter((language) => language.beta)) {
+      expect(within(list).getByRole('button', { name: new RegExp(option.pickerLabel) })).toHaveTextContent('Beta');
     }
     expect(screen.queryByText(/Tested in English and Hindi/)).not.toBeInTheDocument();
   });

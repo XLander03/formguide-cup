@@ -19,7 +19,7 @@ import {
 } from '../ui/icons';
 
 const FACTS = [
-  [String(JOURNEYS.length), 'journeys today', JOURNEYS.map((journey) => journey.title).join(', ')],
+  ['7', 'journeys today', JOURNEYS.map((journey) => journey.title).join(', ')],
   ['3', 'checks before saving', 'Hear every detail read back, then confirm it yourself'],
   [String(LANGUAGES.length), 'Indian languages', 'Answer in yours, mix in English any time'],
   ['0', 'forms sent to a bank', 'Every result is a draft you check and keep'],

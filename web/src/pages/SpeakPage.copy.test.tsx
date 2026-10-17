@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { RouteProvider } from '../routing/router';
 import { FormSessionProvider } from '../session/FormSession';
@@ -49,5 +49,20 @@ describe('Speak page copy', () => {
     );
     expect(screen.getByRole('button', { name: /Load sample draft/i })).toBeInTheDocument();
     sessionStorage.clear();
+  });
+
+  it('shows the HDFC sample line under the form preview title', () => {
+    window.history.pushState({}, '', '/speak');
+    render(
+      <RouteProvider>
+        <FormSessionProvider>
+          <SpeakPage />
+        </FormSessionProvider>
+      </RouteProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Preview form/i }));
+    const title = screen.getByRole('heading', { name: /Form preview/i });
+    const note = screen.getByText("Sample based on HDFC's public KYC form · Fields vary by bank");
+    expect(title.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
