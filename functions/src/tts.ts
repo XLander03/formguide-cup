@@ -8,9 +8,13 @@ import { firestoreCounter } from './rateLimitStore';
  *
  * Browser voices are unreliable for these languages: a device without a matching voice,
  * or a voice list that has not loaded yet, reads Hindi with an English voice, which says
- * only the digits and the punctuation. Gemini speech is the same on every device.
+ * only the digits and the punctuation. Server speech is the same on every device.
  *
- *   GET /api/tts?lang=hi-IN&text=...  -> audio/wav
+ * Cloud Text-to-Speech (Chirp 3 HD) speaks the languages it has: it answers in well under a
+ * second, where Gemini speech took 3-7s a line, and its first 1M characters a month are free.
+ * Odia, Assamese and Sindhi have no Chirp voice, so they (and any Chirp failure) use Gemini.
+ *
+ *   GET /api/tts?lang=hi-IN&text=...  -> audio/mpeg (Chirp) or audio/wav (Gemini)
  *
  * GET, so Firebase Hosting's CDN caches each line: the fixed questions and read-back
  * copy are generated once, and cache hits never reach this function or its rate limit.
@@ -37,6 +41,25 @@ export const TTS_PER_CLIENT: RateLimitRule = { limit: 600, windowMs: 10 * 60 * 1
 const VOICE = 'Kore';
 const API = 'https://generativelanguage.googleapis.com/v1beta/models';
 
+/**
+ * Chirp 3 HD locales, from https://docs.cloud.google.com/text-to-speech/docs/chirp3-hd
+ * (pa-IN is Preview there). Same voice as Gemini's, so a fallback line sounds alike.
+ */
+export const CHIRP_LANGUAGES: ReadonlySet<string> = new Set([
+  'hi-IN',
+  'bn-IN',
+  'mr-IN',
+  'te-IN',
+  'gu-IN',
+  'kn-IN',
+  'ml-IN',
+  'pa-IN',
+]);
+const CLOUD_TTS = 'https://texttospeech.googleapis.com/v1/text:synthesize';
+const CHIRP_TIMEOUT_MS = 8000;
+const METADATA_TOKEN =
+  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token';
+
 export interface TtsReq {
   method: string;
   query: Record<string, unknown>;
@@ -54,6 +77,73 @@ export interface TtsRes {
 export interface TtsDeps {
   counter: CounterStore;
   apiKey: () => string | undefined;
+  /** OAuth token for Cloud Text-to-Speech; undefined skips straight to Gemini. */
+  cloudToken?: () => Promise<string | undefined>;
+}
+
+export interface Speech {
+  audio: Buffer;
+  contentType: string;
+}
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+/** The function's service-account token from the metadata server, reused until near expiry. */
+export async function metadataToken(): Promise<string | undefined> {
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.token;
+  try {
+    const res = await fetch(METADATA_TOKEN, {
+      headers: { 'Metadata-Flavor': 'Google' },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as { access_token?: string; expires_in?: number };
+    if (!data.access_token) return undefined;
+    cachedToken = { token: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 300) * 1000 };
+    return data.access_token;
+  } catch {
+    // Not on Google Cloud (emulator, tests): Gemini speaks instead.
+    return undefined;
+  }
+}
+
+/** One line from Chirp 3 HD as MP3, or null so Gemini can try. */
+export async function synthesizeChirp(token: string, text: string, lang: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(CLOUD_TTS, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text },
+        voice: { languageCode: lang, name: `${lang}-Chirp3-HD-${VOICE}` },
+        audioConfig: { audioEncoding: 'MP3' },
+      }),
+      signal: AbortSignal.timeout(CHIRP_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      // 403 SERVICE_DISABLED means the Text-to-Speech API is not enabled on the project.
+      const detail = await res.text().catch(() => '');
+      console.warn('tts_chirp_failed', lang, res.status, detail.replace(/\s+/g, ' ').slice(0, 900));
+      return null;
+    }
+    const data = (await res.json()) as { audioContent?: string };
+    return data.audioContent ? Buffer.from(data.audioContent, 'base64') : null;
+  } catch (err) {
+    console.warn('tts_chirp_failed', lang, err instanceof Error ? err.message : 'unknown');
+    return null;
+  }
+}
+
+/** Chirp for the languages it has, Gemini for the rest and whenever Chirp cannot answer. */
+export async function speakLine(text: string, lang: string, deps: TtsDeps): Promise<Speech> {
+  if (CHIRP_LANGUAGES.has(lang) && deps.cloudToken) {
+    const token = await deps.cloudToken();
+    const mp3 = token ? await synthesizeChirp(token, text, lang) : null;
+    if (mp3) return { audio: mp3, contentType: 'audio/mpeg' };
+  }
+  const apiKey = deps.apiKey();
+  if (!apiKey) throw Object.assign(new Error('gemini_key_missing'), { httpStatus: 500 });
+  return { audio: await synthesize(apiKey, text), contentType: 'audio/wav' };
 }
 
 /** Gemini returns 24 kHz 16-bit mono PCM, sometimes already wrapped as WAV. */
@@ -150,20 +240,20 @@ export async function handleTts(req: TtsReq, res: TtsRes, deps: TtsDeps): Promis
     res.status(429).json({ error: 'rate_limited' });
     return;
   }
-  const apiKey = deps.apiKey();
-  if (!apiKey) {
-    res.status(500).json({ error: 'gemini_key_missing' });
-    return;
-  }
   try {
-    const wav = await synthesize(apiKey, text);
-    res.set('Content-Type', 'audio/wav');
+    const speech = await speakLine(text, lang, deps);
+    res.set('Content-Type', speech.contentType);
     // Same text, same audio: let the CDN keep it for a week.
     res.set('Cache-Control', 'public, max-age=86400, s-maxage=604800');
-    res.status(200).send(wav);
+    res.status(200).send(speech.audio);
   } catch (err) {
     const status = (err as { httpStatus?: number }).httpStatus ?? 502;
-    console.error('tts_failed', err instanceof Error ? err.message : 'unknown');
+    const message = err instanceof Error ? err.message : 'unknown';
+    console.error('tts_failed', message);
+    if (message === 'gemini_key_missing') {
+      res.status(500).json({ error: 'gemini_key_missing' });
+      return;
+    }
     res.status(status).json({ error: status === 429 ? 'rate_limited' : 'tts_failed' });
   }
 }
@@ -186,6 +276,7 @@ export const tts = onRequest(
     await handleTts(req as unknown as TtsReq, res as unknown as TtsRes, {
       counter,
       apiKey: () => process.env.GEMINI_API_KEY,
+      cloudToken: metadataToken,
     });
   },
 );
