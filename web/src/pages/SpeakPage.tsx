@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { AgentTrail } from '../components/AgentTrail';
 import { BankFields } from '../components/BankFields';
+import { CorrectionDiff, CorrectionToast, useVoiceCorrections } from '../components/Corrections';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
 import { languageByBcp47, languageLabel } from '../lib/languages';
 import {
@@ -8,6 +10,7 @@ import {
   REGISTERED_ADDRESS_COPY,
   cardLast4,
 } from '../lib/debitReissue';
+import { buildTrail, sourceChip, type ChipTone } from '../lib/agentTrail';
 import { demoMode } from '../lib/demoMode';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
@@ -178,7 +181,7 @@ export function SpeakPage() {
     enabled: session.readyForFill,
     prepare: async (last) => {
       const s = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       checkingRef.current = null;
       // "No" at the read-back: listen for the change. "Read it again" already read it.
       if (last?.intent === 'command' && last.command === 'no') return 'fill';
@@ -217,13 +220,22 @@ export function SpeakPage() {
       const started = Object.entries(s.values).some(
         ([id, value]) => !['journey_mode', 'preferred_language', 'account_product_intent'].includes(id) && isFilled(value),
       );
-      const ask = started ? getNextAsk(s.missing, s.values, s.readbackLang) : null;
-      await s.say(ask || voiceLine('startName', hi));
+      // The local question tables are English and Hindi; a regional conversation repeats the
+      // server's last question, which is already in that language.
+      const regional = hi !== 'en' && hi !== 'hi' && hi !== 'mixed';
+      const serverAsk = s.last?.next_ask && s.last.next_ask_lang === s.readbackBcp47 ? s.last.next_ask : null;
+      if (started && regional && serverAsk) {
+        await s.say(serverAsk);
+        return 'fill';
+      }
+      const ask = started ? getNextAsk(s.missing, s.values, regional ? 'en' : s.readbackLang) : null;
+      if (ask && regional) await s.say(ask, 'en');
+      else await s.say(ask || voiceLine('startName', hi));
       return 'fill';
     },
     onCommand: async (command) => {
       const s = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       const checking = checkingRef.current;
       if (checking && (command === 'yes' || command === 'no')) {
         if (checking === 'card_old_blocked_ack') {
@@ -258,6 +270,12 @@ export function SpeakPage() {
     },
   });
   const handsFree = session.handsFree;
+  const corrections = useVoiceCorrections(session.values, session.fieldSource, session.said);
+  // Replays the thinking trail once per reply, not per keystroke.
+  const [trailTurn, setTrailTurn] = useState(0);
+  useEffect(() => {
+    if (session.last) setTrailTurn((n) => n + 1);
+  }, [session.last]);
   const listening = handsFree ? agent.listening : mic.listening;
 
   useEffect(() => {
@@ -297,6 +315,8 @@ export function SpeakPage() {
     (!askComplete &&
       requiredFields.find((field) => field.id && !isFilled(session.values[field.id]))) ||
     null;
+  // Off-panel questions (asked from the schema, like "Same OVD for address proof?") still get replies.
+  const replyField = asked ?? (session.missing[0] ? schemaReplyField(session.missing[0]) : null);
   const flagged = session.flaggedIds;
   const flagCount = flagged.length;
   const invalid = session.invalidIds;
@@ -345,6 +365,21 @@ export function SpeakPage() {
         ? 'ज़रूरी जानकारी पूरी हो गई।'
         : 'All required details are in.');
   const label = draftChoiceLabel(session.journey, session.values.account_product_intent);
+  const trail = buildTrail({
+    last: session.last,
+    said,
+    values: session.values,
+    missing: session.missing,
+    confidence: session.confidence,
+    label: sheetLabel,
+    nextLabel: askComplete ? null : askNextLabel,
+    rank: (id) => {
+      const at = sheetFields.findIndex((field) => field.id === id);
+      return at < 0 ? sheetFields.length : at;
+    },
+  });
+  // Everything still required, including questions asked outside the panel (Still needed).
+  const requiredLeft = askComplete ? 0 : Math.max(session.missing.length, requiredFields.length - requiredFilled);
   // Built on BTN, not BTN_OUTLINE: its text-foreground/bg-background win over these in the stylesheet,
   // which left dark text on the dark panel.
   const lightBtn = `${BTN} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
@@ -358,7 +393,7 @@ export function SpeakPage() {
   });
 
   return (
-    <div className="grid min-h-[calc(100vh-150px)] lg:h-[calc(100vh-10.5rem)] lg:grid-cols-12 lg:overflow-hidden">
+    <div className="grid min-h-[calc(100vh-150px)] grid-cols-1 lg:h-[calc(100vh-10.5rem)] lg:grid-cols-12 lg:overflow-hidden">
       <section className="flex min-h-0 flex-col border-b-2 border-foreground bg-foreground text-background lg:col-span-4 lg:overflow-hidden lg:border-b-0 lg:border-r-2">
         <div className="flex items-center justify-between border-b border-background/15 px-5 py-3 text-[10px] uppercase tracking-wide text-background/70">
           <span className="flex items-center gap-2">
@@ -461,6 +496,11 @@ export function SpeakPage() {
                 <SparkleIcon className="size-3" /> FormGuide
               </p>
               <p className="mt-1 text-sm">{companion}</p>
+              {started ? (
+                <div className="mt-2">
+                  <AgentTrail steps={trail} turn={trailTurn} />
+                </div>
+              ) : null}
             </div>
             <div className={`border p-3 ${askComplete && !flagLine && !formatLine ? 'border-primary' : 'border-saffron'}`}>
               <p className={`text-[10px] uppercase ${askComplete && !flagLine && !formatLine ? 'text-primary' : 'text-saffron'}`}>
@@ -504,12 +544,21 @@ export function SpeakPage() {
                   </span>
                 </p>
               ) : (
-                <p className="mt-1 text-sm font-semibold">
-                  {askNextLabel}
-                  {askNextHint ? (
-                    <span className="font-normal text-background/60"> · {askNextHint}</span>
+                <>
+                  <p className="mt-1 text-sm font-semibold">
+                    {askNextLabel}
+                    {askNextHint ? (
+                      <span className="font-normal text-background/60"> · {askNextHint}</span>
+                    ) : null}
+                  </p>
+                  {!askComplete && replyField?.id ? (
+                    <SuggestedReplies
+                      field={replyField}
+                      canType={panelIds.has(replyField.id) && replyField.input !== 'boolean'}
+                      onPick={(value) => session.onChange(replyField.id as string, value)}
+                    />
                   ) : null}
-                </p>
+                </>
               )}
               {!askComplete && flagLine ? (
                 <p className="mt-1 text-xs font-semibold text-saffron">{flagLine}</p>
@@ -604,16 +653,16 @@ export function SpeakPage() {
 
       <nav className="border-b-2 border-foreground px-4 py-4 lg:col-span-2 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r-2">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">{label}</p>
-        <p className="mt-1 font-display text-5xl leading-none">
-          {requiredFilled}/{requiredFields.length}
-        </p>
-        <p className="text-[11px] text-muted-foreground">required filled</p>
-        <div className="mt-2 h-2 border border-foreground">
-          <div
-            className="h-full bg-primary"
-            style={{ width: `${requiredFields.length === 0 ? 0 : (requiredFilled / requiredFields.length) * 100}%` }}
-          />
+        <div className="mt-1 flex items-center gap-3">
+          <ProgressRing value={requiredFields.length === 0 ? 0 : requiredFilled / requiredFields.length} />
+          <div>
+            <p className="font-display text-4xl leading-none">
+              {requiredFilled}/{requiredFields.length}
+            </p>
+            <p className="text-[11px] text-muted-foreground">required filled</p>
+          </div>
         </div>
+        <p className="mt-2 text-[11px] font-semibold">{timeLeft(requiredLeft)}</p>
         <ol className="mt-4 flex gap-2 overflow-x-auto lg:block lg:space-y-1">
           {sectionStats.map((section, index) => {
             const on = active === section.name;
@@ -703,10 +752,14 @@ export function SpeakPage() {
                     const issue = field.id ? fieldIssue(field.id, session.values[field.id]) : null;
                     const conf = field.id ? session.confidence[field.id] : undefined;
                     const open = isFlagged && checking === field.id;
+                    const corrected = field.id ? corrections[field.id] : undefined;
+                    const chip = field.id ? sourceChip(session.fieldSource[field.id], conf) : null;
                     const inputId = field.id ? `speak-field-${field.id}` : undefined;
                     const status = issue
                       ? 'fix format'
-                      : filling
+                      : corrected
+                        ? '✎ corrected'
+                        : filling
                         ? '● filling'
                         : filled
                           ? '✓ heard'
@@ -726,8 +779,8 @@ export function SpeakPage() {
                               }
                             : undefined
                         }
-                        className={`${isFlagged ? 'cursor-pointer ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
-                          filling ? 'bg-saffron/30' : asking ? 'bg-primary/10' : ''
+                        className={`${isFlagged ? 'cursor-pointer shadow-[inset_0_0_0_2px_var(--color-saffron)] ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
+                          filling ? 'bg-saffron/30' : corrected ? 'bg-primary/10' : asking ? 'bg-primary/10' : ''
                         }`}
                       >
                         <div className="flex items-center justify-between text-[10px] uppercase">
@@ -846,7 +899,18 @@ export function SpeakPage() {
                           </div>
                         ) : null}
                         {issue ? <p className="mt-1 text-[10px] font-semibold text-destructive">{issue}</p> : null}
-                        {heard ? (
+                        {corrected ? (
+                          <p className="mt-1 flex items-center gap-1.5 text-[11px]">
+                            <CorrectionDiff correction={corrected} />
+                            <span className="text-[10px] uppercase text-primary">by voice</span>
+                          </p>
+                        ) : null}
+                        {filled && field.id && chip ? (
+                          <p className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5 text-[10px]">
+                            <span className={`shrink-0 px-1.5 py-px font-semibold ${CHIP_TONE[chip.tone]}`}>{chip.text}</span>
+                            {heard ? <span className="truncate italic text-muted-foreground">“{heard}”</span> : null}
+                          </p>
+                        ) : heard ? (
                           <p className="mt-0.5 truncate text-[10px] italic text-muted-foreground">“{heard}”</p>
                         ) : null}
                       </div>
@@ -913,6 +977,7 @@ export function SpeakPage() {
           </div>
         </div>
       </section>
+      <CorrectionToast corrections={corrections} label={sheetLabel} />
       {preview ? (
         <FormPreview
           version={shownTurns}
@@ -926,6 +991,99 @@ export function SpeakPage() {
           onClose={() => setPreview(false)}
         />
       ) : null}
+    </div>
+  );
+}
+
+const CHIP_TONE: Record<ChipTone, string> = {
+  ai: 'bg-primary/15 text-primary',
+  rules: 'bg-muted text-muted-foreground',
+  typed: 'bg-foreground/10 text-foreground',
+  sample: 'bg-accent/50 text-accent-foreground',
+  unsure: 'bg-saffron/25 text-foreground',
+};
+
+/** Rough time to finish by voice: about 15 seconds a field. */
+function timeLeft(fields: number): string {
+  if (fields <= 0) return 'Ready for read-back';
+  const minutes = Math.max(1, Math.round((fields * 15) / 60));
+  return `About ${minutes} min left by voice`;
+}
+
+function ProgressRing({ value }: { value: number }) {
+  const r = 22;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg viewBox="0 0 56 56" className="size-14 shrink-0 -rotate-90" aria-hidden="true">
+      <circle cx="28" cy="28" r={r} fill="none" strokeWidth="6" className="stroke-foreground/15" />
+      <circle
+        cx="28"
+        cy="28"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - value)}
+        className="stroke-primary transition-[stroke-dashoffset] duration-700 ease-out"
+      />
+    </svg>
+  );
+}
+
+const REPLY_CHIP =
+  'border border-background/40 px-2.5 py-1 text-[11px] font-semibold hover:border-primary hover:bg-primary hover:text-primary-foreground';
+
+/** A schema field that is not on the panel, shaped for SuggestedReplies. Null when it takes free text. */
+function schemaReplyField(id: string): PreviewField | null {
+  const field = SCHEMA.fields.find((f) => f.id === id) as { type?: string; enum_ref?: string } | undefined;
+  if (!field) return null;
+  if (field.type === 'boolean') return { id, label: fieldLabel(id), hint: '', required: true, section: '', input: 'boolean' };
+  if (field.enum_ref) return { id, label: fieldLabel(id), hint: '', required: true, section: '', enumRef: field.enum_ref };
+  return null;
+}
+
+/** One-tap answers under "Asks next": the field's options, or a jump to its input. */
+function SuggestedReplies({
+  field,
+  canType,
+  onPick,
+}: {
+  field: PreviewField;
+  canType: boolean;
+  onPick: (value: string | boolean) => void;
+}) {
+  const options = field.enumRef ? (SCHEMA.enums[field.enumRef] ?? []).slice(0, 4) : [];
+  const choices: { label: string; value: string | boolean }[] =
+    field.input === 'boolean'
+      ? [
+          { label: 'Yes', value: true },
+          { label: 'No', value: false },
+        ]
+      : options.map((option) => ({ label: pretty(option), value: option }));
+  if (choices.length === 0 && !canType) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-[10px] uppercase text-background/50">Say it, or tap a reply</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {choices.map((choice) => (
+          <button key={choice.label} type="button" className={REPLY_CHIP} onClick={() => onPick(choice.value)}>
+            {choice.label}
+          </button>
+        ))}
+        {canType ? (
+          <button
+            type="button"
+            className={`${REPLY_CHIP} border-dashed text-background/70`}
+            onClick={() => {
+              const el = document.getElementById(`speak-field-${field.id}`) as HTMLInputElement | null;
+              el?.scrollIntoView({ block: 'center' });
+              el?.focus();
+            }}
+          >
+            ⌨ Type it instead
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

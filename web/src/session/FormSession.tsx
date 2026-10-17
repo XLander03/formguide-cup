@@ -810,9 +810,14 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
           noStart = window.setTimeout(give, READBACK_NO_START_MS);
           cap = window.setTimeout(give, Math.max(8000, text.length * 120) + READBACK_NO_START_MS);
           const hooks = { onStart: () => window.clearTimeout(noStart) };
+          // With no language given, the line is in the conversation's language (voiceLine picks
+          // it the same way): a regional line goes to the server voice, never an English one.
+          const regional = !lang && readbackBcp47 !== 'en-IN' && readbackBcp47 !== 'hi-IN';
           const spoken = speech
             ? speak(text, speech.lang, hooks, speech.voice)
-            : speakForUtterance(text, lang ?? readbackLang, hooks);
+            : regional
+              ? speak(text, readbackBcp47, hooks)
+              : speakForUtterance(text, lang ?? readbackLang, hooks);
           spoken.then(resolve, resolve);
         });
       } finally {
@@ -821,7 +826,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         setSpeaking(false);
       }
     },
-    [readbackLang],
+    [readbackLang, readbackBcp47],
   );
 
   /** One line in a BCP-47 language: its device voice, else the English version, else nothing. */

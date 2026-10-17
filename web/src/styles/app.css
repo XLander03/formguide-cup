@@ -97,7 +97,49 @@
   animation: 0.28s cubic-bezier(0.32, 0.72, 0, 1) both fg-sheet;
 }
 
+/* Review: the scan line sweeping down the draft while checks run. */
+@keyframes fg-scan {
+  0% {
+    top: -4rem;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+.fg-scan {
+  animation: 1.6s cubic-bezier(0.45, 0, 0.55, 1) infinite fg-scan;
+}
+
+/* Confirm: the "Draft saved" stamp thumping onto the receipt. */
+@keyframes fg-stamp {
+  0% {
+    opacity: 0;
+    transform: rotate(-12deg) scale(2.4);
+  }
+  60% {
+    opacity: 0.9;
+    transform: rotate(-12deg) scale(0.94);
+  }
+  to {
+    opacity: 0.85;
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+.fg-stamp {
+  transform: rotate(-12deg);
+  opacity: 0.85;
+  animation: 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2) 0.25s both fg-stamp;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .fg-stamp {
+    animation: none;
+  }
+  .fg-scan {
+    display: none;
+  }
   .fg-wave,
   .fg-rise,
   .fg-in,

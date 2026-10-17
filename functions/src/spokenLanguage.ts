@@ -75,12 +75,13 @@ export function isInLanguageScript(text: string, lang: SpeakLanguage): boolean {
 }
 
 /**
- * Language hints for gemini-3.5-transcribe. With English picked (the default) the
- * list is empty so the model auto-detects, which is how a customer who never touched
- * the picker can still speak Telugu. A regional pick keeps its hint for accuracy.
+ * Language hint for gemini-3.5-transcribe: always the picked language. With no hint the
+ * model guesses, and on real microphone audio it guesses wrong (Telugu came back as Hindi
+ * script), so everything after it was built on a made-up transcript. English picks still
+ * cover Hinglish; any other language is picked in Preparation.
  */
 export function transcriptionLanguageCodes(hint: SpeakLanguage): SpeakLanguage[] {
-  return hint === 'en-IN' ? [] : [hint];
+  return [hint];
 }
 
 /** Prompt list of the codes the model may return as spoken_lang. */

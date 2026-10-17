@@ -1,5 +1,11 @@
-/** What FormGuide says aloud in hands-free and voice-command turns, in English and Hindi. */
-const LINES = {
+import type { ReadbackLang } from './utteranceLang';
+import { REGIONAL_VOICE_LINES } from './voiceLinesI18n';
+
+/**
+ * What FormGuide says aloud in hands-free and voice-command turns: English and Hindi here,
+ * the ten regional languages in voiceLinesI18n.ts. A line missing there is said in English.
+ */
+export const LINES = {
   startName: ['Hi! Start with your full name.', 'नमस्ते! अपना पूरा नाम बताइए।'],
   askConfirm: [
     'Is everything correct? Say yes to confirm. This saves a draft only, and nothing is sent to a bank. Or say what to change.',
@@ -70,16 +76,25 @@ const LINES = {
 
 export type VoiceLineKey = keyof typeof LINES;
 
-export function voiceLine(key: VoiceLineKey, hindi: boolean, vars: Record<string, string> = {}): string {
-  const template: string = LINES[key][hindi ? 1 : 0];
+/** `true` means Hindi (older call sites); otherwise the read-back language of the conversation. */
+type LineLang = boolean | ReadbackLang;
+
+export function voiceLine(key: VoiceLineKey, lang: LineLang, vars: Record<string, string> = {}): string {
+  const template = lineTemplate(key, lang);
   return template.replace(/\{(\w+)\}/g, (_, name: string) => vars[name] ?? '');
 }
 
+function lineTemplate(key: VoiceLineKey, lang: LineLang): string {
+  if (lang === true || lang === 'hi' || lang === 'mixed') return LINES[key][1];
+  if (lang === false || lang === 'en') return LINES[key][0];
+  return REGIONAL_VOICE_LINES[lang]?.[key] ?? LINES[key][0];
+}
+
 /** The line for a failed voice turn, and whether hands-free should stop instead of asking again. */
-export function voiceErrorLine(error: string, hindi: boolean): { line: string; stop: boolean } {
-  if (/rate_limited|_429/.test(error)) return { line: voiceLine('errRateLimited', hindi), stop: true };
-  if (/_503|unavailable/.test(error)) return { line: voiceLine('errBusy', hindi), stop: false };
-  if (error === 'network_error') return { line: voiceLine('errNetwork', hindi), stop: true };
-  if (error === 'fields_bad_json') return { line: voiceLine('errShorter', hindi), stop: false };
-  return { line: voiceLine('errRepeat', hindi), stop: false };
+export function voiceErrorLine(error: string, lang: LineLang): { line: string; stop: boolean } {
+  if (/rate_limited|_429/.test(error)) return { line: voiceLine('errRateLimited', lang), stop: true };
+  if (/_503|unavailable/.test(error)) return { line: voiceLine('errBusy', lang), stop: false };
+  if (error === 'network_error') return { line: voiceLine('errNetwork', lang), stop: true };
+  if (error === 'fields_bad_json') return { line: voiceLine('errShorter', lang), stop: false };
+  return { line: voiceLine('errRepeat', lang), stop: false };
 }

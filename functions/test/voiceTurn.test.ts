@@ -228,4 +228,27 @@ describe('fieldJson turn intent', () => {
     const out = await fieldJson('k', 'मेरा नाम राहुल है', 'hi-IN', { applicant_full_name: 'Rahul Verma' });
     assert.doesNotMatch(String(out.next_ask), /Fields vary/);
   });
+
+  it('recognises a spoken command in any language on read-back, review and confirm', async () => {
+    const prompts = stubModel({ ...base, intent: 'command', command: 'yes', spoken_lang: 'te-IN', field_updates: { photo_consent: { value: true, confidence: 1 } } });
+    const out = await fieldJson('k', 'అవును', 'te-IN', { applicant_full_name: 'Priya Sharma' }, undefined, 'readback');
+    assert.match(prompts[0], /"command": ONLY when the whole turn/);
+    assert.equal(out.intent, 'command');
+    assert.equal(out.command, 'yes');
+    assert.deepEqual(out.field_updates, {});
+  });
+
+  it('never treats a turn as a command while filling the form', async () => {
+    const prompts = stubModel({ ...base, intent: 'command', command: 'yes', field_updates: { photo_consent: { value: true, confidence: 1 } } });
+    const out = await fieldJson('k', 'yes', 'en-IN', {}, undefined, 'fill');
+    assert.doesNotMatch(prompts[0], /"command": ONLY/);
+    assert.equal(out.command, null);
+    assert.notEqual(out.intent, 'command');
+  });
+
+  it('ignores a command name the app does not know', async () => {
+    stubModel({ ...base, intent: 'command', command: 'transfer_money', field_updates: {} });
+    const out = await fieldJson('k', 'transfer money', 'en-IN', {}, undefined, 'confirm');
+    assert.equal(out.command, null);
+  });
 });
