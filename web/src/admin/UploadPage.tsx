@@ -20,11 +20,14 @@ export function UploadPage({
   inspect = inspectPdf,
   ingest = ingestForm,
   onReady,
+  onConsole,
 }: {
   mock?: boolean;
   inspect?: (file: File) => Promise<PdfInspection>;
   ingest?: (input: IngestFormInput) => Promise<FormVersion>;
   onReady: (form: FormVersion, pages: PageSize[], bytes: Uint8Array) => void;
+  /** Back to the admin console. */
+  onConsole?: () => void;
 }) {
   const [bankId, setBankId] = useState<string>(ADMIN_BANKS[0]);
   const [journey, setJourney] = useState<string>(ADMIN_JOURNEYS[0].id);
@@ -79,6 +82,15 @@ export function UploadPage({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+      {onConsole ? (
+        <button
+          type="button"
+          className="mb-4 text-sm font-semibold underline underline-offset-4 hover:text-primary"
+          onClick={onConsole}
+        >
+          ← Back to console
+        </button>
+      ) : null}
       <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">Admin</p>
       <h1 className="mt-2 font-display text-4xl leading-none sm:text-5xl">Upload a form</h1>
       <p className="mt-3 max-w-xl text-sm text-muted-foreground">
