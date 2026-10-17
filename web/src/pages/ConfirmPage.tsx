@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { bankOnlyFields, isBundledForm } from '../forms/activeForm';
 import { OLD_CARD_BLOCKED_ACK } from '../lib/debitReissue';
+import { resolveStepForm, stepTitle } from '../lib/journeyPlan';
 import { BANK_VARIES_COPY, SCHEMA, fieldApplies, isFilled, journeyValues } from '../lib/schema';
 import { buildDraftPdf } from '../lib/publishedPdfFill';
 import type { SchemaField } from '../lib/types';
@@ -8,7 +9,7 @@ import { useRoute } from '../routing/router';
 import { CONFIDENCE_FLAG_THRESHOLD, useFormSession, type FieldConfidence } from '../session/FormSession';
 import { BTN, BTN_LG, BTN_MD, BTN_OUTLINE, BTN_PRIMARY } from '../ui/buttons';
 import { displayValue } from '../ui/fields';
-import { CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
+import { ArrowRightIcon, CheckIcon, DownloadIcon, FileCheckIcon, MicIcon, RotateIcon, StopIcon } from '../ui/icons';
 import { useMic } from '../ui/useMic';
 
 const GATES = [
@@ -103,6 +104,23 @@ export function ConfirmPage() {
   const session = useFormSession();
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const plan = session.plan;
+  const nextIndex = session.planStep + 1;
+  const nextStep = plan && nextIndex < plan.steps.length ? plan.steps[nextIndex] : null;
+
+  /** Move to the next planned form. Shared answers stay in the session; gates reset. */
+  const goNext = async () => {
+    if (!plan || !nextStep) return;
+    setAdvancing(true);
+    try {
+      const form = await resolveStepForm(nextStep, session.form);
+      session.beginPlanStep(plan, nextIndex, form);
+      go('/speak');
+    } finally {
+      setAdvancing(false);
+    }
+  };
   const mic = useMic(session.micLang, (utterance) => {
     void session.onSubmitUtterance(utterance);
   });
@@ -140,7 +158,7 @@ export function ConfirmPage() {
     return (
       <div className="min-h-[calc(100vh-150px)]">
         <section className="grid border-b-2 border-foreground lg:grid-cols-12">
-          <div className="flex flex-col justify-center border-b-2 border-foreground bg-primary px-5 py-10 text-primary-foreground lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
+          <div className="flex flex-col justify-start border-b-2 border-foreground bg-primary px-5 py-10 text-primary-foreground lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
             <FileCheckIcon className="size-10" />
             <p className="mt-5 text-[10px] uppercase text-primary-foreground/70">Draft saved on this device</p>
             <h1 className="mt-2 font-display text-6xl leading-none">Your draft is ready.</h1>
@@ -180,6 +198,7 @@ export function ConfirmPage() {
                 className={`${BTN_OUTLINE} ${BTN_MD} border-background text-background hover:bg-background hover:text-foreground`}
                 onClick={() => {
                   session.onClear();
+                  session.clearPlan();
                   go('/');
                 }}
               >
@@ -192,6 +211,29 @@ export function ConfirmPage() {
               </p>
             )}
             {pdfError ? <p className="mt-3 max-w-sm text-xs text-saffron">{pdfError}</p> : null}
+            {nextStep && plan ? (
+              <div className="mt-8 border-2 border-background p-4">
+                <p className="text-[10px] uppercase text-primary-foreground/70">
+                  Form {session.planStep + 1} of {plan.steps.length} saved · download it before moving on
+                </p>
+                <button
+                  type="button"
+                  disabled={advancing}
+                  className={`${BTN} ${BTN_LG} mt-3 w-full border-2 border-background bg-background text-foreground hover:bg-foreground hover:text-background`}
+                  onClick={() => void goNext()}
+                >
+                  Next: {stepTitle(nextStep)} <ArrowRightIcon />
+                </button>
+                <p className="mt-2 text-xs text-primary-foreground/80">{nextStep.reason}</p>
+                <p className="mt-1 text-xs text-primary-foreground/80">
+                  Your shared answers carry over. You only answer what is new.
+                </p>
+              </div>
+            ) : plan && plan.steps.length > 1 ? (
+              <p className="mt-8 border-2 border-background p-4 text-sm">
+                All {plan.steps.length} forms in your plan are drafted.
+              </p>
+            ) : null}
           </div>
           <Receipt rows={rows} session={session} />
         </section>

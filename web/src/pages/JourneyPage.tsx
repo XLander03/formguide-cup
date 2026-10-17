@@ -1,10 +1,20 @@
-import { useState } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
+import { MAX_PLAN_TEXT } from '../../../shared/journeyPlan';
+import { PlanCard } from '../components/PlanCard';
 import { PublishedFormRows } from '../components/PublishedFormRows';
 import { formKey } from '../forms/activeForm';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import type { JourneyId } from '../lib/journeys';
 import { pickJourneyCard } from '../lib/journeyIntent';
+import {
+  planFromResponse,
+  requestPlan,
+  resolveStepForm,
+  stepCardId,
+  type PlanResponse,
+  type RequestPlan,
+} from '../lib/journeyPlan';
 import { LANGUAGES } from '../lib/languages';
 import { appliesToJourney } from '../lib/publishedForms';
 import { transcribeClip } from '../lib/transcribeClip';
@@ -122,9 +132,18 @@ const OPEN_CARDS: OpenCard[] = [
 const LATER = ['Nomination', 'Personal loan', 'Fixed deposit', 'NEFT transfer'];
 
 const SAMPLES = [
+  'मेरा डेबिट कार्ड चोरी हो गया और मैंने घर बदल लिया है',
   'मुझे अपनी सैलरी के लिए नया अकाउंट खुलवाना है',
   'My bank sent a letter saying I need to redo my KYC',
 ] as const;
+
+type HeardSource = 'live' | 'sample' | 'typed';
+
+/** Planner failed or did not finish: keep the single-card pick, say so gently. */
+function fallbackNote(error: string | null): string {
+  if (error === 'rate_limited') return 'Too many tries from this network. I picked the closest form below instead.';
+  return 'I could not plan this just now, so I picked the closest form below. You can change it.';
+}
 
 function WaveMark() {
   const bars = [6, 10, 14, 8, 12];
@@ -147,23 +166,35 @@ function GreenDots() {
   );
 }
 
-export function JourneyPage() {
+export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: RequestPlan } = {}) {
   const { go } = useRoute();
-  const { language, micLang, selectLanguage, selectJourney, selectDraft, form, selectForm, onSubmitUtterance } =
-    useFormSession();
+  const {
+    language,
+    micLang,
+    selectLanguage,
+    selectJourney,
+    selectDraft,
+    form,
+    selectForm,
+    onSubmitUtterance,
+    beginPlanStep,
+    clearPlan,
+  } = useFormSession();
   const [selectedId, setSelectedId] = useState('regular_savings');
   const [heard, setHeard] = useState('');
-  const [heardLive, setHeardLive] = useState(false);
+  const [heardSource, setHeardSource] = useState<HeardSource>('typed');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [planResult, setPlanResult] = useState<{ result: PlanResponse; text: string } | null>(null);
+  const [starting, setStarting] = useState(false);
+  const planSeq = useRef(0);
   const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
   const [pickedForm, setPickedForm] = useState<FormVersion>(form);
   // A form published for another journey cannot be filled for this one.
   const chosenForm = appliesToJourney(pickedForm, selected.journey) ? pickedForm : HDFC_V1;
 
-  function applyUtterance(text: string, live: boolean) {
-    setHeard(text);
-    setHeardLive(live);
+  function applyHeuristic(text: string) {
     const pick = pickJourneyCard(text);
     if (pick.kind === 'card') {
       setSelectedId(pick.cardId);
@@ -177,12 +208,53 @@ export function JourneyPage() {
     );
   }
 
+  /** Picks one card at once (as before), then asks the planner for the full multi-form plan. */
+  async function applyUtterance(text: string, source: HeardSource) {
+    const clean = text.trim().slice(0, MAX_PLAN_TEXT);
+    setHeard(clean);
+    setHeardSource(source);
+    if (!clean) return;
+    applyHeuristic(clean);
+    const seq = ++planSeq.current;
+    setPlanning(true);
+    setPlanResult(null);
+    const { plan, error } = await planRequest(clean, language ?? 'en');
+    if (seq !== planSeq.current) return;
+    setPlanning(false);
+    if (plan && plan.outcome !== 'no_plan') {
+      setPlanResult({ result: plan, text: clean });
+      setNote(null);
+      if (plan.outcome === 'planned') setSelectedId(stepCardId(plan.steps[0], clean));
+      return;
+    }
+    setNote(fallbackNote(error));
+  }
+
+  async function startPlan() {
+    const active = planResult ? planFromResponse(planResult.result, planResult.text) : null;
+    if (!active) return;
+    setStarting(true);
+    try {
+      if (language === null) selectLanguage('en');
+      const target = await resolveStepForm(active.steps[0], form);
+      beginPlanStep(active, 0, target);
+      go('/speak');
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  function onTyped(event: FormEvent) {
+    event.preventDefault();
+    void applyUtterance(heard, heardSource);
+  }
+
   const mic = useSpeakMic(micLang, (wav) => {
     setBusy(true);
     setNote(null);
     void transcribeClip(wav, micLang).then((result) => {
       setBusy(false);
-      if (result.transcript) applyUtterance(result.transcript, true);
+      if (result.transcript) void applyUtterance(result.transcript, 'live');
       else setNote(result.error);
     });
   });
@@ -215,7 +287,7 @@ export function JourneyPage() {
             {mic.listening ? <StopIcon className="size-10" /> : <MicIcon className="size-12" />}
           </button>
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-wide">
-            {mic.listening ? 'Listening' : busy ? 'Choosing a form' : 'Tap · say your need'}
+            {mic.listening ? 'Listening' : busy ? 'Choosing a form' : planning ? 'Planning your forms' : 'Tap · say your need'}
           </p>
           {mic.error ? <p className="mt-2 text-center text-xs text-saffron">{mic.error}</p> : null}
           {note ? <p className="mt-2 max-w-xs text-center text-xs text-saffron">{note}</p> : null}
@@ -254,7 +326,43 @@ export function JourneyPage() {
           </p>
         </div>
 
-        <div className="mt-8 border-t border-background/20 pt-4">
+        <form className="mt-8 border-t border-background/20 pt-4" onSubmit={onTyped}>
+          <label htmlFor="journey-what-happened" className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">Tell us what happened</span>
+            {heard && heardSource !== 'typed' ? (
+              <span className="text-[10px] uppercase text-background/50">
+                {heardSource === 'live' ? 'Heard' : 'Sample · not a live transcript'}
+              </span>
+            ) : null}
+          </label>
+          <textarea
+            id="journey-what-happened"
+            value={heard}
+            maxLength={MAX_PLAN_TEXT}
+            rows={3}
+            placeholder="e.g. My card was stolen and I moved house"
+            onChange={(event) => {
+              setHeard(event.target.value);
+              setHeardSource('typed');
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void applyUtterance(heard, heardSource);
+              }
+            }}
+            className="mt-2 w-full resize-none border border-background/30 bg-transparent p-3 text-sm text-background placeholder:text-background/40 focus:border-primary focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={planning || !heard.trim()}
+            className="mt-2 flex w-full items-center justify-center gap-2 border border-primary bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {planning ? 'Planning your forms…' : 'Plan my forms'} <ArrowRightIcon className="size-4" />
+          </button>
+        </form>
+
+        <div className="mt-6">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-background/50">
             No mic? Try a sample voice
           </p>
@@ -263,25 +371,29 @@ export function JourneyPage() {
               <button
                 key={sample}
                 type="button"
-                onClick={() => applyUtterance(sample, false)}
+                onClick={() => void applyUtterance(sample, 'sample')}
                 className="border border-background/30 px-3 py-2 text-left text-xs hover:border-primary"
               >
                 ▶ {sample}
               </button>
             ))}
           </div>
-          {heard ? (
-            <p className="mt-3 border border-background/30 p-3 text-sm">
-              <span className="block text-[10px] uppercase text-background/50">
-                {heardLive ? 'Heard' : 'Sample · not a live transcript'}
-              </span>
-              “{heard}”
-            </p>
-          ) : null}
         </div>
       </section>
 
       <section className="px-5 py-8 lg:col-span-7 lg:px-8">
+        {planning ? (
+          <div role="status" className="mb-8 border-2 border-dashed border-primary/50 p-5 text-sm text-muted-foreground">
+            Planning your forms — checking journeys and bank forms…
+          </div>
+        ) : planResult ? (
+          <PlanCard
+            result={planResult.result}
+            hindi={/[\u0900-\u097F]/.test(planResult.text)}
+            starting={starting}
+            onStart={() => void startPlan()}
+          />
+        ) : null}
         <div className="flex items-end justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">Supported forms</p>
@@ -360,6 +472,8 @@ export function JourneyPage() {
             className={`${BTN_PRIMARY} ${BTN_LG}`}
             onClick={() => {
               if (language === null) selectLanguage('en');
+              // Picking a card by hand fills that one form; any planner suggestion is set aside.
+              clearPlan();
               if (selected.product) selectDraft(selected.journey, selected.product);
               selectJourney(selected.journey);
               selectForm(chosenForm);

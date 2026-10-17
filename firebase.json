@@ -84,6 +84,13 @@
         }
       },
       {
+        "source": "/api/planJourney",
+        "function": {
+          "functionId": "planJourney",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
