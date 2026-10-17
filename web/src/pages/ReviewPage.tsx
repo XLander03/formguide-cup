@@ -54,7 +54,7 @@ export function ReviewPage() {
   const agent = useVoiceAgent({
     prepare: async (last) => {
       const s = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       // After a correction or an answer the reply was spoken; after a command its line was.
       if (last) return 'review';
       if (!s.canReadback) {
@@ -67,7 +67,7 @@ export function ReviewPage() {
     },
     onCommand: async (command) => {
       const s = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       switch (command) {
         case 'read_again':
           if (!s.canReadback) return voiceLine('reviewIncomplete', hi);

@@ -97,11 +97,12 @@ export function useVoiceAgent(options: VoiceAgentOptions) {
       setTurns((count) => count + 1);
       if (result.transcript) setHeard(result.transcript);
       if (result.error) {
-        const { line, stop } = voiceErrorLine(result.error, result.replyLang === 'hi');
+        // In the conversation's language, spoken by say()'s default voice for it.
+        const { line, stop } = voiceErrorLine(result.error, sessionRef.current.readbackScriptLang);
         setNote(line);
         setReply('');
         setPhase('speaking');
-        await sessionRef.current.say(line, result.replyLang);
+        await sessionRef.current.say(line);
         return { error: result.error, stop };
       }
       if (result.intent === 'command' && result.command) {

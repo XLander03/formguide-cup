@@ -175,7 +175,7 @@ export function ConfirmPage() {
   const agent = useVoiceAgent({
     prepare: async (last) => {
       const { session: s, nextStep: next } = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       // A question or correction was answered already; keep listening.
       if (last && last.intent !== 'command') return 'confirm';
       if (last?.command === 'no') return 'confirm';
@@ -203,7 +203,7 @@ export function ConfirmPage() {
     },
     onCommand: async (command) => {
       const { session: s, nextStep: next, pdfAvailable: pdf } = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       const save = () => {
         if (!s.canReadback || !s.confirmGatesOk) return false;
         s.emitDraft();
@@ -270,7 +270,14 @@ export function ConfirmPage() {
     return (
       <div className="min-h-[calc(100vh-150px)]">
         <section className="grid border-b-2 border-foreground lg:grid-cols-12">
-          <div className="flex flex-col justify-start border-b-2 border-foreground bg-primary px-5 py-10 text-primary-foreground lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
+          <div className="relative flex flex-col justify-start overflow-hidden border-b-2 border-foreground bg-primary px-5 py-10 text-primary-foreground lg:col-span-5 lg:border-b-0 lg:border-r lg:px-8">
+            <div
+              aria-hidden="true"
+              className="fg-stamp pointer-events-none absolute right-4 top-6 border-[3px] border-primary-foreground px-3 py-1.5 text-center font-bold uppercase leading-tight tracking-wider text-primary-foreground sm:right-8"
+            >
+              <span className="block text-sm">Draft saved</span>
+              <span className="block text-[9px]">Not submitted</span>
+            </div>
             <FileCheckIcon className="size-10" />
             <p className="mt-5 text-[10px] uppercase text-primary-foreground/70">Draft saved on this device</p>
             <h1 className="mt-2 font-display text-6xl leading-none">Your draft is ready.</h1>

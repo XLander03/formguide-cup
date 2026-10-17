@@ -51,8 +51,8 @@ describe('isInLanguageScript', () => {
 });
 
 describe('transcriptionLanguageCodes', () => {
-  it('auto-detects for an English pick and keeps a regional hint', () => {
-    assert.deepEqual(transcriptionLanguageCodes('en-IN'), []);
+  it('always hints the picked language, English included', () => {
+    assert.deepEqual(transcriptionLanguageCodes('en-IN'), ['en-IN']);
     assert.deepEqual(transcriptionLanguageCodes('te-IN'), ['te-IN']);
   });
 });

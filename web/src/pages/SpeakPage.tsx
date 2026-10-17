@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AgentTrail } from '../components/AgentTrail';
 import { BankFields } from '../components/BankFields';
 import { CorrectionDiff, CorrectionToast, useVoiceCorrections } from '../components/Corrections';
 import { MissingFieldInputs } from '../components/MissingFieldInputs';
@@ -9,6 +10,7 @@ import {
   REGISTERED_ADDRESS_COPY,
   cardLast4,
 } from '../lib/debitReissue';
+import { buildTrail, sourceChip, type ChipTone } from '../lib/agentTrail';
 import { demoMode } from '../lib/demoMode';
 import { SCHEMA, fieldLabel, getNextAsk, isFilled } from '../lib/schema';
 import { fieldIssue } from '../lib/validate';
@@ -179,7 +181,7 @@ export function SpeakPage() {
     enabled: session.readyForFill,
     prepare: async (last) => {
       const s = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       checkingRef.current = null;
       // "No" at the read-back: listen for the change. "Read it again" already read it.
       if (last?.intent === 'command' && last.command === 'no') return 'fill';
@@ -218,13 +220,22 @@ export function SpeakPage() {
       const started = Object.entries(s.values).some(
         ([id, value]) => !['journey_mode', 'preferred_language', 'account_product_intent'].includes(id) && isFilled(value),
       );
-      const ask = started ? getNextAsk(s.missing, s.values, s.readbackLang) : null;
-      await s.say(ask || voiceLine('startName', hi));
+      // The local question tables are English and Hindi; a regional conversation repeats the
+      // server's last question, which is already in that language.
+      const regional = hi !== 'en' && hi !== 'hi' && hi !== 'mixed';
+      const serverAsk = s.last?.next_ask && s.last.next_ask_lang === s.readbackBcp47 ? s.last.next_ask : null;
+      if (started && regional && serverAsk) {
+        await s.say(serverAsk);
+        return 'fill';
+      }
+      const ask = started ? getNextAsk(s.missing, s.values, regional ? 'en' : s.readbackLang) : null;
+      if (ask && regional) await s.say(ask, 'en');
+      else await s.say(ask || voiceLine('startName', hi));
       return 'fill';
     },
     onCommand: async (command) => {
       const s = live.current;
-      const hi = s.readbackLang === 'hi';
+      const hi = s.readbackScriptLang;
       const checking = checkingRef.current;
       if (checking && (command === 'yes' || command === 'no')) {
         if (checking === 'card_old_blocked_ack') {
@@ -260,6 +271,11 @@ export function SpeakPage() {
   });
   const handsFree = session.handsFree;
   const corrections = useVoiceCorrections(session.values, session.fieldSource, session.said);
+  // Replays the thinking trail once per reply, not per keystroke.
+  const [trailTurn, setTrailTurn] = useState(0);
+  useEffect(() => {
+    if (session.last) setTrailTurn((n) => n + 1);
+  }, [session.last]);
   const listening = handsFree ? agent.listening : mic.listening;
 
   useEffect(() => {
@@ -349,6 +365,16 @@ export function SpeakPage() {
         ? 'ज़रूरी जानकारी पूरी हो गई।'
         : 'All required details are in.');
   const label = draftChoiceLabel(session.journey, session.values.account_product_intent);
+  const trail = buildTrail({
+    last: session.last,
+    said,
+    values: session.values,
+    missing: session.missing,
+    confidence: session.confidence,
+    label: sheetLabel,
+    nextLabel: askComplete ? null : askNextLabel,
+  });
+  const requiredLeft = requiredFields.length - requiredFilled;
   // Built on BTN, not BTN_OUTLINE: its text-foreground/bg-background win over these in the stylesheet,
   // which left dark text on the dark panel.
   const lightBtn = `${BTN} ${BTN_MD} border-background/40 bg-transparent text-background hover:bg-background hover:text-foreground`;
@@ -465,6 +491,11 @@ export function SpeakPage() {
                 <SparkleIcon className="size-3" /> FormGuide
               </p>
               <p className="mt-1 text-sm">{companion}</p>
+              {started ? (
+                <div className="mt-2">
+                  <AgentTrail steps={trail} turn={trailTurn} />
+                </div>
+              ) : null}
             </div>
             <div className={`border p-3 ${askComplete && !flagLine && !formatLine ? 'border-primary' : 'border-saffron'}`}>
               <p className={`text-[10px] uppercase ${askComplete && !flagLine && !formatLine ? 'text-primary' : 'text-saffron'}`}>
@@ -617,16 +648,16 @@ export function SpeakPage() {
 
       <nav className="border-b-2 border-foreground px-4 py-4 lg:col-span-2 lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r-2">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">{label}</p>
-        <p className="mt-1 font-display text-5xl leading-none">
-          {requiredFilled}/{requiredFields.length}
-        </p>
-        <p className="text-[11px] text-muted-foreground">required filled</p>
-        <div className="mt-2 h-2 border border-foreground">
-          <div
-            className="h-full bg-primary"
-            style={{ width: `${requiredFields.length === 0 ? 0 : (requiredFilled / requiredFields.length) * 100}%` }}
-          />
+        <div className="mt-1 flex items-center gap-3">
+          <ProgressRing value={requiredFields.length === 0 ? 0 : requiredFilled / requiredFields.length} />
+          <div>
+            <p className="font-display text-4xl leading-none">
+              {requiredFilled}/{requiredFields.length}
+            </p>
+            <p className="text-[11px] text-muted-foreground">required filled</p>
+          </div>
         </div>
+        <p className="mt-2 text-[11px] font-semibold">{timeLeft(requiredLeft)}</p>
         <ol className="mt-4 flex gap-2 overflow-x-auto lg:block lg:space-y-1">
           {sectionStats.map((section, index) => {
             const on = active === section.name;
@@ -717,6 +748,7 @@ export function SpeakPage() {
                     const conf = field.id ? session.confidence[field.id] : undefined;
                     const open = isFlagged && checking === field.id;
                     const corrected = field.id ? corrections[field.id] : undefined;
+                    const chip = field.id ? sourceChip(session.fieldSource[field.id], conf) : null;
                     const inputId = field.id ? `speak-field-${field.id}` : undefined;
                     const status = issue
                       ? 'fix format'
@@ -742,7 +774,7 @@ export function SpeakPage() {
                               }
                             : undefined
                         }
-                        className={`${isFlagged ? 'cursor-pointer ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
+                        className={`${isFlagged ? 'cursor-pointer shadow-[inset_0_0_0_2px_var(--color-saffron)] ' : ''}border-b border-r border-foreground/15 px-4 py-3 transition-colors duration-700 ${
                           filling ? 'bg-saffron/30' : corrected ? 'bg-primary/10' : asking ? 'bg-primary/10' : ''
                         }`}
                       >
@@ -868,7 +900,12 @@ export function SpeakPage() {
                             <span className="text-[10px] uppercase text-primary">by voice</span>
                           </p>
                         ) : null}
-                        {heard ? (
+                        {filled && field.id && chip ? (
+                          <p className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px]">
+                            <span className={`shrink-0 px-1.5 py-px font-semibold ${CHIP_TONE[chip.tone]}`}>{chip.text}</span>
+                            {heard ? <span className="truncate italic text-muted-foreground">“{heard}”</span> : null}
+                          </p>
+                        ) : heard ? (
                           <p className="mt-0.5 truncate text-[10px] italic text-muted-foreground">“{heard}”</p>
                         ) : null}
                       </div>
@@ -950,6 +987,41 @@ export function SpeakPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+const CHIP_TONE: Record<ChipTone, string> = {
+  ai: 'bg-primary/15 text-primary',
+  rules: 'bg-muted text-muted-foreground',
+  typed: 'bg-foreground/10 text-foreground',
+  sample: 'bg-accent/50 text-accent-foreground',
+  unsure: 'bg-saffron/25 text-foreground',
+};
+
+/** Rough time to finish by voice: about 15 seconds a field. */
+function timeLeft(fields: number): string {
+  if (fields <= 0) return 'Ready for read-back';
+  const minutes = Math.max(1, Math.round((fields * 15) / 60));
+  return `About ${minutes} min left by voice`;
+}
+
+function ProgressRing({ value }: { value: number }) {
+  const r = 22;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg viewBox="0 0 56 56" className="size-14 shrink-0 -rotate-90" aria-hidden="true">
+      <circle cx="28" cy="28" r={r} fill="none" strokeWidth="6" className="stroke-foreground/15" />
+      <circle
+        cx="28"
+        cy="28"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - value)}
+        className="stroke-primary transition-[stroke-dashoffset] duration-700 ease-out"
+      />
+    </svg>
   );
 }
 

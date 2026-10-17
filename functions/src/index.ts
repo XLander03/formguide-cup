@@ -36,7 +36,7 @@ import {
   transcriptionLanguageCodes,
 } from './spokenLanguage';
 import { recordSpeakTurn } from './insights';
-import { matchVoiceCommand, type VoiceContext } from '../../shared/voiceCommands';
+import { isVoiceCommand, matchVoiceCommand, VOICE_COMMANDS, type VoiceCommand, type VoiceContext } from '../../shared/voiceCommands';
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 // Optional. If unset, transcription has no fallback and a Gemini outage
@@ -351,7 +351,7 @@ async function transcribe(apiKey: string, uri: string, language: SpeakLanguage):
       input: [{ type: 'audio', uri, mime_type: 'audio/wav' }],
       generation_config: {
         transcription_config: {
-          // Empty for an English pick, so the model auto-detects what was actually spoken.
+          // The picked language; an unhinted guess made up transcripts on real mic audio.
           language_codes: transcriptionLanguageCodes(language),
           mode: { type: 'verbatim' },
         },
@@ -384,9 +384,9 @@ async function transcribeWithGroq(apiKey: string, wav: Buffer, language: SpeakLa
   // at runtime, this is a typing-only cast.
   form.append('file', new Blob([wav as unknown as BlobPart], { type: 'audio/wav' }), 'speak.wav');
   form.append('model', 'whisper-large-v3');
-  // Same rule as Gemini: an English pick leaves Whisper to detect the language.
+  // Same rule as Gemini: always the picked language, never a guess.
   const whisperLang = language.split('-')[0];
-  if (language !== 'en-IN' && WHISPER_LANGS.has(whisperLang)) form.append('language', whisperLang);
+  if (WHISPER_LANGS.has(whisperLang)) form.append('language', whisperLang);
   form.append('response_format', 'json');
   const res = await fetch(GROQ_API, {
     method: 'POST',
@@ -477,7 +477,12 @@ TURN INTENT — decide first what this turn is, and return it as intent:
 - "answer": the customer gives new details for the form.
 - "correction": the customer changes a detail that is already filled ("No, my PIN is 560037", "Change the mobile to 98…", "My name is spelled S-U-N-I-T-A"). Put the corrected value in field_updates under that same id; it replaces the old value.
 - "question": the customer asks what something means or why it is needed ("What is CKYC?", "Why do they need my father's name?"). A question fills nothing: field_updates is {} unless the same turn also clearly states a value.
-- "other": anything else (greeting, unclear, off-topic).
+- "other": anything else (greeting, unclear, off-topic).${
+    context === 'fill'
+      ? ''
+      : `
+- "command": ONLY when the whole turn is one of these spoken commands, in any language (e.g. Telugu "అవును" = yes, Tamil "சரி" = yes, Bengali "আবার পড়ুন" = read_again): ${VOICE_COMMANDS.join(', ')}. Put it in command. field_updates is {}. A turn that also gives a value ("no, my PIN is 560037") is a correction, not a command.`
+  }
 Where the customer is: ${context} (fill = filling the form; readback = just heard the draft read back; review = checking the draft; confirm = on the final confirmation page).
 
 reply (string or null) — spoken aloud before next_ask:
@@ -496,7 +501,7 @@ Already filled JSON: ${JSON.stringify(filled)}
 Full current JSON: ${JSON.stringify(current)}
 Transcript: ${JSON.stringify(transcript)}
 
-Return JSON: intent, reply, field_updates (id → {value, confidence, reason?}), spoken_lang, next_ask, reply_lang, refuse_live_submit, assistant_message.`;
+Return JSON: intent, ${context === 'fill' ? '' : 'command (only when intent is "command"), '}reply, field_updates (id → {value, confidence, reason?}), spoken_lang, next_ask, reply_lang, refuse_live_submit, assistant_message.`;
 }
 
 /** Bank-only fields of a published form for this request, and their current values. */
@@ -515,6 +520,8 @@ export async function fieldJson(
   context: VoiceContext = 'fill',
 ): Promise<{
   intent: TurnIntent;
+  /** Set when the model heard a bare spoken command (read-back, review, confirm only). */
+  command: VoiceCommand | null;
   reply: string | null;
   field_updates: FormValues;
   field_confidence: FieldMetaMap;
@@ -577,6 +584,7 @@ export async function fieldJson(
   }
   let parsed: {
     intent?: unknown;
+    command?: unknown;
     reply?: unknown;
     field_updates?: unknown;
     field_confidence?: unknown;
@@ -662,7 +670,10 @@ export async function fieldJson(
   if (!message.includes('Fields vary by bank.')) message = `${message} Fields vary by bank.`;
   // A model that skipped intent still changed a filled value: call it a correction.
   const overwrote = Object.keys(updates).some((id) => isFilled(current[id]) && isFilled(updates[id]));
-  const intent: TurnIntent = modelIntent ?? (overwrote ? 'correction' : 'answer');
+  // A command in any language, which the fixed English/Hindi matcher could not catch.
+  const command =
+    context !== 'fill' && parsed.intent === 'command' && isVoiceCommand(parsed.command) ? parsed.command : null;
+  const intent: TurnIntent = command ? 'command' : (modelIntent ?? (overwrote ? 'correction' : 'answer'));
   // The on-screen "Fields vary by bank." line is not repeated aloud after every answer.
   let reply =
     typeof parsed.reply === 'string'
@@ -671,8 +682,25 @@ export async function fieldJson(
   // Spoken in the customer's language, like next_ask; an answer in the wrong script is dropped.
   if (reply && !isInLanguageScript(reply, spokenLang)) reply = '';
   if (intent === 'answer' || intent === 'other') reply = '';
+  if (command) {
+    return {
+      intent,
+      command,
+      reply: null,
+      field_updates: {},
+      field_confidence: {},
+      next_ask: null,
+      next_ask_lang: spokenLang,
+      next_ask_en: null,
+      reply_lang: replyLang,
+      spoken_lang: spokenLang,
+      refuse_live_submit: false,
+      assistant_message: 'Fields vary by bank.',
+    };
+  }
   return {
     intent,
+    command: null,
     reply: reply || null,
     field_updates: updates,
     field_confidence: meta,
@@ -839,6 +867,7 @@ export const speak = onRequest(
         refuse_message: extracted.refuse_live_submit ? 'Refusing live bank submit. Draft only.' : undefined,
         source: 'gemini',
         intent: extracted.intent,
+        command: extracted.command,
         reply: extracted.reply,
         assistant_message: extracted.assistant_message,
       });
