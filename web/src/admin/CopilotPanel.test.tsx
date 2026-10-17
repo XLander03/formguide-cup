@@ -2,10 +2,10 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AdminFormsResponse } from '../../../shared/forms/admin';
-import type { CopilotAction, CopilotResponse } from '../../../shared/forms/copilot';
+import type { CopilotAction, CopilotRequest, CopilotResponse } from '../../../shared/forms/copilot';
 import type { ConsoleApi } from './consoleClient';
 import { ConsolePage } from './ConsolePage';
-import { AnswerText, CopilotPanel } from './CopilotPanel';
+import { AnswerText, CopilotPanel, friendlyError, type CopilotApplyResult } from './CopilotPanel';
 import { mockAdminForms, resetMockConsole } from './mockConsole';
 import { mockCopilotReply } from './mockCopilot';
 
@@ -30,47 +30,121 @@ const REPLY: CopilotResponse = {
   ],
 };
 
-function panel(ask = vi.fn(async () => REPLY), execute = vi.fn(async () => {})) {
+function panel(
+  ask: (request: CopilotRequest) => Promise<CopilotResponse> = vi.fn(async () => REPLY),
+  execute: (actions: CopilotAction[]) => Promise<CopilotApplyResult | void> = vi.fn(async () => {}),
+) {
   render(<CopilotPanel ask={ask} execute={execute} initialOpen />);
   return { ask, execute };
 }
 
-afterEach(() => resetMockConsole());
+afterEach(() => {
+  resetMockConsole();
+  sessionStorage.clear();
+});
 
 describe('CopilotPanel', () => {
-  it('starts collapsed and opens on click', async () => {
-    render(<CopilotPanel ask={vi.fn()} execute={vi.fn()} />);
-    const toggle = screen.getByRole('button', { name: /Ask about your forms/ });
+  it('starts collapsed when asked to and opens on click, remembering it for the session', async () => {
+    render(<CopilotPanel ask={vi.fn()} execute={vi.fn()} initialOpen={false} />);
+    const toggle = screen.getByRole('button', { name: /Forms copilot/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('Read-only · Gemini')).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Suggested questions' })).toBeNull();
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(within(screen.getByRole('group', { name: 'Suggested questions' })).getAllByRole('button')).toHaveLength(3);
+    expect(sessionStorage.getItem('formguide.copilot.open')).toBe('1');
   });
 
-  it('asks a suggestion and shows the answer, the trace and the proposals, all checked', async () => {
+  it('follows the remembered choice over the desktop default', () => {
+    sessionStorage.setItem('formguide.copilot.open', '0');
+    render(<CopilotPanel ask={vi.fn()} execute={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /Forms copilot/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens by default on desktop and teaches the journey with steps and prompt cards', () => {
+    render(<CopilotPanel ask={vi.fn()} execute={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /Forms copilot/ })).toHaveAttribute('aria-expanded', 'true');
+    const steps = within(screen.getByRole('list', { name: 'How the copilot works' })).getAllByRole('listitem');
+    expect(steps.map((step) => step.textContent)).toEqual([
+      expect.stringContaining('Ask a question'),
+      expect.stringContaining('Gemini looks things up'),
+      expect.stringContaining('It suggests changes'),
+      expect.stringContaining('You confirm'),
+    ]);
+    expect(steps[1]).toHaveTextContent(/Forms.*Coverage.*Usage.*Duplicates/);
+    const cards = within(screen.getByRole('group', { name: 'Suggested questions' })).getAllByRole('button');
+    expect(cards).toHaveLength(4);
+    expect(screen.getByRole('button', { name: 'Which drafts are ready to publish?' })).toHaveAccessibleDescription(/every field checked/);
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('asks a prompt card and shows the bubble, the tool timeline, the answer and the proposals, all checked', async () => {
     const { ask } = panel();
     await userEvent.click(screen.getByRole('button', { name: 'Find duplicate drafts' }));
     expect(ask).toHaveBeenCalledWith({ message: 'Find duplicate drafts', history: [] });
     expect(await screen.findByText('2')).toBeInTheDocument();
+    const log = screen.getByRole('log');
+    expect(within(log).getByText('Find duplicate drafts')).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Suggested questions' })).toBeNull();
     expect(screen.getByText('one')).toBeInTheDocument();
-    expect(screen.getByText(/How I got this \(2 steps\)/)).toBeInTheDocument();
-    expect(screen.getByText(/list_forms\(\{"status":"published"\}\)/)).toBeInTheDocument();
+    const steps = within(screen.getByRole('list', { name: 'Steps the copilot took' })).getAllByRole('listitem');
+    expect(steps.map((step) => step.textContent)).toEqual(['Looked for duplicates · 1 group', 'Listed forms · 3 forms']);
     expect(screen.getByText(/nothing has changed yet/i)).toBeInTheDocument();
-    expect(screen.getByText('Retire ICICI · Re-KYC · draft')).toBeInTheDocument();
+    expect(screen.getByText('ICICI · Re-KYC · draft v1')).toBeInTheDocument();
+    expect(screen.getByText('Retire')).toBeInTheDocument();
+    expect(screen.getByText('Unpublish')).toBeInTheDocument();
+    expect(screen.getByLabelText('Draft to Retired')).toBeInTheDocument();
     expect(screen.getByText(/can never be published again/)).toBeInTheDocument();
     expect(screen.getAllByRole('checkbox').every((box) => (box as HTMLInputElement).checked)).toBe(true);
-    expect(screen.getByRole('button', { name: 'Confirm 2 changes' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Apply 2 changes' })).toBeEnabled();
   });
 
-  it('confirms only the checked actions, then clears them', async () => {
-    const { execute } = panel();
+  it('shows a thinking row while waiting and keeps the send button disabled', async () => {
+    let resolve: (reply: CopilotResponse) => void = () => {};
+    const ask = vi.fn(() => new Promise<CopilotResponse>((done) => (resolve = done)));
+    panel(ask);
+    await userEvent.type(screen.getByLabelText('Question'), 'hello{Enter}');
+    expect(screen.getByRole('status')).toHaveTextContent(/Thinking.*Looking at your forms/);
+    await userEvent.type(screen.getByLabelText('Question'), 'again');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    resolve({ answer: 'Hi.', proposedActions: [], trace: [] });
+    expect(await screen.findByText('Hi.')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  });
+
+  it('Shift+Enter adds a new line instead of sending', async () => {
+    const { ask } = panel();
+    const input = screen.getByLabelText('Question');
+    await userEvent.type(input, 'line one{Shift>}{Enter}{/Shift}line two');
+    expect(ask).not.toHaveBeenCalled();
+    expect(input).toHaveValue('line one\nline two');
+    await userEvent.type(input, '{Enter}');
+    expect(ask).toHaveBeenCalledWith({ message: 'line one\nline two', history: [] });
+  });
+
+  it('applies only the checked actions, then shows the result row', async () => {
+    const execute = vi.fn(async (actions: CopilotAction[]) => ({ done: actions, failed: [] }));
+    panel(undefined, execute);
     await userEvent.type(screen.getByLabelText('Question'), 'clean up{Enter}');
-    await screen.findByText('Retire ICICI · Re-KYC · draft');
+    await screen.findByText('ICICI · Re-KYC · draft v1');
     await userEvent.click(screen.getAllByRole('checkbox')[1]);
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm 1 change' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
     expect(execute).toHaveBeenCalledWith([RETIRE]);
-    await waitFor(() => expect(screen.queryByText('Retire ICICI · Re-KYC · draft')).toBeNull());
+    expect(await screen.findByText('Retired 1 draft')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+    expect(screen.queryByText(/nothing has changed yet/i)).toBeNull();
+  });
+
+  it('shows per-item errors after applying', async () => {
+    const execute = vi.fn(async () => ({ done: [RETIRE], failed: [{ action: UNPUBLISH, error: 'That form was not found.' }] }));
+    panel(undefined, execute);
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicate drafts' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply 2 changes' }));
+    expect(await screen.findByText('Retired 1 draft')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /One change did not go through.*Unpublish Axis · Account opening · live v1: That form was not found\./,
+    );
   });
 
   it('dismiss drops the proposals without running anything', async () => {
@@ -78,24 +152,53 @@ describe('CopilotPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Find duplicate drafts' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
     expect(execute).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: /Confirm/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Apply/ })).toBeNull();
+    expect(screen.getByText(/Suggestions dismissed/)).toBeInTheDocument();
     expect(screen.getByText('one')).toBeInTheDocument();
   });
 
-  it('sends earlier turns as history and shows errors', async () => {
+  it('sends earlier turns as history, shows errors as a friendly message, and retries', async () => {
     const ask = vi
-      .fn<(request: { message: string; history?: unknown[] }) => Promise<CopilotResponse>>()
+      .fn<(request: CopilotRequest) => Promise<CopilotResponse>>()
       .mockResolvedValueOnce({ answer: 'First.', proposedActions: [], trace: [] })
-      .mockRejectedValueOnce(new Error('The forms assistant is not available right now.'));
-    panel(ask as never);
+      .mockRejectedValueOnce(new Error('The forms assistant is not available right now. (copilot_unavailable)'))
+      .mockResolvedValueOnce({ answer: 'Second.', proposedActions: [], trace: [] });
+    panel(ask);
     await userEvent.type(screen.getByLabelText('Question'), 'one{Enter}');
     await screen.findByText('First.');
     await userEvent.type(screen.getByLabelText('Question'), 'two{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent('not available');
+    expect(await screen.findByText('I could not answer that.')).toBeInTheDocument();
+    expect(screen.getByText(/Gemini could not answer just now/)).toBeInTheDocument();
+    expect(screen.queryByText(/copilot_unavailable/)).toBeNull();
     expect(ask.mock.calls[1][0].history).toEqual([
       { role: 'user', text: 'one' },
       { role: 'model', text: 'First.' },
     ]);
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Second.')).toBeInTheDocument();
+    expect(ask.mock.calls[2][0].message).toBe('two');
+    expect(screen.queryByText('I could not answer that.')).toBeNull();
+    expect(within(screen.getByRole('log')).getAllByText('two')).toHaveLength(1);
+  });
+
+  it('new conversation clears the thread and the history', async () => {
+    const ask = vi.fn(async () => ({ answer: 'First.', proposedActions: [], trace: [] }));
+    panel(ask);
+    await userEvent.type(screen.getByLabelText('Question'), 'one{Enter}');
+    await screen.findByText('First.');
+    await userEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+    expect(screen.queryByText('First.')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Suggested questions' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New conversation' })).toBeNull();
+    await userEvent.type(screen.getByLabelText('Question'), 'again{Enter}');
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(2));
+    expect(ask).toHaveBeenLastCalledWith({ message: 'again', history: [] });
+  });
+
+  it('maps rate limits and network failures to plain words', () => {
+    expect(friendlyError('The forms assistant is not available right now. (rate_limited)')).toMatch(/lot of questions/);
+    expect(friendlyError('Failed to fetch')).toMatch(/reach the server/);
+    expect(friendlyError('Sign in as the Cup admin first.')).toBe('Sign in as the Cup admin first.');
   });
 
   it('renders markdown-lite as text, never as HTML', () => {
@@ -133,21 +236,20 @@ describe('Console with the assistant', () => {
     expect(screen.queryByRole('region', { name: 'Ask about your forms' })).toBeNull();
   });
 
-  it('runs confirmed proposals through the console actions and reloads', async () => {
+  it('runs applied proposals through the console actions, reports them in the thread and reloads', async () => {
     const stub = api();
     render(<ConsolePage api={stub} onReview={vi.fn()} onUpload={vi.fn()} />);
     await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
-    await userEvent.click(screen.getByRole('button', { name: /Ask about your forms/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Find duplicate drafts' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Confirm 2 changes' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply 2 changes' }));
     await waitFor(() => expect(stub.setStatus).toHaveBeenCalledTimes(2));
     expect(stub.setStatus).toHaveBeenNthCalledWith(1, { formId: 'icici_a', version: 'v1', status: 'retired' });
     expect(stub.setStatus).toHaveBeenNthCalledWith(2, { formId: 'axis_old', version: 'v1', status: 'draft' });
-    expect(await screen.findByText(/^Done: Retire ICICI/)).toBeInTheDocument();
+    expect(await screen.findByText('Retired 1 draft · Unpublished 1 live form')).toBeInTheDocument();
     expect(stub.loadForms).toHaveBeenCalledTimes(2);
   });
 
-  it('publishes through the publish flow and reports a failure', async () => {
+  it('publishes through the publish flow and reports a failure per item', async () => {
     const publish: CopilotAction = { ...RETIRE, type: 'publish', to: 'published' };
     const stub = api({
       askCopilot: vi.fn(async () => ({ ...REPLY, proposedActions: [publish] })),
@@ -157,28 +259,31 @@ describe('Console with the assistant', () => {
     });
     render(<ConsolePage api={stub} onReview={vi.fn()} onUpload={vi.fn()} />);
     await screen.findByRole('article', { name: 'ICICI · Re-KYC' });
-    await userEvent.click(screen.getByRole('button', { name: /Ask about your forms/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Find duplicate drafts' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Confirm 1 change' }));
-    expect(await screen.findByText(/Did 0 of 1 changes/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply 1 change' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Publish ICICI · Re-KYC · draft v1: Check every low-confidence field/);
     expect(stub.publish).toHaveBeenCalledWith(expect.objectContaining({ formId: 'icici_a', version: 'v1' }));
     expect(stub.setStatus).not.toHaveBeenCalled();
   });
 });
 
 describe('mock copilot', () => {
-  it('proposes retiring one older ICICI draft that is still a draft', async () => {
+  it('proposes retiring the older ICICI drafts after several tool calls', async () => {
     const reply = await mockCopilotReply('Find duplicate drafts');
-    expect(reply.proposedActions).toHaveLength(1);
-    const [action] = reply.proposedActions;
-    expect(action.type).toBe('retire');
-    const row = mockAdminForms().forms.find((item) => item.formId === action.formId);
-    expect(row?.status).toBe('draft');
-    expect(row?.bankId).toBe('ICICI');
+    expect(reply.trace.map((step) => step.tool)).toEqual(['list_forms', 'find_duplicates', 'form_coverage', 'propose_actions']);
+    expect(reply.proposedActions).toHaveLength(2);
+    for (const action of reply.proposedActions) {
+      expect(action.type).toBe('retire');
+      const row = mockAdminForms().forms.find((item) => item.formId === action.formId);
+      expect(row?.status).toBe('draft');
+      expect(row?.bankId).toBe('ICICI');
+    }
   });
 
-  it('answers the other suggestions without proposals', async () => {
+  it('answers the other prompts, proposing only publishes of fully checked drafts', async () => {
     expect((await mockCopilotReply("Which live forms don't capture mobile?")).proposedActions).toEqual([]);
     expect((await mockCopilotReply('What did customers struggle with today?')).proposedActions).toEqual([]);
+    const ready = await mockCopilotReply('Which drafts are ready to publish?');
+    expect(ready.proposedActions.map((action) => [action.type, action.formId])).toEqual([['publish', 'form_axis_aof_new']]);
   });
 });
