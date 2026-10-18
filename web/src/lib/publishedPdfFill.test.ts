@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PDFDocument } from 'pdf-lib';
-import { describe, expect, it } from 'vitest';
+import { PDFDocument, PDFPage } from 'pdf-lib';
+import { describe, expect, it, vi } from 'vitest';
 import { derivedNameValue, splitName } from '../../../shared/forms/nameParts';
 import { bankFieldSections, bankOnlyFields, parseStoredForm, sharedFieldsOnForm } from '../forms/activeForm';
 import { HDFC_V1 } from '../forms/hdfcV1';
@@ -220,6 +220,24 @@ describe('fillPublishedPdf', () => {
     const filled = await PDFDocument.load(out);
     expect(filled.getPageCount()).toBe(source.getPageCount());
     expect(out.byteLength).toBeGreaterThan(bytes.byteLength / 2);
+  });
+
+  it('draws from the crop box origin, where ingest measured the boxes', async () => {
+    // HDFC's Re-KYC PDF shows a crop 27.8pt in from the page edge; drawing from the page
+    // edge put every value about 1cm left of its box.
+    const doc = await PDFDocument.create();
+    doc.addPage([650, 880]).setCropBox(28, 5, 595, 870);
+    const bytes = await doc.save();
+    const drawText = vi.spyOn(PDFPage.prototype, 'drawText');
+    try {
+      const form = { ...AXIS, fields: [field({ id: 'applicant_full_name', type: 'text', box: { x: 100, y: 700, w: 150, h: 14 } })] };
+      await fillPublishedPdf(bytes.buffer as ArrayBuffer, form, { applicant_full_name: 'Priya Sharma' });
+      const name = drawText.mock.calls.find(([text]) => text === 'Priya Sharma');
+      expect(name?.[1]?.x).toBeCloseTo(100 + 28 + 2);
+      expect(name?.[1]?.y).toBeGreaterThan(705);
+    } finally {
+      drawText.mockRestore();
+    }
   });
 
   it('asks the server for the published version PDF', () => {
