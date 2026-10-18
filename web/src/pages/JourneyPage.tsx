@@ -3,7 +3,7 @@ import { MAX_PLAN_TEXT } from '../../../shared/journeyPlan';
 import { CompanionPanel, type HeardSource } from '../components/CompanionPanel';
 import { PlanCard } from '../components/PlanCard';
 import { PublishedFormRows } from '../components/PublishedFormRows';
-import { formKey } from '../forms/activeForm';
+import { formKey, isBundledForm } from '../forms/activeForm';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import { OPEN_CARDS } from '../lib/openCards';
@@ -58,8 +58,13 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
   const planSeq = useRef(0);
   const selected = OPEN_CARDS.find((card) => card.id === selectedId) ?? OPEN_CARDS[0];
   const [pickedForm, setPickedForm] = useState<FormVersion>(form);
-  // A form published for another journey cannot be filled for this one.
-  const chosenForm = appliesToJourney(pickedForm, selected.journey) ? pickedForm : HDFC_V1;
+  // The first form listed for the journey: HDFC's published form for it when there is one.
+  const [defaultForm, setDefaultForm] = useState<FormVersion | null>(null);
+  const fallback = defaultForm && appliesToJourney(defaultForm, selected.journey) ? defaultForm : HDFC_V1;
+  // A form published for another journey cannot be filled for this one, and the bundled form
+  // only stands in until the journey's own default is known.
+  const chosenForm =
+    appliesToJourney(pickedForm, selected.journey) && !isBundledForm(pickedForm) ? pickedForm : fallback;
 
   function applyHeuristic(text: string) {
     const pick = pickJourneyCard(text);
@@ -155,6 +160,7 @@ export function JourneyPage({ plan: planRequest = requestPlan }: { plan?: Reques
           journey={selected.journey}
           selected={formKey(chosenForm)}
           onSelect={setPickedForm}
+          onDefault={setDefaultForm}
         />
 
         <div className="mt-6 grid gap-px border-2 border-foreground bg-foreground sm:grid-cols-2">

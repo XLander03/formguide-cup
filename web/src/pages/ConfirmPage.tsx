@@ -159,9 +159,9 @@ export function ConfirmPage() {
   };
   const rows = filledFields(session);
   const pdfLabel = isBundledForm(session.form) ? 'HDFC KYC' : `${session.form.bankId} form`;
-  // No bank card-reissue form is in the corpus. Printing a card request onto the KYC
-  // application would hand the bank an empty KYC form, so this journey offers JSON only.
-  const pdfAvailable = session.journey !== 'debit_reissue';
+  // The bundled HDFC form is the KYC application, so a card reissue gets JSON only there;
+  // a bank's own published card form has a PDF.
+  const pdfAvailable = session.journey !== 'debit_reissue' || !isBundledForm(session.form);
   const gates =
     session.journey === 'debit_reissue'
       ? ([['card_old_blocked_ack', OLD_CARD_BLOCKED_ACK], ...GATES] as const)

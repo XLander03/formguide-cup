@@ -32,10 +32,28 @@ export function hdfcFallbackRows(journey: string): PublishedFormRow[] {
   return [{ key: `hdfc-${journey}`, bankName: HDFC_V1.bankId, detail: 'Bundled form', form: HDFC_V1 }];
 }
 
-/** The bundled HDFC row always comes first and stays the default. Published banks follow it. */
+/**
+ * A published form from the bundled form's own bank (HDFC) for this journey, or null.
+ * It is the bank's real form for the journey, where the bundled one is its KYC form.
+ */
+export function publishedBundledBankForm(published: FormVersion[] | null, journey: string): FormVersion | null {
+  return (
+    (visiblePublishedForms(published, journey) ?? []).find(
+      (form) => form.formId !== BUNDLED_FORM_ID && form.bankId === HDFC_V1.bankId,
+    ) ?? null
+  );
+}
+
+/**
+ * The first row is the default. HDFC comes first: its published form for the journey when
+ * there is one (replacing the bundled KYC form, which would print every journey onto the
+ * KYC application), else the bundled form. Other published banks follow.
+ */
 export function journeyRows(published: FormVersion[] | null, journey: string): PublishedFormRow[] {
   const others = (published ?? []).filter((form) => form.formId !== BUNDLED_FORM_ID);
-  return [...hdfcFallbackRows(journey), ...rowsFromPublished(others)];
+  const hdfc = publishedBundledBankForm(others, journey);
+  if (!hdfc) return [...hdfcFallbackRows(journey), ...rowsFromPublished(others)];
+  return rowsFromPublished([hdfc, ...others.filter((form) => form !== hdfc)]);
 }
 
 /** Drafts and other journeys never become rows. Null means the catalog could not be read. */
