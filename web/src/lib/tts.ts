@@ -33,7 +33,15 @@ function serverSpoken(lang: string): boolean {
 
 const RETRY_MS = 1200;
 
+/** Demo hook only: `?flags=1&ttscap=1` pretends the server returned 429 {error:'daily_cap'}. */
+function forceDailyCap(): boolean {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('flags') === '1' && params.get('ttscap') === '1';
+}
+
 async function serverAudio(text: string, lang: string, stops: number): Promise<string | null> {
+  if (forceDailyCap()) return null;
   const key = `${lang}|${text}`;
   const cached = audioCache.get(key);
   if (cached) return cached;
@@ -53,7 +61,13 @@ async function fetchAudio(key: string, text: string, lang: string): Promise<stri
   try {
     // v names the server voice: a new one gets new CDN entries instead of a week of the old audio.
     const res = await fetch(`/api/tts?v=chirp3&lang=${encodeURIComponent(lang)}&text=${encodeURIComponent(text)}`);
-    if (res.status === 429 || res.status >= 500) return 'retry';
+    // A full daily cap will not clear on a retry. Other 429s are a short quota blip.
+    if (res.status === 429) {
+      const error = await ttsErrorCode(res);
+      if (error === 'daily_cap') return null;
+      return 'retry';
+    }
+    if (res.status >= 500) return 'retry';
     if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('audio/')) return null;
     const url = URL.createObjectURL(await res.blob());
     audioCache.set(key, url);
@@ -65,6 +79,15 @@ async function fetchAudio(key: string, text: string, lang: string): Promise<stri
     return url;
   } catch {
     return 'retry';
+  }
+}
+
+async function ttsErrorCode(res: Response): Promise<string | null> {
+  try {
+    const data = (await res.json()) as { error?: unknown };
+    return typeof data.error === 'string' ? data.error : null;
+  } catch {
+    return null;
   }
 }
 

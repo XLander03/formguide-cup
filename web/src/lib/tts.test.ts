@@ -14,6 +14,8 @@ let ttsRequests: string[] = [];
 let ttsOk = true;
 /** Status codes to answer before succeeding, for the retry test. */
 let ttsFailFirst: number[] = [];
+/** JSON error on a failing response. A 429 daily_cap must not retry. */
+let ttsError = 'rate_limited';
 /** While true, server audio "plays" until stopSpeaking pauses it. */
 let holdAudio = false;
 
@@ -76,6 +78,7 @@ beforeEach(() => {
   ttsRequests = [];
   ttsOk = true;
   ttsFailFirst = [];
+  ttsError = 'rate_limited';
   holdAudio = false;
   installSpeech(MAC_VOICES);
   vi.stubGlobal('Audio', FakeAudio);
@@ -85,7 +88,7 @@ beforeEach(() => {
     vi.fn(async (url: string) => {
       ttsRequests.push(decodeURIComponent(url));
       const failNow = ttsFailFirst.shift();
-      if (failNow) return new Response('{"error":"rate_limited"}', { status: failNow, headers: { 'content-type': 'application/json' } });
+      if (failNow) return new Response(JSON.stringify({ error: ttsError }), { status: failNow, headers: { 'content-type': 'application/json' } });
       if (!ttsOk) return new Response('{"error":"tts_failed"}', { status: 502, headers: { 'content-type': 'application/json' } });
       return new Response(new Blob(['RIFF']), { status: 200, headers: { 'content-type': 'audio/wav' } });
     }),
@@ -122,6 +125,39 @@ describe('speak', () => {
     expect(ttsRequests).toHaveLength(2);
     expect(played).toHaveLength(1);
     expect(deviceSpoken).toEqual([]);
+  });
+
+  it('a daily character cap falls back to the device voice without retrying', async () => {
+    ttsError = 'daily_cap';
+    ttsFailFirst = [429];
+    const onError = vi.fn();
+    await speak('सीमा पूरी हो गई।', 'hi-IN', { onError });
+    expect(ttsRequests).toHaveLength(1);
+    expect(played).toEqual([]);
+    expect(deviceSpoken).toEqual([{ text: 'सीमा पूरी हो गई।', lang: 'hi-IN', voice: 'Lekha' }]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('?flags=1&ttscap=1 uses the device voice and does not call the server', async () => {
+    window.history.pushState({}, '', '/speak?flags=1&ttscap=1');
+    const onError = vi.fn();
+    await speak('दैनिक सीमा की परीक्षा।', 'hi-IN', { onError });
+    expect(ttsRequests).toEqual([]);
+    expect(deviceSpoken).toEqual([{ text: 'दैनिक सीमा की परीक्षा।', lang: 'hi-IN', voice: 'Lekha' }]);
+    expect(onError).not.toHaveBeenCalled();
+    window.history.pushState({}, '', '/speak');
+  });
+
+  it('ttscap=1 does nothing unless flags=1 is also set', async () => {
+    window.history.pushState({}, '', '/speak?ttscap=1');
+    await speak('बिना झंडे के।', 'hi-IN');
+    expect(ttsRequests).toHaveLength(1);
+    expect(deviceSpoken).toEqual([]);
+    window.history.pushState({}, '', '/?flags=1');
+    await speak('झंडा अकेला।', 'hi-IN');
+    expect(ttsRequests).toHaveLength(2);
+    expect(deviceSpoken).toEqual([]);
+    window.history.pushState({}, '', '/speak');
   });
 
   it('when the server voice fails and the browser has no Hindi voice, it stays silent rather than read digits', async () => {

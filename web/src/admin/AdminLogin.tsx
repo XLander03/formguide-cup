@@ -29,7 +29,7 @@ export function AdminLogin({ onSignIn }: { onSignIn: (email: string, password: s
         <span className="text-[10px] uppercase text-muted-foreground">Admin</span>
       </header>
       <main className="mx-auto w-full max-w-md px-4 py-10">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">Cup admin</p>
+        <p className="text-[10px] font-semibold tracking-wide text-primary">Bank admin</p>
         <h1 className="mt-2 font-display text-4xl leading-none">Sign in</h1>
         <p className="mt-3 flex items-start gap-2 text-sm text-muted-foreground">
           <LockIcon className="mt-0.5 size-4 shrink-0 text-primary" />

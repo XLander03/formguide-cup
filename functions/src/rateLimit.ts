@@ -15,8 +15,8 @@ export type RateLimitRule = { limit: number; windowMs: number };
 /** Generous enough for a room of judges sharing one venue address. */
 export const SPEAK_PER_CLIENT: RateLimitRule = { limit: 150, windowMs: 10 * 60 * 1000 };
 
-/** Adds one to the counter for `key` and returns the new count. */
-export type CounterStore = (key: string, expiresAt: Date) => Promise<number>;
+/** Adds `by` (default 1) to the counter for `key` and returns the new count. */
+export type CounterStore = (key: string, expiresAt: Date, by?: number) => Promise<number>;
 
 export type RateLimitResult = { ok: true } | { ok: false; retryAfterSeconds: number };
 

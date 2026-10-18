@@ -1115,9 +1115,14 @@ function FormPreview({
         className="absolute inset-y-0 right-0 h-full w-full overflow-y-auto border-l border-foreground bg-background shadow-lg sm:max-w-xl"
       >
         <div className="flex items-center justify-between gap-3 p-6 pb-4">
-          <h2 id="form-preview-title" className="flex items-center gap-2 text-lg font-semibold">
-            <FileTextIcon className="size-4" /> Form preview · version {version}
-          </h2>
+          <div>
+            <h2 id="form-preview-title" className="flex items-center gap-2 text-lg font-semibold">
+              <FileTextIcon className="size-4" /> Form preview · version {version}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Sample based on HDFC's public KYC form · Fields vary by bank
+            </p>
+          </div>
           <div className="flex items-center gap-2">
           <button
             type="button"

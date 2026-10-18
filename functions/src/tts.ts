@@ -34,6 +34,34 @@ export const TTS_MODELS = [
 ] as const;
 export const MAX_TTS_CHARS = 700;
 /**
+ * A ceiling on Chirp 3 HD spend across every client together, not a quota to live inside.
+ * The first 1M characters a month are free, then $30 per million, so 300k a UTC day caps a
+ * runaway day at about $9. A lower cap silenced regional customers mid-demo: over it, most
+ * have no device voice to fall back on. Only Chirp languages count; Gemini speaks the rest.
+ * `TTS_DAILY_CHAR_CAP` overrides it. CDN hits never reach this function, so they are not counted.
+ */
+export const DEFAULT_TTS_DAILY_CHAR_CAP = 300_000;
+const UTC_DAY_MS = 24 * 60 * 60 * 1000;
+
+export function ttsDailyCharCap(raw = process.env.TTS_DAILY_CHAR_CAP): number {
+  if (raw == null || raw.trim() === '') return DEFAULT_TTS_DAILY_CHAR_CAP;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_TTS_DAILY_CHAR_CAP;
+  return Math.floor(n);
+}
+
+/** Shared character total for this UTC day. True when this line still fits. A store failure lets the line through. */
+export async function withinDailyCharCap(store: CounterStore, chars: number, now = Date.now()): Promise<boolean> {
+  const start = Math.floor(now / UTC_DAY_MS) * UTC_DAY_MS;
+  try {
+    const count = await store(`tts_chars_${start}`, new Date(start + UTC_DAY_MS), chars);
+    return count <= ttsDailyCharCap();
+  } catch (err) {
+    console.error('tts_daily_cap_store_failed', err instanceof Error ? err.message.slice(0, 80) : 'unknown');
+    return true;
+  }
+}
+/**
  * Its own bucket, apart from speak's: every Hindi turn speaks one or two lines, and sharing
  * speak's 150 let normal use plus testing lock the voice out, so the page fell back to a
  * browser voice that reads Hindi as digits.
@@ -216,6 +244,11 @@ export async function handleTts(req: TtsReq, res: TtsRes, deps: TtsDeps): Promis
   if (!limit.ok) {
     res.set('Retry-After', String(limit.retryAfterSeconds));
     res.status(429).json({ error: 'rate_limited' });
+    return;
+  }
+  // Count a Chirp line's characters before it is spoken. Over the cap, neither Chirp nor Gemini is called.
+  if (CHIRP_LANGUAGES.has(lang) && !(await withinDailyCharCap(deps.counter, text.length))) {
+    res.status(429).json({ error: 'daily_cap' });
     return;
   }
   try {

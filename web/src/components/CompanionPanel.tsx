@@ -270,7 +270,18 @@ export function CompanionPanel({
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold">{option.pickerLabel}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-semibold">{option.pickerLabel}</span>
+                          {option.beta ? (
+                            <span
+                              className={`shrink-0 border px-1.5 text-[10px] font-semibold uppercase ${
+                                on ? 'border-primary-foreground text-primary-foreground' : 'border-primary text-primary'
+                              }`}
+                            >
+                              Beta
+                            </span>
+                          ) : null}
+                        </span>
                         <span className={`block text-[10px] uppercase tracking-wide ${on ? 'text-primary-foreground/75' : 'text-background/55'}`}>
                           {option.englishName}
                         </span>

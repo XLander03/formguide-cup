@@ -970,7 +970,7 @@ export function FormSessionProvider({ children }: { children: ReactNode }) {
         (miss.length === 0
           ? language === 'hi'
             ? 'डेमो प्रीफ़िल पूरा। रीड-बैक सुनें, फिर तीन गेट कन्फ़र्म करें। Fields vary by bank.'
-            : 'Demo persona loaded (synthetic PAN/mobile). Tap TTS read-back, then confirm the three gates. Fields vary by bank.'
+            : 'Demo persona loaded (synthetic PAN/mobile). Listen to the read-back, then tick the three boxes to confirm. Fields vary by bank.'
           : null),
       gates: {
         answers: {
