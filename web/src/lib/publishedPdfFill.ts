@@ -147,14 +147,17 @@ export async function fillPublishedPdf(bytes: ArrayBuffer, form: FormVersion, va
     if (trySetWidget(acro, write)) continue;
     const page = pages[write.page - 1];
     if (!page || write.box.w <= 0) continue;
-    const { x, y, w, h } = write.box;
+    // Boxes are measured from the visible (crop) area, as ingest renders it; draw from there too.
+    const crop = page.getCropBox();
+    const box = { ...write.box, x: write.box.x + crop.x, y: write.box.y + crop.y };
+    const { x, y, w, h } = box;
     if (write.kind === 'check') {
       const size = Math.max(6, Math.min(12, Math.min(w, h)));
       const markWidth = font.widthOfTextAtSize('X', size);
       page.drawText('X', { x: x + (w - markWidth) / 2, y: y + (h - size * 0.7) / 2, size, font, color: ink });
       continue;
     }
-    for (const line of layoutText(write.text, write.box, (text, size) => font.widthOfTextAtSize(text, size))) {
+    for (const line of layoutText(write.text, box, (text, size) => font.widthOfTextAtSize(text, size))) {
       page.drawText(line.text, { x: line.x, y: line.y, size: line.size, font, color: ink });
     }
   }
