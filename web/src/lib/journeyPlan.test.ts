@@ -88,6 +88,14 @@ describe('journey plan helpers', () => {
     expect(await resolveStepForm({ journey: 'kyc_update', reason: 'Moved.' }, AXIS_REKYC)).toBe(HDFC_V1);
   });
 
+  it("prefers HDFC's published form for the journey over the bundled KYC form", async () => {
+    const HDFC_REKYC: FormVersion = { ...AXIS_REKYC, formId: 'form_hdfc_rekyc', bankId: 'HDFC' };
+    const hdfcPick = { journey: 'rekyc' as const, reason: 'Due.', form: { formId: HDFC_V1.formId, version: HDFC_V1.version, bank: 'HDFC' } };
+    expect(await resolveStepForm(hdfcPick, AXIS_REKYC, async () => [AXIS_REKYC, HDFC_REKYC])).toBe(HDFC_REKYC);
+    expect(await resolveStepForm(hdfcPick, AXIS_REKYC, async () => [AXIS_REKYC])).toBe(HDFC_V1);
+    expect(await resolveStepForm({ journey: 'rekyc', reason: 'Due.' }, HDFC_V1, async () => [HDFC_REKYC])).toBe(HDFC_REKYC);
+  });
+
   it('drops a stored plan that does not fit', () => {
     expect(parseStoredPlan({ steps: [{ journey: 'rekyc', reason: 'x' }], step: 3, text: '' })).toBeNull();
     expect(parseStoredPlan({ steps: [{ journey: 'loan', reason: 'x' }], step: 0 })).toBeNull();

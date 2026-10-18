@@ -16,12 +16,15 @@ export function PublishedFormRows({
   load = listPublishedForms,
   selected,
   onSelect,
+  onDefault,
 }: {
   journey: string;
   load?: (journey: string) => Promise<FormVersion[] | null>;
   /** formKey of the chosen form. */
   selected?: string;
   onSelect?: (form: FormVersion) => void;
+  /** The form of the first row, which is the default until the customer picks another. */
+  onDefault?: (form: FormVersion) => void;
 }) {
   const [rows, setRows] = useState<PublishedFormRow[]>(() => hdfcFallbackRows(journey));
 
@@ -30,11 +33,14 @@ export function PublishedFormRows({
     setRows(hdfcFallbackRows(journey));
     void load(journey).then((forms) => {
       if (cancelled) return;
-      setRows(journeyRows(visiblePublishedForms(forms, journey), journey));
+      const next = journeyRows(visiblePublishedForms(forms, journey), journey);
+      setRows(next);
+      if (next[0]) onDefault?.(next[0].form);
     });
     return () => {
       cancelled = true;
     };
+    // onDefault is the page's state setter, so it is left out: one catalog fetch per journey.
   }, [journey, load]);
 
   return (

@@ -70,10 +70,60 @@ export function planBoxWrites(form: FormVersion, values: FormValues): BoxWrite[]
   return writes;
 }
 
-function fitSize(font: PDFFont, text: string, box: PdfBox): number {
-  let size = Math.max(5, Math.min(10, box.h * 0.75));
-  while (size > 5 && font.widthOfTextAtSize(text, size) > box.w - 3) size -= 0.5;
-  return size;
+export interface TextLine {
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+}
+
+const MIN_SIZE = 5;
+/** Readable size for one row of character cells, which OCR often measures only ~8pt tall. */
+const ROW_SIZE = 8;
+const MAX_SIZE = 10;
+const LINE_GAP = 1.35;
+
+/** Greedy word wrap into at most `max` lines; null when the words do not fit. */
+function wrapWords(text: string, max: number, fits: (line: string) => boolean): string[] | null {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if (fits(next)) {
+      line = next;
+      continue;
+    }
+    if (!line || !fits(word)) return null;
+    lines.push(line);
+    line = word;
+    if (lines.length >= max) return null;
+  }
+  if (line) lines.push(line);
+  return lines.length <= max ? lines : null;
+}
+
+/**
+ * Where a value goes inside its box. A row of cells gets one line at a readable size,
+ * centred. A box tall enough for two or more lines (an address block) starts on its first
+ * row and wraps onto the next rows before the text is made any smaller.
+ */
+export function layoutText(text: string, box: PdfBox, widthOf: (text: string, size: number) => number): TextLine[] {
+  const room = box.w - 3;
+  const x = box.x + 2;
+  for (let size = Math.min(MAX_SIZE, Math.max(ROW_SIZE, box.h * 0.75)); size >= MIN_SIZE; size -= 0.5) {
+    const rows = Math.floor(box.h / (size * LINE_GAP));
+    if (rows >= 2) {
+      const lines = wrapWords(text, rows, (line) => widthOf(line, size) <= room);
+      if (lines) {
+        const top = box.y + box.h - size * 0.95;
+        return lines.map((line, index) => ({ text: line, x, y: top - index * size * LINE_GAP, size }));
+      }
+    } else if (widthOf(text, size) <= room) {
+      return [{ text, x, y: box.y + Math.max(1, (box.h - size * 0.7) / 2), size }];
+    }
+  }
+  // Nothing fits even at the smallest size: one line, as before, rather than drop the value.
+  return [{ text, x, y: box.y + Math.max(1, (box.h - MIN_SIZE * 0.7) / 2), size: MIN_SIZE }];
 }
 
 function trySetWidget(form: PDFForm, write: BoxWrite): boolean {
@@ -104,8 +154,9 @@ export async function fillPublishedPdf(bytes: ArrayBuffer, form: FormVersion, va
       page.drawText('X', { x: x + (w - markWidth) / 2, y: y + (h - size * 0.7) / 2, size, font, color: ink });
       continue;
     }
-    const size = fitSize(font, write.text, write.box);
-    page.drawText(write.text, { x: x + 2, y: y + Math.max(1, (h - size * 0.7) / 2), size, font, color: ink });
+    for (const line of layoutText(write.text, write.box, (text, size) => font.widthOfTextAtSize(text, size))) {
+      page.drawText(line.text, { x: line.x, y: line.y, size: line.size, font, color: ink });
+    }
   }
   try {
     acro.flatten();

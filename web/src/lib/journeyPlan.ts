@@ -11,7 +11,7 @@ import { HDFC_V1 } from '../forms/hdfcV1';
 import type { FormVersion } from '../forms/types';
 import { isDebitJourney } from './debitReissue';
 import { pickJourneyCard } from './journeyIntent';
-import { appliesToJourney, listPublishedForms } from './publishedForms';
+import { appliesToJourney, listPublishedForms, publishedBundledBankForm } from './publishedForms';
 import { isFilled } from './schema';
 import type { FormValues } from './types';
 
@@ -86,19 +86,22 @@ export async function resolveStepForm(
   current: FormVersion,
   load: (journey: string) => Promise<FormVersion[] | null> = listPublishedForms,
 ): Promise<FormVersion> {
+  let forms: FormVersion[] | null = null;
+  try {
+    forms = await load(step.journey);
+  } catch {
+    // Catalog down: fall through to the bundled form.
+  }
+  // The planner picked HDFC: its published form for this journey, else the bundled one.
+  if (step.form?.formId === HDFC_V1.formId) return publishedBundledBankForm(forms, step.journey) ?? HDFC_V1;
   if (step.form) {
-    if (step.form.formId === HDFC_V1.formId) return HDFC_V1;
-    try {
-      const forms = await load(step.journey);
-      const wanted = formKey(step.form);
-      const found = forms?.find((form) => formKey(form) === wanted);
-      if (found) return found;
-    } catch {
-      // Catalog down: fall through to the bundled form.
-    }
+    const wanted = formKey(step.form);
+    const found = forms?.find((form) => formKey(form) === wanted);
+    if (found) return found;
   }
   if (!isBundledForm(current) && appliesToJourney(current, step.journey)) return current;
-  return HDFC_V1;
+  // HDFC's own form for this journey beats the bundled HDFC KYC form.
+  return publishedBundledBankForm(forms, step.journey) ?? HDFC_V1;
 }
 
 /**
