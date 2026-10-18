@@ -34,11 +34,13 @@ export const TTS_MODELS = [
 ] as const;
 export const MAX_TTS_CHARS = 700;
 /**
- * Chirp 3 HD is a premium voice: about 1M characters a month are free.
- * 30k a UTC day stays inside that month across every client together.
+ * A ceiling on Chirp 3 HD spend across every client together, not a quota to live inside.
+ * The first 1M characters a month are free, then $30 per million, so 300k a UTC day caps a
+ * runaway day at about $9. A lower cap silenced regional customers mid-demo: over it, most
+ * have no device voice to fall back on. Only Chirp languages count; Gemini speaks the rest.
  * `TTS_DAILY_CHAR_CAP` overrides it. CDN hits never reach this function, so they are not counted.
  */
-export const DEFAULT_TTS_DAILY_CHAR_CAP = 30_000;
+export const DEFAULT_TTS_DAILY_CHAR_CAP = 300_000;
 const UTC_DAY_MS = 24 * 60 * 60 * 1000;
 
 export function ttsDailyCharCap(raw = process.env.TTS_DAILY_CHAR_CAP): number {
@@ -244,8 +246,8 @@ export async function handleTts(req: TtsReq, res: TtsRes, deps: TtsDeps): Promis
     res.status(429).json({ error: 'rate_limited' });
     return;
   }
-  // Count these characters before Chirp or Gemini. Over the cap, neither is called.
-  if (!(await withinDailyCharCap(deps.counter, text.length))) {
+  // Count a Chirp line's characters before it is spoken. Over the cap, neither Chirp nor Gemini is called.
+  if (CHIRP_LANGUAGES.has(lang) && !(await withinDailyCharCap(deps.counter, text.length))) {
     res.status(429).json({ error: 'daily_cap' });
     return;
   }

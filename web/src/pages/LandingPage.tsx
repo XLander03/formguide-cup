@@ -1,5 +1,5 @@
 import { LandingDemo } from '../components/LandingDemo';
-import { JOURNEYS } from '../lib/journeys';
+import { OPEN_CARDS } from '../lib/openCards';
 import { LANGUAGES } from '../lib/languages';
 import { PREP_LIST } from '../lib/prepList';
 import { useRoute } from '../routing/router';
@@ -18,8 +18,9 @@ import {
   VolumeIcon,
 } from '../ui/icons';
 
+// Counted from the Preparation cards, so the number and the list under it always agree.
 const FACTS = [
-  ['7', 'journeys today', JOURNEYS.map((journey) => journey.title).join(', ')],
+  [String(OPEN_CARDS.length), 'journeys today', OPEN_CARDS.map((card) => card.name).join(', ')],
   ['3', 'checks before saving', 'Hear every detail read back, then confirm it yourself'],
   [String(LANGUAGES.length), 'Indian languages', 'Answer in yours, mix in English any time'],
   ['0', 'forms sent to a bank', 'Every result is a draft you check and keep'],

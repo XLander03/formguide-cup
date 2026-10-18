@@ -197,7 +197,7 @@ describe('tts', () => {
     delete process.env.TTS_DAILY_CHAR_CAP;
     try {
       assert.equal(ttsDailyCharCap(), DEFAULT_TTS_DAILY_CHAR_CAP);
-      assert.equal(DEFAULT_TTS_DAILY_CHAR_CAP, 30_000);
+      assert.equal(DEFAULT_TTS_DAILY_CHAR_CAP, 300_000);
       const text = 'పేరు చెప్పండి';
       const { urls } = stubBoth(200);
       const charged: number[] = [];
@@ -234,7 +234,7 @@ describe('tts', () => {
       const { r, out } = res();
       await handleTts(req({ lang: 'hi-IN', text: 'नमस्ते' }), r, {
         ...withCloud,
-        counter: async (key, _expires, by) => (key.startsWith('tts_chars_') ? 30_000 + (by ?? 1) : 1),
+        counter: async (key, _expires, by) => (key.startsWith('tts_chars_') ? 300_000 + (by ?? 1) : 1),
       });
       assert.equal(out.statusCode, 429);
       assert.deepEqual(out.body, { error: 'daily_cap' });
@@ -243,13 +243,37 @@ describe('tts', () => {
       process.env.TTS_DAILY_CHAR_CAP = '4';
       fetched = 0;
       const capped = res();
-      await handleTts(req({ lang: 'or-IN', text: 'ନାମ କୁହନ୍ତୁ' }), capped.r, {
+      await handleTts(req({ lang: 'te-IN', text: 'పేరు చెప్పండి' }), capped.r, {
         ...withCloud,
         counter: async (key, _expires, by) => (key.startsWith('tts_chars_') ? by ?? 0 : 1),
       });
       assert.equal(capped.out.statusCode, 429);
       assert.deepEqual(capped.out.body, { error: 'daily_cap' });
       assert.equal(fetched, 0);
+    } finally {
+      if (previous === undefined) delete process.env.TTS_DAILY_CHAR_CAP;
+      else process.env.TTS_DAILY_CHAR_CAP = previous;
+    }
+  });
+
+  it('does not count Gemini-only languages against the Chirp cap', async () => {
+    const previous = process.env.TTS_DAILY_CHAR_CAP;
+    process.env.TTS_DAILY_CHAR_CAP = '1';
+    try {
+      const { urls } = stubBoth(200);
+      const keys: string[] = [];
+      const { r, out } = res();
+      await handleTts(req({ lang: 'or-IN', text: 'ନାମ କୁହନ୍ତୁ' }), r, {
+        ...withCloud,
+        counter: async (key) => {
+          keys.push(key);
+          return 1;
+        },
+      });
+      assert.equal(out.statusCode, 200);
+      assert.equal(out.headers['content-type'], 'audio/wav');
+      assert.equal(keys.some((key) => key.startsWith('tts_chars_')), false);
+      assert.equal(urls.length, 1);
     } finally {
       if (previous === undefined) delete process.env.TTS_DAILY_CHAR_CAP;
       else process.env.TTS_DAILY_CHAR_CAP = previous;
