@@ -255,7 +255,7 @@ The Preparation page can ask the server to detect the language from the first an
 | Cloud Storage | `forms/{formId}/versions/{version}/source.pdf` | The uploaded PDF |
 | | `forms/{formId}/versions/{version}/pages/{n}.png` | Rendered pages for review |
 | Browser `sessionStorage` | `formguide.cup.session.v2` | The customer's draft. Removed when the tab closes. |
-| Bundled | `web/src/forms/hdfcV1*.ts` (copied to functions) | HDFC v1, the default form and the source of the shared schema |
+| Bundled | `web/src/forms/hdfcV1*.ts` (copied to functions) | HDFC v1, the source of the shared schema. Customers get it only when HDFC has no published form for the journey; otherwise `journeyRows` and the planner's `resolveStepForm` choose HDFC's published form (for card reissue, any bank's published card form) |
 
 The field schema `aof_kyc_demo_v1` lives in `docs/schema/`, with the app's working copy in `web/src/schema/`.
 

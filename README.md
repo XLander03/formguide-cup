@@ -15,7 +15,7 @@ Built for the Google Cloud AI Builder Cup. Repository: [github.com/XLander03/for
 - **Twelve languages:** English, Hindi, Bengali, Marathi, Telugu, Gujarati, Kannada, Malayalam, Odia, Punjabi, Assamese and Sindhi. The language can be picked or detected from the first answer. Malayalam, Odia, Assamese and Sindhi are less reliable today.
 - **Voice filling:** one answer can fill many fields. Answers are checked for format (PAN, PIN, mobile, dates) and against each other, and unclear ones are flagged with "Check this".
 - **Hands-free mode:** FormGuide asks each question aloud, listens until the customer stops talking, fills the fields and asks the next one. The customer can correct ("No, my PIN is 560037"), ask ("What is CKYC?") or give commands ("read it again", "go back", "download my form") in any supported language.
-- **Read-back and confirm:** every detail is read back before three confirmation checks. The result is a draft with a receipt, a JSON handoff (each field's value, what was said, and confidence) and, for KYC forms, the bank's own PDF filled in.
+- **Read-back and confirm:** every detail is read back before three confirmation checks. The result is a draft with a receipt, a JSON handoff (each field's value, what was said, and confidence) and the bank's own PDF filled in. Each journey defaults to HDFC's published form; for card reissue with no HDFC card form, it defaults to another bank's published card form (DBS today).
 
 **For banks (admin console)**
 
