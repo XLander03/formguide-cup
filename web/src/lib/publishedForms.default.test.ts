@@ -33,4 +33,11 @@ describe('default form for a journey', () => {
     expect(publishedBundledBankForm([{ ...HDFC_REKYC, status: 'draft' }], 'rekyc')).toBeNull();
     expect(publishedBundledBankForm(null, 'rekyc')).toBeNull();
   });
+
+  it("defaults a card reissue to a bank's card form, since the bundled form has no card PDF", () => {
+    const DBS_CARD = published('form_dbs_card', 'DBS', 'debit_reissue');
+    const rows = rowsFor([DBS_CARD, AXIS_AOF], 'debit_reissue');
+    expect(rows.map((row) => row.form.formId)).toEqual(['form_dbs_card', HDFC_V1.formId]);
+    expect(rowsFor([AXIS_AOF], 'debit_reissue')[0].form).toBe(HDFC_V1);
+  });
 });

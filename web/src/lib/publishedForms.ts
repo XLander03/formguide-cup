@@ -47,11 +47,17 @@ export function publishedBundledBankForm(published: FormVersion[] | null, journe
 /**
  * The first row is the default. HDFC comes first: its published form for the journey when
  * there is one (replacing the bundled KYC form, which would print every journey onto the
- * KYC application), else the bundled form. Other published banks follow.
+ * KYC application), else the bundled form. Other published banks follow. A card reissue
+ * with no HDFC card form defaults to another bank's card form instead.
  */
 export function journeyRows(published: FormVersion[] | null, journey: string): PublishedFormRow[] {
   const others = (published ?? []).filter((form) => form.formId !== BUNDLED_FORM_ID);
   const hdfc = publishedBundledBankForm(others, journey);
+  // The bundled form has no card page, so a card reissue on it gives JSON only: any bank's
+  // published card form is the better default, with the bundled row kept after it.
+  if (!hdfc && journey === 'debit_reissue' && others.length > 0) {
+    return [...rowsFromPublished(others), ...hdfcFallbackRows(journey)];
+  }
   if (!hdfc) return [...hdfcFallbackRows(journey), ...rowsFromPublished(others)];
   return rowsFromPublished([hdfc, ...others.filter((form) => form !== hdfc)]);
 }
