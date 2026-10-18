@@ -1,10 +1,10 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import type { AdminPdfRes, AdminReq } from './admin';
 import type { HttpReq, HttpRes } from './handlers';
+import { SITE_ORIGINS } from '../siteOrigins';
 
 const HOSTS = [
-  'https://faceapp-5397b.web.app',
-  'https://faceapp-5397b.firebaseapp.com',
+  ...SITE_ORIGINS,
   'http://127.0.0.1:5173',
   'http://localhost:5173',
 ];
