@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { SITE_ORIGINS } from '../siteOrigins';
 import { HDFC_V1 } from '../forms/hdfcV1';
 import { firestoreCounter } from '../rateLimitStore';
 import { geminiCallModel, PlannerModelError } from './gemini';
@@ -20,7 +21,7 @@ export const planJourney = onRequest(
     timeoutSeconds: 60,
     concurrency: 1,
     invoker: 'public',
-    cors: ['https://faceapp-5397b.web.app'],
+    cors: SITE_ORIGINS,
     secrets: ['GEMINI_API_KEY'],
   },
   async (req, res) => {

@@ -5,151 +5,300 @@
       "rules": "firestore.rules"
     }
   ],
-  "hosting": {
-    "public": "web/dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "/api/speak",
-        "function": {
-          "functionId": "speak",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/ingestForm",
-        "function": {
-          "functionId": "ingestForm",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/publishForm",
-        "function": {
-          "functionId": "publishForm",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/publishedForms",
-        "function": {
-          "functionId": "publishedForms",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/publishedFormPdf",
-        "function": {
-          "functionId": "publishedFormPdf",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/adminForms",
-        "function": {
-          "functionId": "adminForms",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/adminForm",
-        "function": {
-          "functionId": "adminForm",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/adminFormPdf",
-        "function": {
-          "functionId": "adminFormPdf",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/adminCopilot",
-        "function": {
-          "functionId": "adminCopilot",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/setFormStatus",
-        "function": {
-          "functionId": "setFormStatus",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/planJourney",
-        "function": {
-          "functionId": "planJourney",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/api/tts",
-        "function": {
-          "functionId": "tts",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ],
-    "headers": [
-      {
-        "source": "/",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
+  "hosting": [
+    {
+      "site": "formguide",
+      "public": "web/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/speak",
+          "function": {
+            "functionId": "speak",
+            "region": "us-central1"
           }
-        ]
-      },
-      {
-        "source": "/index.html",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
+        },
+        {
+          "source": "/api/ingestForm",
+          "function": {
+            "functionId": "ingestForm",
+            "region": "us-central1"
           }
-        ]
-      },
-      {
-        "source": "/@(journey|speak|review|confirm)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
+        },
+        {
+          "source": "/api/publishForm",
+          "function": {
+            "functionId": "publishForm",
+            "region": "us-central1"
           }
-        ]
-      },
-      {
-        "source": "/admin{,/**}",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
+        },
+        {
+          "source": "/api/publishedForms",
+          "function": {
+            "functionId": "publishedForms",
+            "region": "us-central1"
           }
-        ]
-      },
-      {
-        "source": "/assets/**",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=31536000, immutable"
+        },
+        {
+          "source": "/api/publishedFormPdf",
+          "function": {
+            "functionId": "publishedFormPdf",
+            "region": "us-central1"
           }
-        ]
-      }
-    ]
-  },
+        },
+        {
+          "source": "/api/adminForms",
+          "function": {
+            "functionId": "adminForms",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminForm",
+          "function": {
+            "functionId": "adminForm",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminFormPdf",
+          "function": {
+            "functionId": "adminFormPdf",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminCopilot",
+          "function": {
+            "functionId": "adminCopilot",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/setFormStatus",
+          "function": {
+            "functionId": "setFormStatus",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/planJourney",
+          "function": {
+            "functionId": "planJourney",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/tts",
+          "function": {
+            "functionId": "tts",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "/",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/index.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/@(journey|speak|review|confirm)",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/admin{,/**}",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/assets/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=31536000, immutable"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "site": "faceapp-5397b",
+      "public": "web/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/speak",
+          "function": {
+            "functionId": "speak",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/ingestForm",
+          "function": {
+            "functionId": "ingestForm",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/publishForm",
+          "function": {
+            "functionId": "publishForm",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/publishedForms",
+          "function": {
+            "functionId": "publishedForms",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/publishedFormPdf",
+          "function": {
+            "functionId": "publishedFormPdf",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminForms",
+          "function": {
+            "functionId": "adminForms",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminForm",
+          "function": {
+            "functionId": "adminForm",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminFormPdf",
+          "function": {
+            "functionId": "adminFormPdf",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/adminCopilot",
+          "function": {
+            "functionId": "adminCopilot",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/setFormStatus",
+          "function": {
+            "functionId": "setFormStatus",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/planJourney",
+          "function": {
+            "functionId": "planJourney",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/api/tts",
+          "function": {
+            "functionId": "tts",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "/",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/index.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/@(journey|speak|review|confirm)",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/admin{,/**}",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/assets/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=31536000, immutable"
+            }
+          ]
+        }
+      ]
+    }
+  ],
   "functions": [
     {
       "source": "functions",

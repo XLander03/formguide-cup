@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { SITE_ORIGINS } from './siteOrigins';
 import { isSpeakLanguage } from './languages';
 import { checkRateLimit, clientKey, type CounterStore, type RateLimitRule } from './rateLimit';
 import { firestoreCounter } from './rateLimitStore';
@@ -280,7 +281,7 @@ export const tts = onRequest(
     timeoutSeconds: 30,
     concurrency: 4,
     invoker: 'public',
-    cors: ['https://faceapp-5397b.web.app'],
+    cors: SITE_ORIGINS,
     secrets: ['GEMINI_API_KEY'],
   },
   async (req, res) => {

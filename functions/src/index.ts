@@ -1,4 +1,5 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { SITE_ORIGINS } from './siteOrigins';
 import { defineSecret } from 'firebase-functions/params';
 import {
   HDFC_V1,
@@ -792,7 +793,7 @@ export const speak = onRequest(
     timeoutSeconds: 60,
     concurrency: 1,
     invoker: 'public',
-    cors: ['https://faceapp-5397b.web.app'],
+    cors: SITE_ORIGINS,
     secrets: [geminiApiKey, groqApiKey],
   },
   async (req, res) => {
